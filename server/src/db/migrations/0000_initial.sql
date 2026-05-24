@@ -378,3 +378,5 @@ CREATE UNIQUE INDEX `business_invoices_invoice_number_unique` ON `business_invoi
 CREATE UNIQUE INDEX `finance_budgets_category_unique` ON `finance_budgets` (`category`);--> statement-breakpoint
 CREATE UNIQUE INDEX `finance_net_worth_snapshots_date_unique` ON `finance_net_worth_snapshots` (`date`);--> statement-breakpoint
 CREATE UNIQUE INDEX `training_body_metrics_date_unique` ON `training_body_metrics` (`date`);
+--> statement-breakpoint
+INSERT INTO `trading_accounts` (`name`, `broker`, `currency`) VALUES ('Default', '', 'USD');
