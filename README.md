@@ -1,7 +1,7 @@
 # Oura - Life Management Dashboard
 
 ## Overview
-Oura is a local-first life management dashboard built with React, Express, and SQLite. It brings together every area of daily life — trading, business, finances, goals, training, calendar, and notes — into a single dark-mode interface that runs entirely on your machine. No accounts, no cloud sync, no telemetry. Everything stays local.
+Oura is a local-first life management dashboard built with React, Express, and SQLite. It brings together every area of daily life - trading, business, finances, goals, training, calendar, and notes - into a single dark-mode interface that runs entirely on your machine. No accounts, no cloud sync, no telemetry. Everything stays local.
 
 ## Technologies
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, TanStack Query v5, Recharts
@@ -11,15 +11,15 @@ Oura is a local-first life management dashboard built with React, Express, and S
 - **Rich Text**: Tiptap
 
 ## Modules
-- **Dashboard** — Daily summary pulling live data from every module: P&L, upcoming invoices, goal deadlines, workout status, checklist progress, and finance snapshot.
-- **Trading Journal** — Log trades with entry, exit, size, direction, instrument, and risk. Auto-computes P&L, R:R ratio, and deviation. Full analytics tab with equity curve, drawdown, win rate, and per-instrument breakdowns.
-- **Business** — Client and project management with invoice tracking, time logging, recurring invoice automation, and project profitability.
-- **Finances** — Account balances, income streams, expense tracking with recurring support, budget overview, net worth history, and cash flow.
-- **Goals** — Hierarchical goal tree with parent-child progress propagation. Set deadlines, track percentage completion, and cascade progress automatically up the tree.
-- **Training** — Workout logging with body metrics tracking. Log sets, reps, weights, and monitor body composition over time.
-- **Calendar** — Life OS calendar with Day, Week, Month, and Year views. Day view features a 24-hour time grid with layered event, checklist, and trading session bands, plus a collapsible intel panel aggregating data from every module.
-- **Checklists** — Daily routine checklists with template support, time-scheduled items, and ad-hoc task additions.
-- **Notes** — Rich text notes with Tiptap editor, image embedding, and tagging.
+- **Dashboard** - Daily summary pulling live data from every module: P&L, upcoming invoices, goal deadlines, workout status, checklist progress, and finance snapshot.
+- **Trading Journal** - Log trades with entry, exit, size, direction, instrument, and risk. Auto-computes P&L, R:R ratio, and deviation. Full analytics tab with equity curve, drawdown, win rate, and per-instrument breakdowns.
+- **Business** - Client and project management with invoice tracking, time logging, recurring invoice automation, and project profitability.
+- **Finances** - Account balances, income streams, expense tracking with recurring support, budget overview, net worth history, and cash flow.
+- **Goals** - Hierarchical goal tree with parent-child progress propagation. Set deadlines, track percentage completion, and cascade progress automatically up the tree.
+- **Training** - Workout logging with body metrics tracking. Log sets, reps, weights, and monitor body composition over time.
+- **Calendar** - Life OS calendar with Day, Week, Month, and Year views. Day view features a 24-hour time grid with layered event, checklist, and trading session bands, plus a collapsible intel panel aggregating data from every module.
+- **Checklists** - Daily routine checklists with template support, time-scheduled items, and ad-hoc task additions.
+- **Notes** - Rich text notes with Tiptap editor, image embedding, and tagging.
 
 ## Screenshots
 
@@ -30,7 +30,7 @@ Oura is a local-first life management dashboard built with React, Express, and S
   </tr>
   <tr>
     <td align="center"><img src="Screenshots/trading_analytics.png" width="600"/><br/><sub>Trading Analytics</sub></td>
-    <td align="center"><img src="Screenshots/calendar_day.png" width="600"/><br/><sub>Calendar — Day View</sub></td>
+    <td align="center"><img src="Screenshots/calendar_day.png" width="600"/><br/><sub>Calendar - Day View</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="Screenshots/finances.png" width="600"/><br/><sub>Finances</sub></td>
