@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ─── DARK THEME (default) ────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  --c-bg-primary:    #09090f;
+  --c-bg-secondary:  #0e0e1a;
+  --c-bg-card:       #13131f;
+  --c-bg-elevated:   #181828;
+  --c-bg-input:      rgba(255,255,255,0.04);
+  --c-bg-hover:      rgba(255,255,255,0.04);
+
+  --c-border:        rgba(255,255,255,0.07);
+  --c-border-subtle: rgba(255,255,255,0.04);
+  --c-border-mid:    rgba(255,255,255,0.09);
+  --c-border-strong: rgba(255,255,255,0.13);
+
+  --c-text-1:   #eeeef5;
+  --c-text-2:   #8b8baa;
+  --c-text-3:   #4b4b6b;
+
+  --c-accent:   #818cf8;
+  --c-accent-2: #a78bfa;
+
+  --c-profit: #34d399;
+  --c-loss:   #f87171;
+
+  --c-sidebar-bg:     linear-gradient(180deg, #0e0e1a 0%, #09090f 100%);
+  --c-sidebar-border: rgba(255,255,255,0.05);
+  --c-topbar-bg:      rgba(14,14,26,0.85);
+  --c-topbar-border:  rgba(255,255,255,0.05);
+
+  --c-shadow-card:  0 1px 3px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
+  --c-shadow-hover: 0 4px 24px rgba(99,102,241,0.12), 0 0 0 1px rgba(255,255,255,0.1);
+  --c-shadow-modal: 0 25px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.07), 0 0 80px rgba(99,102,241,0.05);
+  --c-shadow-btn:   0 4px 15px rgba(99,102,241,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+
+  --c-scrollbar: rgba(255,255,255,0.1);
+  --c-chart-grid:       rgba(255,255,255,0.06);
+  --c-chart-tooltip-bg: #13131f;
+  --c-chart-tick:       #4b4b6b;
+
+  --c-body-gradient:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(99,102,241,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(167,139,250,0.05) 0%, transparent 60%);
+}
+
+/* ─── LIGHT THEME ─────────────────────────────────────────── */
+:root.light {
+  color-scheme: light;
+
+  --c-bg-primary:   #f0f0f8;
+  --c-bg-secondary: #e6e6f2;
+  --c-bg-card:      #ffffff;
+  --c-bg-elevated:  #fafafa;
+  --c-bg-input:     rgba(0,0,0,0.03);
+  --c-bg-hover:     rgba(0,0,0,0.04);
+
+  --c-border:        rgba(0,0,0,0.08);
+  --c-border-subtle: rgba(0,0,0,0.04);
+  --c-border-mid:    rgba(0,0,0,0.1);
+  --c-border-strong: rgba(0,0,0,0.15);
+
+  --c-text-1:   #1a1a2e;
+  --c-text-2:   #54547a;
+  --c-text-3:   #9090b8;
+
+  --c-accent:   #6366f1;
+  --c-accent-2: #8b5cf6;
+
+  --c-profit: #047857;
+  --c-loss:   #b91c1c;
+
+  --c-sidebar-bg:     linear-gradient(180deg, #e6e6f2 0%, #f0f0f8 100%);
+  --c-sidebar-border: rgba(0,0,0,0.07);
+  --c-topbar-bg:      rgba(240,240,248,0.88);
+  --c-topbar-border:  rgba(0,0,0,0.07);
+
+  --c-shadow-card:  0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.06);
+  --c-shadow-hover: 0 6px 24px rgba(99,102,241,0.12), 0 0 0 1px rgba(99,102,241,0.15);
+  --c-shadow-modal: 0 25px 60px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.09);
+  --c-shadow-btn:   0 4px 15px rgba(99,102,241,0.25), inset 0 1px 0 rgba(255,255,255,0.3);
+
+  --c-scrollbar: rgba(0,0,0,0.15);
+  --c-chart-grid:       rgba(0,0,0,0.07);
+  --c-chart-tooltip-bg: #ffffff;
+  --c-chart-tick:       #9090b8;
+
+  --c-body-gradient:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(99,102,241,0.05) 0%, transparent 60%);
+}
+
+/* ─── BASE ────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+html { height: 100%; }
+
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--c-bg-primary);
+  background-image: var(--c-body-gradient);
+  color: var(--c-text-1);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+#root { height: 100%; }
+
+/* ─── SCROLLBAR ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-scrollbar); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { opacity: 0.8; }
+
+/* ─── UTILITIES ───────────────────────────────────────────── */
+.num { font-family: 'JetBrains Mono', monospace; }
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+.gradient-text {
+  background: linear-gradient(135deg, var(--c-accent), var(--c-accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.progress-gradient { background: linear-gradient(90deg, var(--c-accent), var(--c-accent-2)); }

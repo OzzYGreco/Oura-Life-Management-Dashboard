@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.DS_Store
+
+# Database files — keep the directory itself (tracked via .gitkeep)
+server/data/*.db
+server/data/*.db-shm
+server/data/*.db-wal
+
+# Uploaded user files — keep the top-level directory (tracked via .gitkeep)
+# Subdirectories (screenshots/, note-images/) are created by the server on startup
+server/uploads/*
+!server/uploads/.gitkeep
+
+# Fallback: catch any stray db files anywhere
+*.db
+*.db-shm
+*.db-wal
