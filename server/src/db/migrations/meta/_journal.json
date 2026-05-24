@@ -5,85 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1778452311203,
-      "tag": "0000_shallow_inhumans",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1778975219795,
-      "tag": "0001_polite_metal_master",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1778975932193,
-      "tag": "0002_bouncy_bushwacker",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1778977415154,
-      "tag": "0003_greedy_frog_thor",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1779128455915,
-      "tag": "0004_keen_the_watchers",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1779200000000,
-      "tag": "0005_goals_redesign",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1779300000000,
-      "tag": "0006_business_fields",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1779400000000,
-      "tag": "0007_time_entries",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1748000000000,
-      "tag": "0008_recurring_parent",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1748100000000,
-      "tag": "0009_recurring_invoices",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1748200000000,
-      "tag": "0010_trading_accounts",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "6",
-      "when": 1748300000000,
-      "tag": "0011_adhoc_checklist",
+      "when": 1779652911889,
+      "tag": "0000_initial",
       "breakpoints": true
     }
   ]

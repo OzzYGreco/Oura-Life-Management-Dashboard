@@ -4,6 +4,7 @@ CREATE TABLE `business_clients` (
 	`email` text,
 	`phone` text,
 	`company` text,
+	`website` text,
 	`notes` text,
 	`status` text DEFAULT 'active' NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL
@@ -20,6 +21,10 @@ CREATE TABLE `business_invoices` (
 	`due_date` text NOT NULL,
 	`paid_date` text,
 	`notes` text,
+	`is_recurring` integer DEFAULT 0 NOT NULL,
+	`frequency` text,
+	`recurring_parent_id` integer,
+	`last_generated_date` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	FOREIGN KEY (`client_id`) REFERENCES `business_clients`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`project_id`) REFERENCES `business_projects`(`id`) ON UPDATE no action ON DELETE no action
@@ -59,9 +64,21 @@ CREATE TABLE `business_projects` (
 	`start_date` text,
 	`due_date` text,
 	`value` real,
+	`link` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
 	FOREIGN KEY (`client_id`) REFERENCES `business_clients`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `business_time_entries` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`project_id` integer NOT NULL,
+	`date` text NOT NULL,
+	`hours` real NOT NULL,
+	`description` text,
+	`billable` integer DEFAULT 1 NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`project_id`) REFERENCES `business_projects`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE `calendar_events` (
@@ -80,7 +97,7 @@ CREATE TABLE `calendar_events` (
 --> statement-breakpoint
 CREATE TABLE `checklist_entries` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`template_id` integer NOT NULL,
+	`template_id` integer,
 	`date` text NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	FOREIGN KEY (`template_id`) REFERENCES `checklist_templates`(`id`) ON UPDATE no action ON DELETE no action
@@ -89,9 +106,13 @@ CREATE TABLE `checklist_entries` (
 CREATE TABLE `checklist_entry_items` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`entry_id` integer NOT NULL,
-	`template_item_id` integer NOT NULL,
+	`template_item_id` integer,
+	`label` text,
+	`time` text,
+	`importance` text,
 	`completed` integer DEFAULT 0 NOT NULL,
 	`completed_at` text,
+	`archived` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`entry_id`) REFERENCES `checklist_entries`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`template_item_id`) REFERENCES `checklist_template_items`(`id`) ON UPDATE no action ON DELETE no action
 );
@@ -101,6 +122,9 @@ CREATE TABLE `checklist_template_items` (
 	`template_id` integer NOT NULL,
 	`parent_item_id` integer,
 	`label` text NOT NULL,
+	`time` text,
+	`importance` text,
+	`repeat_daily` integer DEFAULT 1 NOT NULL,
 	`sort_order` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`template_id`) REFERENCES `checklist_templates`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -110,6 +134,8 @@ CREATE TABLE `checklist_templates` (
 	`name` text NOT NULL,
 	`type` text NOT NULL,
 	`goal_id` integer,
+	`enabled` integer DEFAULT 1 NOT NULL,
+	`repeat_daily` integer DEFAULT 1 NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
@@ -124,6 +150,13 @@ CREATE TABLE `finance_accounts` (
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `finance_budgets` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`category` text NOT NULL,
+	`monthly_limit` real NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `finance_expenses` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`description` text NOT NULL,
@@ -134,6 +167,8 @@ CREATE TABLE `finance_expenses` (
 	`is_recurring` integer DEFAULT 0 NOT NULL,
 	`frequency` text,
 	`notes` text,
+	`recurring_parent_id` integer,
+	`last_generated_date` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
@@ -146,6 +181,8 @@ CREATE TABLE `finance_income` (
 	`date` text NOT NULL,
 	`account_id` integer,
 	`notes` text,
+	`recurring_parent_id` integer,
+	`last_generated_date` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
@@ -158,24 +195,57 @@ CREATE TABLE `finance_net_worth_snapshots` (
 	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `goal_rewards` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`goal_id` integer NOT NULL,
+	`min_score` real NOT NULL,
+	`reward` text NOT NULL,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	FOREIGN KEY (`goal_id`) REFERENCES `goals`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `goal_tasks` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`goal_id` integer NOT NULL,
+	`title` text NOT NULL,
+	`max_points` real DEFAULT 1 NOT NULL,
+	`earned_points` real,
+	`notes` text,
+	`sort_order` integer DEFAULT 0 NOT NULL,
+	FOREIGN KEY (`goal_id`) REFERENCES `goals`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `goals` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
-	`parent_id` integer,
-	`title` text NOT NULL,
-	`description` text,
 	`horizon` text NOT NULL,
-	`target_date` text,
-	`progress_pct` real DEFAULT 0 NOT NULL,
+	`focus` text NOT NULL,
+	`period_start` text,
+	`period_end` text,
 	`status` text DEFAULT 'active' NOT NULL,
-	`sort_order` integer DEFAULT 0 NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `marketing_campaigns` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`name` text NOT NULL,
+	`platform` text NOT NULL,
+	`objective` text,
+	`budget` real NOT NULL,
+	`spent` real DEFAULT 0 NOT NULL,
+	`funding_source` text DEFAULT 'business' NOT NULL,
+	`start_date` text NOT NULL,
+	`end_date` text,
+	`status` text DEFAULT 'active' NOT NULL,
+	`notes` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `note_categories` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
-	`color` text
+	`color` text,
+	`parent_id` integer
 );
 --> statement-breakpoint
 CREATE TABLE `note_images` (
@@ -211,6 +281,7 @@ CREATE TABLE `trade_screenshots` (
 --> statement-breakpoint
 CREATE TABLE `trades` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`account_id` integer,
 	`date` text NOT NULL,
 	`time` text,
 	`duration_minutes` integer,
@@ -221,18 +292,35 @@ CREATE TABLE `trades` (
 	`entry_price` real NOT NULL,
 	`stop_loss` real,
 	`exit_price` real,
-	`size` real NOT NULL,
+	`size` real,
 	`risk_dollars` real,
 	`expected_loss` real,
 	`realized_pnl` real,
 	`deviation_pct` real,
 	`rr_ratio` real,
-	`rules_met` integer DEFAULT 0 NOT NULL,
+	`exit_order_type` text,
+	`entry_fee_amount` real,
+	`exit_fee_amount` real,
+	`slippage_amount` real,
+	`net_pnl` real,
+	`rules_met` integer,
 	`setup_label` text,
 	`quick_note` text,
 	`mistakes` text,
 	`mistakes_other` text,
 	`tags` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`updated_at` text DEFAULT (datetime('now')) NOT NULL,
+	FOREIGN KEY (`account_id`) REFERENCES `trading_accounts`(`id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE TABLE `trading_accounts` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`name` text NOT NULL,
+	`broker` text,
+	`currency` text DEFAULT 'USD' NOT NULL,
+	`starting_balance` real,
+	`notes` text,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`updated_at` text DEFAULT (datetime('now')) NOT NULL
 );
@@ -253,6 +341,7 @@ CREATE TABLE `training_exercises` (
 	`sets` integer,
 	`reps` text,
 	`weight` text,
+	`rpe` integer,
 	`notes` text,
 	`sort_order` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`workout_id`) REFERENCES `training_workouts`(`id`) ON UPDATE no action ON DELETE cascade
@@ -270,12 +359,22 @@ CREATE TABLE `training_workouts` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`date` text NOT NULL,
 	`name` text NOT NULL,
+	`category` text DEFAULT 'strength' NOT NULL,
+	`rpe` integer,
 	`notes` text,
 	`duration_minutes` integer,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE `workout_templates` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`name` text NOT NULL,
+	`category` text DEFAULT 'strength' NOT NULL,
+	`exercises` text DEFAULT '[]' NOT NULL,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
+);
+--> statement-breakpoint
 CREATE UNIQUE INDEX `business_invoices_invoice_number_unique` ON `business_invoices` (`invoice_number`);--> statement-breakpoint
+CREATE UNIQUE INDEX `finance_budgets_category_unique` ON `finance_budgets` (`category`);--> statement-breakpoint
 CREATE UNIQUE INDEX `finance_net_worth_snapshots_date_unique` ON `finance_net_worth_snapshots` (`date`);--> statement-breakpoint
-CREATE UNIQUE INDEX `note_categories_name_unique` ON `note_categories` (`name`);--> statement-breakpoint
 CREATE UNIQUE INDEX `training_body_metrics_date_unique` ON `training_body_metrics` (`date`);

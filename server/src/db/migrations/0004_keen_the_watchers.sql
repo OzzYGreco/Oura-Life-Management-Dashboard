@@ -1,1 +1,0 @@
-ALTER TABLE `checklist_entry_items` ADD `archived` integer DEFAULT 0 NOT NULL;
