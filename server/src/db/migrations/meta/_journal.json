@@ -71,6 +71,20 @@
       "when": 1748100000000,
       "tag": "0009_recurring_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1748200000000,
+      "tag": "0010_trading_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1748300000000,
+      "tag": "0011_adhoc_checklist",
+      "breakpoints": true
     }
   ]
 }
