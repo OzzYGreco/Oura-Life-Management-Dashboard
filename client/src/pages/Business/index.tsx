@@ -140,8 +140,9 @@ function OverviewTab() {
                 <YAxis tick={{ fill: '#8b8baa', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: any) => `£${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
                 <Tooltip
                   formatter={(v: any) => [fmtView(v as number), 'Revenue']}
-                  contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border-mid)', borderRadius: 8 }}
+                  contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border-mid)', borderRadius: 8, color: 'var(--c-text-1)' }}
                   labelStyle={{ color: '#eeeef5' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                 />
                 <Bar dataKey="revenue" fill="#818cf8" radius={[4,4,0,0]} />
               </BarChart>

@@ -211,7 +211,7 @@ function OverviewTab({ fmtView }: { fmtView: FmtView }) {
                   ]} cx="50%" cy="50%" innerRadius={35} outerRadius={55} paddingAngle={3} dataKey="value">
                     {Object.values(STREAM_COLORS).map((c, i) => <Cell key={i} fill={c} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', borderRadius: 8 }}
+                  <Tooltip contentStyle={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', borderRadius: 8, color: 'var(--c-text-1)' }}
                     formatter={(v: any) => fmtView(v, 'EUR')} />
                 </PieChart>
               </ResponsiveContainer>
@@ -266,7 +266,8 @@ function CashFlowTab({ fmtView }: { fmtView: FmtView }) {
                 tickFormatter={m => m.slice(5)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false}
                 tickFormatter={v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
-              <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8 }}
+              <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8, color: 'var(--c-text-1)' }}
+                cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                 formatter={(v: any) => fmtView(v, 'EUR')} />
               <ReferenceLine y={0} stroke="var(--c-border)" />
               <Bar dataKey="totalIncome" name="Income" fill="#34d399" radius={[3, 3, 0, 0]} />
@@ -285,7 +286,7 @@ function CashFlowTab({ fmtView }: { fmtView: FmtView }) {
               <XAxis dataKey="month" tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false}
                 tickFormatter={m => m.slice(5)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8 }}
+              <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8, color: 'var(--c-text-1)' }}
                 formatter={(v: any) => fmtView(v, 'EUR')} />
               <ReferenceLine y={0} stroke="var(--c-border)" />
               <Area type="monotone" dataKey="net" name="Net" stroke="var(--c-accent)" fill="var(--c-accent)"
@@ -436,7 +437,9 @@ function ExpensesTab({ fmtView }: { fmtView: FmtView }) {
               <BarChart data={Object.entries(byCategory).map(([cat, amt]) => ({ cat, amt }))}>
                 <XAxis dataKey="cat" tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8 }} formatter={(v: any) => [fmtView(v as number, 'EUR')]} />
+                <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8, color: 'var(--c-text-1)' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  formatter={(v: any) => [fmtView(v as number, 'EUR')]} />
                 <Bar dataKey="amt" fill="#f87171" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -640,7 +643,7 @@ function NetWorthTab({ fmtView }: { fmtView: FmtView }) {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--c-chart-grid)" />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--c-chart-tick)' }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8 }} formatter={(v: any) => [fmtView(v, 'EUR'), 'Net Worth']} />
+                <Tooltip contentStyle={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border)', borderRadius: 8, color: 'var(--c-text-1)' }} formatter={(v: any) => [fmtView(v, 'EUR'), 'Net Worth']} />
                 <Area type="monotone" dataKey="netWorth" stroke="var(--c-accent)" fill="var(--c-accent)" fillOpacity={0.1} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>

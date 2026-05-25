@@ -36,6 +36,7 @@ export const trades = sqliteTable('trades', {
   exitOrderType:   text('exit_order_type'),
   entryFeeAmount:  real('entry_fee_amount'),
   exitFeeAmount:   real('exit_fee_amount'),
+  fundingFeeAmount: real('funding_fee_amount'),
   slippageAmount:  real('slippage_amount'),
   netPnl:          real('net_pnl'),
   rulesMet:        integer('rules_met'),
@@ -44,6 +45,10 @@ export const trades = sqliteTable('trades', {
   mistakes:        text('mistakes', { mode: 'json' }).$type<string[]>(),
   mistakesOther:   text('mistakes_other'),
   tags:            text('tags', { mode: 'json' }).$type<string[]>(),
+  // ── Compounded / pyramided trades ─────────────────────────────────────────
+  isCompounded:    integer('is_compounded').notNull().default(0),
+  entries:         text('entries', { mode: 'json' }).$type<{ price: number; size: number; sl?: number }[]>(),
+  takeProfits:     text('take_profits', { mode: 'json' }).$type<{ price: number; size: number }[]>(),
   createdAt:       text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:       text('updated_at').notNull().default(sql`(datetime('now'))`),
 })

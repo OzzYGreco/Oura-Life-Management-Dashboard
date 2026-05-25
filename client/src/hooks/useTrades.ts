@@ -23,6 +23,7 @@ export interface Trade {
   exitOrderType?: string
   entryFeeAmount?: number
   exitFeeAmount?: number
+  fundingFeeAmount?: number
   slippageAmount?: number
   netPnl?: number
   rulesMet?: number | null
@@ -31,6 +32,10 @@ export interface Trade {
   mistakes?: string[]
   mistakesOther?: string
   tags?: string[]
+  // Compounded / pyramided trades
+  isCompounded?: number
+  entries?: { price: number; size: number; sl?: number }[]
+  takeProfits?: { price: number; size: number }[]
   createdAt: string
   updatedAt: string
   screenshots?: { id: number; filePath: string; note?: string; sortOrder: number }[]
@@ -61,6 +66,26 @@ export function useTradeMistakes(params: Record<string, string> = {}) {
   return useQuery({
     queryKey: ['trades-mistakes', params],
     queryFn: () => api.get('/api/trades/analytics/mistakes', { params }).then(r => r.data),
+  })
+}
+
+export function useSetupLabels() {
+  return useQuery({
+    queryKey: ['setup-labels'],
+    queryFn: () => api.get('/api/trades/setup-labels').then(r => r.data as string[]),
+    staleTime: 30_000,
+  })
+}
+
+export function useDeleteSetupLabel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (label: string) =>
+      api.delete(`/api/trades/setup-labels/${encodeURIComponent(label)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['setup-labels'] })
+      qc.invalidateQueries({ queryKey: ['trades'] })
+    },
   })
 }
 

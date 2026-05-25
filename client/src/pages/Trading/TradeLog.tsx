@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTrades, useDeleteTrade, type Trade } from '../../hooks/useTrades'
 import { useTradingAccounts } from '../../hooks/useTradingAccounts'
 import { TradeModal } from './TradeModal'
@@ -8,9 +8,10 @@ import { Badge } from '../../components/ui/Badge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { PageLoader } from '../../components/ui/Spinner'
 import { PnLBadge, RRBadge, DeviationBadge } from '../../components/shared/PnLBadge'
-import { formatDate } from '../../lib/utils'
-import { Plus, Trash2, Edit, TrendingUp, Settings2 } from 'lucide-react'
+import { formatDate, fmtSize, fmtPrice } from '../../lib/utils'
+import { Plus, Trash2, Edit, TrendingUp, Settings2, Layers } from 'lucide-react'
 import { TradeDetailModal } from './TradeDetailModal'
+import { DateFilter, applyDateFilter, type Preset } from '../../components/shared/DateFilter'
 
 interface Props {
   accountId?: number | null
@@ -29,6 +30,16 @@ export function TradeLog({ accountId, defaultAccountId }: Props) {
   const [editing, setEditing] = useState<Trade | null>(null)
   const [viewing, setViewing] = useState<Trade | null>(null)
 
+  // ── Date filter ──────────────────────────────────────────────────────────────
+  const [preset, setPreset]         = useState<Preset>('All')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo,   setCustomTo]   = useState('')
+
+  const filteredTrades = useMemo(
+    () => applyDateFilter(trades ?? [], preset, customFrom, customTo),
+    [trades, preset, customFrom, customTo],
+  )
+
   // Show Account column only in "All Accounts" view
   const showAccountCol = accountId == null
 
@@ -42,8 +53,14 @@ export function TradeLog({ accountId, defaultAccountId }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-sm" style={{ color: 'var(--c-text-2)' }}>{trades?.length || 0} trades</span>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm" style={{ color: 'var(--c-text-2)' }}>
+          {filteredTrades.length}
+          {filteredTrades.length !== (trades?.length ?? 0) && (
+            <span style={{ color: 'var(--c-text-3)' }}> of {trades?.length ?? 0}</span>
+          )}
+          {' '}trades
+        </span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSettingsOpen(true)}
@@ -61,6 +78,14 @@ export function TradeLog({ accountId, defaultAccountId }: Props) {
         </div>
       </div>
 
+      <div className="mb-4">
+        <DateFilter
+          preset={preset}         onPreset={setPreset}
+          customFrom={customFrom} onCustomFrom={setCustomFrom}
+          customTo={customTo}     onCustomTo={setCustomTo}
+        />
+      </div>
+
       {!trades?.length ? (
         <EmptyState
           icon={<TrendingUp size={32} />}
@@ -68,6 +93,10 @@ export function TradeLog({ accountId, defaultAccountId }: Props) {
           description="Log your first trade to start tracking performance"
           action={<Button onClick={() => setModalOpen(true)}><Plus size={14} /> Add Trade</Button>}
         />
+      ) : !filteredTrades.length ? (
+        <div className="text-center py-16" style={{ color: 'var(--c-text-3)' }}>
+          No trades in the selected period.
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -84,17 +113,24 @@ export function TradeLog({ accountId, defaultAccountId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {trades?.map(t => (
+              {filteredTrades.map(t => (
                 <tr key={t.id} className="border-b border-bg-border/50 hover:bg-bg-hover/30 cursor-pointer" onClick={() => setViewing(t)}>
                   <td className="px-3 py-2.5 text-text-secondary num text-xs whitespace-nowrap">{formatDate(t.date)}</td>
-                  <td className="px-3 py-2.5 font-medium text-text-primary">{t.asset}</td>
+                  <td className="px-3 py-2.5 font-medium text-text-primary">
+                    <span className="flex items-center gap-1.5">
+                      {t.isCompounded ? (
+                        <Layers size={10} title="Compounded trade" style={{ color: '#fbbf24', flexShrink: 0 }} />
+                      ) : null}
+                      {t.asset}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5">
                     <Badge variant={t.direction === 'Long' ? 'green' : 'red'}>{t.direction}</Badge>
                   </td>
-                  <td className="px-3 py-2.5 num text-text-secondary">{t.entryPrice}</td>
-                  <td className="px-3 py-2.5 num text-text-secondary">{t.exitPrice ?? '--'}</td>
-                  <td className="px-3 py-2.5 num text-text-secondary">{t.size ?? '--'}</td>
-                  <td className="px-3 py-2.5"><PnLBadge value={t.realizedPnl} /></td>
+                  <td className="px-3 py-2.5 num text-text-secondary">{fmtPrice(t.entryPrice)}</td>
+                  <td className="px-3 py-2.5 num text-text-secondary">{fmtPrice(t.exitPrice)}</td>
+                  <td className="px-3 py-2.5 num text-text-secondary">{fmtSize(t.size, t.instrument)}</td>
+                  <td className="px-3 py-2.5"><PnLBadge value={t.netPnl ?? t.realizedPnl} /></td>
                   <td className="px-3 py-2.5"><RRBadge value={t.rrRatio} /></td>
                   <td className="px-3 py-2.5"><DeviationBadge value={t.deviationPct} /></td>
                   <td className="px-3 py-2.5">

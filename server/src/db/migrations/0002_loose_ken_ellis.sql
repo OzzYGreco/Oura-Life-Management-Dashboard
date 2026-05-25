@@ -1,0 +1,1 @@
+ALTER TABLE `trades` ADD `funding_fee_amount` real;

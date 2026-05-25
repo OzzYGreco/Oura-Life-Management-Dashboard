@@ -25,7 +25,7 @@ export function RRBadge({ value }: { value: number | null | undefined }) {
 
 export function DeviationBadge({ value }: { value: number | null | undefined }) {
   if (value == null) return <span className="text-text-muted text-sm num">--</span>
-  const good = value <= 10
+  const good = value === 0
   return (
     <span className={cn('text-sm num font-semibold', good ? 'text-pnl-profit' : 'text-pnl-loss')}>
       {value.toFixed(1)}%

@@ -3,6 +3,11 @@ dist/
 .env
 .DS_Store
 
+# Local data-import / seed scripts (contain personal file paths & trade data)
+import_trades.py
+import_*.py
+seed_*.py
+
 # Database files — keep the directory itself (tracked via .gitkeep)
 server/data/*.db
 server/data/*.db-shm

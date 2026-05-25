@@ -49,7 +49,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 const tooltipStyle = {
   background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border-mid)',
-  borderRadius: 8, fontSize: 11,
+  borderRadius: 8, fontSize: 11, color: 'var(--c-text-1)',
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -272,8 +272,22 @@ export function DashboardPage() {
                   <YAxis tick={{ fill: '#4b4b6b', fontSize: 10 }} axisLine={false} tickLine={false}
                     tickFormatter={v => `$${Math.abs(v) >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`} />
                   <ReferenceLine y={0} stroke="var(--c-chart-grid)" />
-                  <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#eeeef5' }}
-                    formatter={(v: any) => [fmtView(v as number), 'P&L']} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                    content={({ active, payload, label }: any) => {
+                      if (!active || !payload?.length) return null
+                      const v = payload[0]?.value as number
+                      const valColor = v >= 0 ? '#34d399' : '#f87171'
+                      return (
+                        <div style={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border-mid)', borderRadius: 8, padding: '8px 12px', fontSize: 11 }}>
+                          <p style={{ color: 'var(--c-text-1)', fontWeight: 600, margin: '0 0 4px' }}>{label}</p>
+                          <p style={{ margin: 0, color: valColor }}>
+                            P&amp;L : {fmtView(v)}
+                          </p>
+                        </div>
+                      )
+                    }}
+                  />
                   <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
                     {pnlLast7.map((entry, i) => (
                       <Cell key={i} fill={entry.pnl >= 0 ? '#34d399' : '#f87171'} />

@@ -64,6 +64,28 @@ export function pnlColor(n: number | null | undefined): string {
   return n >= 0 ? 'text-pnl-profit' : 'text-pnl-loss'
 }
 
+/**
+ * Format a price with $ prefix and thousand separators.
+ * Keeps up to 6 decimal places so tiny prices (e.g. 0.06296993) stay readable.
+ */
+export function fmtPrice(n: number | null | undefined): string {
+  if (n == null) return '--'
+  return '$' + n.toLocaleString(undefined, { maximumFractionDigits: 6 })
+}
+
+/**
+ * Format a position size.
+ * Crypto: up to 3 decimal places (e.g. 0.402, 1.899, 34083).
+ * Everything else: raw number (integers for stocks, etc.).
+ */
+export function fmtSize(n: number | null | undefined, instrument?: string | null): string {
+  if (n == null) return '--'
+  if (instrument === 'Crypto') {
+    return n.toLocaleString(undefined, { maximumFractionDigits: 3 })
+  }
+  return String(n)
+}
+
 /** Returns today's date in YYYY-MM-DD using LOCAL time, not UTC.
  *  Using toISOString() would return the UTC date, which is wrong for
  *  users east of UTC — e.g. at 00:37 in UTC+3, UTC is still the previous day. */

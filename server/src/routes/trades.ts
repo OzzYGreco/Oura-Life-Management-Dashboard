@@ -14,8 +14,9 @@ function computeTradeFields(data: {
   size?: number | null
   direction?: string | null
   riskDollars?: number | null
+  netPnl?: number | null   // actual broker P&L (after fees/slippage); used for R:R and deviation
 }) {
-  const { entryPrice, exitPrice, size, direction, riskDollars } = data
+  const { entryPrice, exitPrice, size, direction, riskDollars, netPnl: incomingNetPnl } = data
   let realizedPnl: number | null = null
   let deviationPct: number | null = null
   let rrRatio: number | null = null
@@ -25,10 +26,17 @@ function computeTradeFields(data: {
     realizedPnl = (exitPrice - entryPrice) * size * mult
   }
 
-  if (realizedPnl != null && riskDollars != null && riskDollars > 0) {
-    rrRatio = realizedPnl / riskDollars
-    const loss = Math.min(realizedPnl, 0)
-    deviationPct = Math.abs((loss / riskDollars - 1) * 100)
+  // Prefer netPnl (broker actual) for ratio calculations; fall back to gross realizedPnl
+  const pnlForRatios = incomingNetPnl ?? realizedPnl
+
+  if (pnlForRatios != null && riskDollars != null && riskDollars > 0) {
+    rrRatio = pnlForRatios / riskDollars
+    // Deviation: 0 on wins or losses within planned risk;
+    // positive % only when the trade lost MORE than the planned risk amount.
+    const absPnl = Math.abs(pnlForRatios)
+    deviationPct = pnlForRatios >= 0 || absPnl <= riskDollars
+      ? 0
+      : (absPnl - riskDollars) / riskDollars * 100
   }
 
   return { realizedPnl, deviationPct, rrRatio }
@@ -65,6 +73,27 @@ router.post('/', async (req, res, next) => {
     const computed = computeTradeFields(req.body)
     const [row] = await db.insert(trades).values({ ...req.body, ...computed }).returning()
     res.status(201).json(row)
+  } catch (e) { next(e) }
+})
+
+router.get('/setup-labels', async (req, res, next) => {
+  try {
+    const rows = await db
+      .selectDistinct({ label: trades.setupLabel })
+      .from(trades)
+      .where(sql`${trades.setupLabel} IS NOT NULL AND ${trades.setupLabel} != ''`)
+      .orderBy(trades.setupLabel)
+    res.json(rows.map(r => r.label).filter(Boolean))
+  } catch (e) { next(e) }
+})
+
+router.delete('/setup-labels/:label', async (req, res, next) => {
+  try {
+    const label = decodeURIComponent(req.params.label)
+    await db.update(trades)
+      .set({ setupLabel: null })
+      .where(eq(trades.setupLabel, label))
+    res.status(204).send()
   } catch (e) { next(e) }
 })
 
