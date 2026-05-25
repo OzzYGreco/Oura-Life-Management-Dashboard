@@ -12,7 +12,7 @@ Oura is a local-first life management dashboard built with React, Express, and S
 
 ## Modules
 - **Dashboard** - Daily summary pulling live data from every module: P&L, upcoming invoices, goal deadlines, workout status, checklist progress, and finance snapshot.
-- **Trading Journal** - Log trades with entry, exit, size, direction, instrument, and risk. Auto-computes P&L, R:R ratio, and deviation. Full analytics tab with equity curve, drawdown, win rate, and per-instrument breakdowns.
+- **Trading Journal** - Log trades with entry, exit, size, direction, instrument, and risk. Auto-computes P&L, R:R ratio, and deviation. Full analytics tab with equity curve, drawdown, win rate, per-instrument breakdowns, and date range filtering.
 - **Business** - Client and project management with invoice tracking, time logging, recurring invoice automation, and project profitability.
 - **Finances** - Account balances, income streams, expense tracking with recurring support, budget overview, net worth history, and cash flow.
 - **Goals** - Hierarchical goal tree with parent-child progress propagation. Set deadlines, track percentage completion, and cascade progress automatically up the tree.
