@@ -29,7 +29,7 @@ Oura is a local-first life management dashboard built with React, Express, and S
     <td align="center"><img src="Screenshots/trading_journal.png" width="600"/><br/><sub>Trading Journal</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="Screenshots/trading_analytics.png" width="600"/><br/><sub>Trading Analytics</sub></td>
+    <td align="center"><img src="Screenshots/trading_analytics_v2.png" width="600"/><br/><sub>Trading Analytics</sub></td>
     <td align="center"><img src="Screenshots/calendar_day.png" width="600"/><br/><sub>Calendar - Day View</sub></td>
   </tr>
   <tr>
