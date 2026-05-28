@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import {
   useNotes, useCreateNote, useUpdateNote, useDeleteNote,
   useNoteCategories, useCreateCategory, useUpdateCategory, useDeleteCategory,
+  useDeletedNotes, useRestoreNote, usePermanentlyDeleteNote,
 } from '../../hooks/useNotes'
 import { PageShell } from '../../components/layout/PageShell'
 import { EmptyState } from '../../components/ui/EmptyState'
@@ -13,7 +14,8 @@ import { Pin, Search, Trash2, FileText, Bold, Italic,
          PanelLeft, PanelLeftClose, SquarePen,
          CheckCircle2, Circle, CheckCheck, Copy, Clipboard,
          Folder, FolderPlus, FolderOpen, Pencil,
-         ChevronRight, ChevronDown, X, MoreHorizontal } from 'lucide-react'
+         ChevronRight, ChevronDown, X, MoreHorizontal,
+         RotateCcw, Trash } from 'lucide-react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { TaskList, TaskItem } from '@tiptap/extension-list'
@@ -51,6 +53,13 @@ function formatDateTime(isoStr: string): string {
       + ' at '
       + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   } catch { return isoStr }
+}
+
+const TRASH_TTL_DAYS = 30
+
+function daysUntilPurge(deletedAt: string): number {
+  const purgeAt = new Date(toUtc(deletedAt)).getTime() + TRASH_TTL_DAYS * 24 * 60 * 60 * 1000
+  return Math.max(0, Math.ceil((purgeAt - Date.now()) / (24 * 60 * 60 * 1000)))
 }
 
 function plainPreview(content: string): string {
@@ -303,8 +312,9 @@ function NoteMenu({ note, folders, onTogglePin, onDelete, onDuplicate, onCopyToC
   onDuplicate: () => void; onCopyToClipboard: () => void
   onMoveToFolder: (folderId: number | null) => void
 }) {
-  const [open,        setOpen]        = useState(false)
-  const [showFolders, setShowFolders] = useState(false)
+  const [open,          setOpen]          = useState(false)
+  const [showFolders,   setShowFolders]   = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close on outside click
@@ -312,21 +322,21 @@ function NoteMenu({ note, folders, onTogglePin, onDelete, onDuplicate, onCopyToC
     if (!open) return
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setOpen(false); setShowFolders(false)
+        setOpen(false); setShowFolders(false); setConfirmDelete(false)
       }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const close = () => { setOpen(false); setShowFolders(false) }
+  const close = () => { setOpen(false); setShowFolders(false); setConfirmDelete(false) }
   const run   = (fn: () => void) => { fn(); close() }
 
   return (
     <div ref={menuRef} className="absolute right-1.5 top-2 z-10">
       {/* Trigger — visible on group hover OR when menu is open */}
       <button
-        onClick={e => { e.stopPropagation(); setOpen(v => !v); setShowFolders(false) }}
+        onClick={e => { e.stopPropagation(); setOpen(v => !v); setShowFolders(false); setConfirmDelete(false) }}
         className={`p-1 rounded transition-all ${open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
         style={{ background: open ? 'rgba(129,140,248,0.18)' : 'transparent', color: open ? 'var(--c-accent)' : 'var(--c-text-3)' }}>
         <MoreHorizontal size={13} />
@@ -337,56 +347,151 @@ function NoteMenu({ note, folders, onTogglePin, onDelete, onDuplicate, onCopyToC
         <div className="absolute right-0 top-full mt-1 w-44 rounded-2xl overflow-hidden shadow-2xl z-50 py-1"
           style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)' }}>
 
-          <MenuItem icon={note.pinned ? <PinOff size={12} /> : <Pin size={12} />}
-            label={note.pinned ? 'Unpin' : 'Pin'}
-            onClick={() => run(onTogglePin)} />
+          {confirmDelete ? (
+            <div className="px-3 py-2.5 space-y-2">
+              <p className="text-[11px] font-semibold text-center" style={{ color: 'var(--c-loss)' }}>
+                Move to trash?
+              </p>
+              <div className="flex gap-1.5">
+                <button
+                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setConfirmDelete(false) }}
+                  className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-text-muted transition-colors"
+                  style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)' }}>
+                  Cancel
+                </button>
+                <button
+                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); run(onDelete) }}
+                  className="flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors"
+                  style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171', border: '1px solid rgba(248,113,113,0.25)' }}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <MenuItem icon={note.pinned ? <PinOff size={12} /> : <Pin size={12} />}
+                label={note.pinned ? 'Unpin' : 'Pin'}
+                onClick={() => run(onTogglePin)} />
 
-          <MenuDivider />
+              <MenuDivider />
 
-          <MenuItem icon={<Clipboard size={12} />} label="Copy to clipboard"
-            onClick={() => run(onCopyToClipboard)} />
-          <MenuItem icon={<Copy size={12} />} label="Duplicate"
-            onClick={() => run(onDuplicate)} />
+              <MenuItem icon={<Clipboard size={12} />} label="Copy to clipboard"
+                onClick={() => run(onCopyToClipboard)} />
+              <MenuItem icon={<Copy size={12} />} label="Duplicate"
+                onClick={() => run(onDuplicate)} />
 
-          <MenuDivider />
+              <MenuDivider />
 
-          {/* Move to folder — expands inline */}
-          <button
-            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setShowFolders(v => !v) }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 mx-1 text-xs font-medium transition-colors text-left rounded-lg"
-            style={{ color: 'var(--c-text-1)', width: 'calc(100% - 8px)' }}
-            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)'}
-            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-            <span style={{ color: 'var(--c-accent)', opacity: 0.7 }}><Folder size={12} /></span>
-            Move to folder
-            <ChevronRight size={10} className={`ml-auto transition-transform ${showFolders ? 'rotate-90' : ''}`} />
-          </button>
-
-          {showFolders && (
-            <div className="px-1 pb-1">
+              {/* Move to folder — expands inline */}
               <button
-                onMouseDown={e => { e.preventDefault(); e.stopPropagation(); run(() => onMoveToFolder(null)) }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] text-text-muted transition-colors text-left"
+                onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setShowFolders(v => !v) }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 mx-1 text-xs font-medium transition-colors text-left rounded-lg"
+                style={{ color: 'var(--c-text-1)', width: 'calc(100% - 8px)' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-                <FolderOpen size={11} className="opacity-50" /> No folder
+                <span style={{ color: 'var(--c-accent)', opacity: 0.7 }}><Folder size={12} /></span>
+                Move to folder
+                <ChevronRight size={10} className={`ml-auto transition-transform ${showFolders ? 'rotate-90' : ''}`} />
               </button>
-              {folders.map((f: any) => (
-                <button key={f.id}
-                  onMouseDown={e => { e.preventDefault(); e.stopPropagation(); run(() => onMoveToFolder(f.id)) }}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] text-text-secondary transition-colors text-left"
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
-                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: f.color || '#818cf8' }} />
-                  {f.name}
-                </button>
-              ))}
-            </div>
+
+              {showFolders && (
+                <div className="px-1 pb-1">
+                  <button
+                    onMouseDown={e => { e.preventDefault(); e.stopPropagation(); run(() => onMoveToFolder(null)) }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] text-text-muted transition-colors text-left"
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                    <FolderOpen size={11} className="opacity-50" /> No folder
+                  </button>
+                  {folders.map((f: any) => (
+                    <button key={f.id}
+                      onMouseDown={e => { e.preventDefault(); e.stopPropagation(); run(() => onMoveToFolder(f.id)) }}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] text-text-secondary transition-colors text-left"
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: f.color || '#818cf8' }} />
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <MenuDivider />
+
+              <MenuItem icon={<Trash2 size={12} />} label="Delete"
+                onClick={() => setConfirmDelete(true)} danger />
+            </>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
 
-          <MenuDivider />
+// ─── Deleted note item ────────────────────────────────────────────────────────
 
-          <MenuItem icon={<Trash2 size={12} />} label="Delete" onClick={() => run(onDelete)} danger />
+function DeletedNoteItem({ note, daysLeft, onRestore, onPermanentDelete }: {
+  note: any; daysLeft: number; onRestore: () => void; onPermanentDelete: () => void
+}) {
+  const preview  = plainPreview(note.content || '')
+  const urgency  = daysLeft <= 3
+  const [confirmPerma, setConfirmPerma] = useState(false)
+
+  return (
+    <div className="relative px-3 py-2.5 rounded-lg transition-colors"
+      style={{ background: confirmPerma ? 'rgba(248,113,113,0.06)' : 'transparent' }}>
+
+      {confirmPerma ? (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold text-center" style={{ color: 'var(--c-loss)' }}>
+            Delete permanently?
+          </p>
+          <div className="flex gap-1.5">
+            <button
+              onMouseDown={e => { e.preventDefault(); setConfirmPerma(false) }}
+              className="flex-1 py-1.5 rounded-lg text-[11px] font-medium text-text-muted"
+              style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)' }}>
+              Cancel
+            </button>
+            <button
+              onMouseDown={e => { e.preventDefault(); onPermanentDelete() }}
+              className="flex-1 py-1.5 rounded-lg text-[11px] font-bold"
+              style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171', border: '1px solid rgba(248,113,113,0.25)' }}>
+              Delete
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="group">
+          <p className="text-[13px] font-medium leading-tight truncate text-text-muted pr-16">
+            {note.title || 'Untitled'}
+          </p>
+          {preview && <p className="text-[11px] text-text-muted mt-0.5 line-clamp-1 opacity-60">{preview}</p>}
+          <p className="text-[10px] mt-1" style={{ color: urgency ? '#f87171' : 'rgba(139,139,170,0.45)' }}>
+            {daysLeft === 0 ? 'Deletes today' : `Deletes in ${daysLeft}d`}
+          </p>
+
+          {/* Hover actions */}
+          <div className="absolute right-1.5 top-2 hidden group-hover:flex items-center gap-0.5">
+            <button
+              onMouseDown={e => { e.preventDefault(); e.stopPropagation(); onRestore() }}
+              title="Restore note"
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: '#818cf8' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(129,140,248,0.12)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+              <RotateCcw size={12} />
+            </button>
+            <button
+              onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setConfirmPerma(true) }}
+              title="Delete permanently"
+              className="p-1.5 rounded-lg transition-colors"
+              style={{ color: '#f87171' }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.1)'}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}>
+              <Trash2 size={12} />
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -401,16 +506,21 @@ const FOLDER_COLORS = ['#818cf8','#34d399','#fbbf24','#f87171','#22d3ee','#a78bf
 export function NotesPage() {
   const { data: notes = [], isPending } = useNotes()
   const { data: folders = [] }          = useNoteCategories()
-  const createNote     = useCreateNote()
-  const updateNote     = useUpdateNote()
-  const deleteNote     = useDeleteNote()
-  const createFolder   = useCreateCategory()
-  const updateFolder   = useUpdateCategory()
-  const deleteFolder   = useDeleteCategory()
+  const { data: deletedNotes = [] }     = useDeletedNotes()
+  const createNote       = useCreateNote()
+  const updateNote       = useUpdateNote()
+  const deleteNote       = useDeleteNote()
+  const restoreNote      = useRestoreNote()
+  const permanentDelete  = usePermanentlyDeleteNote()
+  const createFolder     = useCreateCategory()
+  const updateFolder     = useUpdateCategory()
+  const deleteFolder     = useDeleteCategory()
 
   const [query,          setQuery]          = useState('')
   const [activeId,       setActiveId]       = useState<number | null>(null)
   const [activeFolderId, setActiveFolderId] = useState<number | null>(null) // null = All Notes
+  const [showTrash,      setShowTrash]      = useState(false)
+  const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
   const [sidebarOpen,    setSidebarOpen]    = useState<boolean>(() => {
     try { return localStorage.getItem(SIDEBAR_KEY) !== 'false' } catch { return true }
   })
@@ -429,8 +539,9 @@ export function NotesPage() {
   const [collapsedFolders,setCollapsedFolders]= useState<Set<number>>(new Set())
   const [foldersOpen,     setFoldersOpen]     = useState(true)
 
-  const allNotes    = notes as any[]
-  const allFolders  = folders as any[]
+  const allNotes        = notes as any[]
+  const allFolders      = folders as any[]
+  const allDeletedNotes = deletedNotes as any[]
 
   // Filter by folder + query
   const visible = allNotes
@@ -459,6 +570,7 @@ export function NotesPage() {
   })
 
   const handleNewNote = async () => {
+    if (showTrash) switchFromTrash()
     const note = await createNote.mutateAsync({
       title: '', content: '', tags: [], pinned: 0,
       ...(activeFolderId !== null ? { categoryId: activeFolderId } : {}),
@@ -483,6 +595,18 @@ export function NotesPage() {
   const exitSelect = () => {
     setSelectMode(false); setSelectedIds(new Set())
     setConfirmDel(false); setShowMovePicker(false)
+  }
+
+  const switchToTrash = () => {
+    exitSelect(); setShowTrash(true); setActiveId(null); setActiveFolderId(null)
+  }
+  const switchFromTrash = () => {
+    setShowTrash(false); setConfirmEmptyTrash(false); setActiveId(null)
+  }
+
+  const emptyTrash = async () => {
+    await Promise.all(allDeletedNotes.map((n: any) => permanentDelete.mutateAsync(n.id)))
+    setConfirmEmptyTrash(false)
   }
 
   const bulkPin = (pinned: 0 | 1) => {
@@ -623,7 +747,7 @@ export function NotesPage() {
         ) : (
           <div className="group flex items-center gap-1.5 pr-1.5 rounded-lg mb-0.5 cursor-pointer transition-colors"
             style={{ paddingLeft: `${indent + 4}px`, background: isActive ? color + '18' : 'transparent' }}
-            onClick={() => { setActiveFolderId(node.id); exitSelect() }}>
+            onClick={() => { setActiveFolderId(node.id); exitSelect(); switchFromTrash() }}>
 
             {/* Expand/collapse chevron — space reserved even when no children so dots align */}
             <button
@@ -754,9 +878,9 @@ export function NotesPage() {
                   )}
 
                   {/* All Notes row */}
-                  <button onClick={() => { setActiveFolderId(null); exitSelect() }}
+                  <button onClick={() => { setActiveFolderId(null); exitSelect(); switchFromTrash() }}
                     className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors text-left mb-0.5"
-                    style={{ background: activeFolderId === null ? 'rgba(129,140,248,0.12)' : 'transparent', color: activeFolderId === null ? '#818cf8' : 'rgba(139,139,170,0.7)' }}>
+                    style={{ background: activeFolderId === null && !showTrash ? 'rgba(129,140,248,0.12)' : 'transparent', color: activeFolderId === null && !showTrash ? '#818cf8' : 'rgba(139,139,170,0.7)' }}>
                     <ChevronRight size={11} style={{ opacity: 0, flexShrink: 0 }} />
                     <FolderOpen size={12} className="flex-shrink-0" />
                     <span className="flex-1 font-medium">All Notes</span>
@@ -765,6 +889,18 @@ export function NotesPage() {
 
                   {/* Recursive folder tree */}
                   {folderTree.map(node => renderFolder(node, 0))}
+
+                  {/* Recently Deleted */}
+                  <button onClick={switchToTrash}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors text-left mt-0.5"
+                    style={{ background: showTrash ? 'rgba(248,113,113,0.1)' : 'transparent', color: showTrash ? '#f87171' : 'rgba(139,139,170,0.55)' }}>
+                    <ChevronRight size={11} style={{ opacity: 0, flexShrink: 0 }} />
+                    <Trash size={12} className="flex-shrink-0" />
+                    <span className="flex-1 font-medium">Recently Deleted</span>
+                    {allDeletedNotes.length > 0 && (
+                      <span className="text-[10px] opacity-60">{allDeletedNotes.length}</span>
+                    )}
+                  </button>
                 </>
               )}
             </div>
@@ -772,13 +908,23 @@ export function NotesPage() {
             {/* Count + select toggle */}
             <div className="flex-shrink-0 flex items-center justify-between px-3 py-1.5">
               <span className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
-                {selectMode ? `${selectedIds.size} selected` : `${visible.length} ${visible.length === 1 ? 'note' : 'notes'}`}
+                {showTrash
+                  ? `${allDeletedNotes.length} ${allDeletedNotes.length === 1 ? 'note' : 'notes'}`
+                  : selectMode ? `${selectedIds.size} selected` : `${visible.length} ${visible.length === 1 ? 'note' : 'notes'}`
+                }
               </span>
-              {visible.length > 0 && (
+              {!showTrash && visible.length > 0 && (
                 <button onClick={() => selectMode ? exitSelect() : setSelectMode(true)}
                   className="text-[10px] font-semibold transition-colors"
                   style={{ color: selectMode ? '#818cf8' : 'rgba(139,139,170,0.55)' }}>
                   {selectMode ? 'Done' : 'Select'}
+                </button>
+              )}
+              {showTrash && allDeletedNotes.length > 0 && (
+                <button onClick={() => setConfirmEmptyTrash(true)}
+                  className="text-[10px] font-semibold transition-colors"
+                  style={{ color: 'rgba(248,113,113,0.7)' }}>
+                  Empty
                 </button>
               )}
             </div>
@@ -797,7 +943,26 @@ export function NotesPage() {
 
             {/* Note list */}
             <div className="flex-1 overflow-y-auto min-h-0 px-2 space-y-0.5" style={{ paddingBottom: selectMode ? '0' : '12px' }}>
-              {visible.length === 0 ? (
+              {showTrash ? (
+                allDeletedNotes.length === 0 ? (
+                  <p className="text-xs text-text-muted text-center py-8 px-3">No deleted notes</p>
+                ) : (
+                  <>
+                    <p className="text-[10px] text-text-muted text-center pt-3 pb-1 px-2 leading-relaxed">
+                      Notes are deleted after {TRASH_TTL_DAYS} days
+                    </p>
+                    {[...allDeletedNotes].sort((a: any, b: any) => b.deletedAt.localeCompare(a.deletedAt)).map((n: any) => {
+                      const days = daysUntilPurge(n.deletedAt)
+                      return (
+                        <DeletedNoteItem key={n.id} note={n} daysLeft={days}
+                          onRestore={() => restoreNote.mutate(n.id)}
+                          onPermanentDelete={() => permanentDelete.mutate(n.id)}
+                        />
+                      )
+                    })}
+                  </>
+                )
+              ) : visible.length === 0 ? (
                 <p className="text-xs text-text-muted text-center py-8 px-3">
                   {query ? 'No notes match your search' : 'Press the compose button to create a note'}
                 </p>
@@ -910,12 +1075,41 @@ export function NotesPage() {
                 )}
               </div>
             )}
+
+            {/* Empty trash confirm */}
+            {showTrash && confirmEmptyTrash && (
+              <div className="flex-shrink-0 p-2"
+                style={{ borderTop: '1px solid var(--c-border)', background: 'var(--c-bg-input)' }}>
+                <div className="rounded-xl p-3 space-y-2" style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)' }}>
+                  <p className="text-[11px] text-pnl-loss font-semibold text-center">
+                    Permanently delete all {allDeletedNotes.length} {allDeletedNotes.length === 1 ? 'note' : 'notes'}?
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmEmptyTrash(false)}
+                      className="flex-1 py-1.5 rounded-lg text-xs font-medium text-text-muted"
+                      style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)' }}>
+                      Cancel
+                    </button>
+                    <button onClick={emptyTrash}
+                      className="flex-1 py-1.5 rounded-lg text-xs font-bold text-white hover:opacity-90"
+                      style={{ background: '#ef4444' }}>
+                      Delete All
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ── Editor pane ── */}
         <div className="flex-1 overflow-hidden">
-          {activeNote
+          {showTrash ? (
+            <div className="h-full flex items-center justify-center">
+              <EmptyState icon={<Trash size={28} />} title="Recently Deleted"
+                description={`Deleted notes are kept for ${TRASH_TTL_DAYS} days before being permanently removed`} />
+            </div>
+          ) : activeNote
             ? <NoteEditor key={activeNote.id} note={activeNote} onSave={handleSave} />
             : (
               <div className="h-full flex items-center justify-center">

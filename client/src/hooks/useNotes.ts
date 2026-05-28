@@ -33,7 +33,18 @@ export function useUpdateNote() {
 }
 export function useDeleteNote() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: number) => api.delete(`/api/notes/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ['notes'] }) })
+  return useMutation({ mutationFn: (id: number) => api.delete(`/api/notes/${id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['notes'] }); qc.invalidateQueries({ queryKey: ['notes-deleted'] }) } })
+}
+export function useDeletedNotes() {
+  return useQuery({ queryKey: ['notes-deleted'], queryFn: () => api.get('/api/notes/deleted').then(r => r.data) })
+}
+export function useRestoreNote() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => api.post(`/api/notes/${id}/restore`).then(r => r.data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['notes'] }); qc.invalidateQueries({ queryKey: ['notes-deleted'] }) } })
+}
+export function usePermanentlyDeleteNote() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (id: number) => api.delete(`/api/notes/${id}/permanent`), onSuccess: () => qc.invalidateQueries({ queryKey: ['notes-deleted'] }) })
 }
 export function useUploadNoteImages() {
   const qc = useQueryClient()

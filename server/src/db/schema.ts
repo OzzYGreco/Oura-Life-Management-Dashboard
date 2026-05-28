@@ -370,6 +370,7 @@ export const notes = sqliteTable('notes', {
   pinned:     integer('pinned').notNull().default(0),
   createdAt:  text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:  text('updated_at').notNull().default(sql`(datetime('now'))`),
+  deletedAt:  text('deleted_at'),
 })
 
 export const noteImages = sqliteTable('note_images', {

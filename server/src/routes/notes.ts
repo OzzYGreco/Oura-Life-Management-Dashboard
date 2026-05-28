@@ -1,17 +1,26 @@
 import { Router } from 'express'
 import { db } from '../db'
 import { notes, noteCategories, noteImages } from '../db/schema'
-import { eq, like, or } from 'drizzle-orm'
+import { eq, like, or, isNull, isNotNull, lt, and } from 'drizzle-orm'
 import { noteImageUpload } from '../middleware/upload'
 import path from 'path'
 import fs from 'fs'
 
 const router = Router()
 
+const TRASH_TTL_DAYS = 30
+
+async function purgeExpiredNotes() {
+  const cutoff = new Date(Date.now() - TRASH_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  await db.delete(notes).where(and(isNotNull(notes.deletedAt), lt(notes.deletedAt, cutoff)))
+}
+
+purgeExpiredNotes().catch(err => console.error('purgeExpiredNotes error:', err))
+
 router.get('/', async (req, res, next) => {
   try {
     const { categoryId, q } = req.query
-    let all = await db.select().from(notes)
+    let all = await db.select().from(notes).where(isNull(notes.deletedAt))
     if (categoryId) all = all.filter(n => n.categoryId === parseInt(categoryId as string))
     if (q) {
       const query = (q as string).toLowerCase()
@@ -19,6 +28,14 @@ router.get('/', async (req, res, next) => {
     }
     const images = await db.select().from(noteImages)
     res.json(all.map(n => ({ ...n, images: images.filter(i => i.noteId === n.id) })))
+  } catch (e) { next(e) }
+})
+
+router.get('/deleted', async (_req, res, next) => {
+  try {
+    purgeExpiredNotes()
+    const deleted = await db.select().from(notes).where(isNotNull(notes.deletedAt))
+    res.json(deleted)
   } catch (e) { next(e) }
 })
 
@@ -42,8 +59,38 @@ router.put('/:id', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+// Soft delete
 router.delete('/:id', async (req, res, next) => {
-  try { await db.delete(notes).where(eq(notes.id, parseInt(req.params.id))); res.status(204).send() } catch (e) { next(e) }
+  try {
+    await db.update(notes)
+      .set({ deletedAt: new Date().toISOString() })
+      .where(eq(notes.id, parseInt(req.params.id)))
+    res.status(204).send()
+  } catch (e) { next(e) }
+})
+
+// Restore from trash
+router.post('/:id/restore', async (req, res, next) => {
+  try {
+    const [row] = await db.update(notes)
+      .set({ deletedAt: null })
+      .where(eq(notes.id, parseInt(req.params.id)))
+      .returning()
+    res.json(row)
+  } catch (e) { next(e) }
+})
+
+// Permanent delete
+router.delete('/:id/permanent', async (req, res, next) => {
+  try {
+    const images = await db.select().from(noteImages).where(eq(noteImages.noteId, parseInt(req.params.id)))
+    for (const img of images) {
+      const fp = path.join(__dirname, '../../uploads', img.filePath.replace('/uploads/', ''))
+      if (fs.existsSync(fp)) fs.unlinkSync(fp)
+    }
+    await db.delete(notes).where(eq(notes.id, parseInt(req.params.id)))
+    res.status(204).send()
+  } catch (e) { next(e) }
 })
 
 router.post('/:id/images', noteImageUpload.array('images', 20), async (req, res, next) => {
