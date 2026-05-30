@@ -1,4 +1,6 @@
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useDashboardSummary } from '../../hooks/useDashboard'
+import { useToggleChecklistItem } from '../../hooks/useChecklists'
 import { PageShell } from '../../components/layout/PageShell'
 import { PageLoader } from '../../components/ui/Spinner'
 import { CurrencySelector } from '../../components/ui/CurrencySelector'
@@ -54,10 +56,75 @@ const tooltipStyle = {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
+const MAX_CHECKLIST = 8
+
 export function DashboardPage() {
   const { data, isPending } = useDashboardSummary(today())
   const { fmtView } = useFmtView('USD', 'dashboard')
   const nav = useNavigate()
+  const toggleItem = useToggleChecklistItem()
+
+  // Always-current ref so setTimeout callbacks never read stale server data
+  const itemsRef = useRef<any[]>([])
+
+  // Explicit ordered list of item IDs shown in the grid (max MAX_CHECKLIST)
+  const [visibleQueue, setVisibleQueue] = useState<number[]>([])
+  // Items checked this session — held in queue while countdown runs
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set())
+  // Items playing their exit animation (opacity → 0)
+  const [exitingIds, setExitingIds] = useState<Set<number>>(new Set())
+  const timers      = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const initialized = useRef(false)
+
+  // Sync ref every render so timers always see the latest items
+  const rawItems = (data?.checklistItems ?? []) as any[]
+  itemsRef.current = rawItems
+
+  // One-time init: fill queue with first MAX_CHECKLIST unchecked items
+  useEffect(() => {
+    if (initialized.current || rawItems.length === 0) return
+    setVisibleQueue(
+      rawItems.filter(i => !i.completed).slice(0, MAX_CHECKLIST).map(i => i.itemId)
+    )
+    initialized.current = true
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  const handleToggle = useCallback((itemId: number, entryId: number, isCurrentlyChecked: boolean) => {
+    toggleItem.mutate({ entryId, itemId, completed: !isCurrentlyChecked })
+
+    if (!isCurrentlyChecked) {
+      // Mark as pending so it shows as checked immediately
+      setPendingIds(p => new Set([...p, itemId]))
+
+      const t1 = setTimeout(() => {
+        // Start exit animation
+        setExitingIds(p => new Set([...p, itemId]))
+
+        const t2 = setTimeout(() => {
+          // Swap: remove this item, enqueue the next unchecked one not already in the queue
+          setVisibleQueue(prev => {
+            const prevSet = new Set(prev)
+            const next = itemsRef.current.find(i => !i.completed && !prevSet.has(i.itemId))
+            const newQ  = prev.filter(id => id !== itemId)
+            if (next) newQ.push(next.itemId)
+            return newQ
+          })
+          setExitingIds(p => { const n = new Set(p); n.delete(itemId); return n })
+          setPendingIds(p => { const n = new Set(p); n.delete(itemId); return n })
+          timers.current.delete(itemId)
+        }, 500)
+        timers.current.set(itemId, t2)
+      }, 4500)
+      timers.current.set(itemId, t1)
+    } else {
+      // Un-check: cancel any running timer
+      clearTimeout(timers.current.get(itemId))
+      timers.current.delete(itemId)
+      setPendingIds(p => { const n = new Set(p); n.delete(itemId); return n })
+      setExitingIds(p => { const n = new Set(p); n.delete(itemId); return n })
+    }
+  }, [toggleItem])
 
   if (isPending) return <PageShell title="Dashboard"><PageLoader /></PageShell>
 
@@ -176,42 +243,70 @@ export function DashboardPage() {
             )}
 
             {/* Items */}
-            {(d.checklistItems ?? []).length === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-sm" style={{ color: 'var(--c-text-3)' }}>No checklist for today.</p>
-                <button onClick={() => nav('/checklists')}
-                  className="text-xs mt-1 hover:underline" style={{ color: 'var(--c-accent)' }}>
-                  Set one up →
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
-                {(d.checklistItems as any[]).map((item: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2 min-w-0">
-                    <div className="w-4 h-4 rounded-md flex-shrink-0 flex items-center justify-center"
-                      style={{
-                        background: item.completed ? 'var(--c-profit)' : 'var(--c-bg-input)',
-                        border: item.completed ? 'none' : '1px solid var(--c-border-strong)',
-                      }}>
-                      {item.completed && (
-                        <svg width="9" height="9" viewBox="0 0 8 8">
-                          <path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-                        </svg>
-                      )}
-                    </div>
-                    <span className={`text-xs truncate ${item.completed ? 'line-through' : ''}`}
-                      style={{ color: item.completed ? 'var(--c-text-3)' : 'var(--c-text-2)' }}>
-                      {item.title}
-                    </span>
-                    {item.time && (
-                      <span className="text-[10px] num ml-auto flex-shrink-0" style={{ color: 'var(--c-text-3)' }}>
-                        {item.time}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            {(() => {
+              if (rawItems.length === 0) return (
+                <div className="py-6 text-center">
+                  <p className="text-sm" style={{ color: 'var(--c-text-3)' }}>No checklist for today.</p>
+                  <button onClick={() => nav('/checklists')}
+                    className="text-xs mt-1 hover:underline" style={{ color: 'var(--c-accent)' }}>
+                    Set one up →
+                  </button>
+                </div>
+              )
+              const visibleItems = visibleQueue
+                .map(id => rawItems.find(i => i.itemId === id))
+                .filter(Boolean) as any[]
+              if (visibleItems.length === 0) return (
+                <div className="py-4 text-center">
+                  <p className="text-sm" style={{ color: 'var(--c-profit)' }}>All done for today!</p>
+                </div>
+              )
+              return (
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                  {visibleItems.map((item: any) => {
+                    const isChecked = item.completed || pendingIds.has(item.itemId)
+                    const isExiting = exitingIds.has(item.itemId)
+                    return (
+                      <div key={item.itemId}
+                        style={{
+                          overflow: 'hidden',
+                          maxHeight: isExiting ? 0 : '2rem',
+                          opacity:   isExiting ? 0 : 1,
+                          transition: 'max-height 0.45s ease, opacity 0.45s ease',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <button
+                            className="w-4 h-4 rounded-md flex-shrink-0 flex items-center justify-center transition-all"
+                            style={{
+                              background: isChecked ? 'var(--c-profit)' : 'var(--c-bg-input)',
+                              border:     isChecked ? 'none' : '1px solid var(--c-border-strong)',
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => handleToggle(item.itemId, item.entryId, isChecked)}
+                          >
+                            {isChecked && (
+                              <svg width="9" height="9" viewBox="0 0 8 8">
+                                <path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+                              </svg>
+                            )}
+                          </button>
+                          <span className={`text-xs truncate ${isChecked ? 'line-through' : ''}`}
+                            style={{ color: isChecked ? 'var(--c-text-3)' : 'var(--c-text-2)' }}>
+                            {item.title}
+                          </span>
+                          {item.time && (
+                            <span className="text-[10px] num ml-auto flex-shrink-0" style={{ color: 'var(--c-text-3)' }}>
+                              {item.time}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </Panel>
         </div>
 

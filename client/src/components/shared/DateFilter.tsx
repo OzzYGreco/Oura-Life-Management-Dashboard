@@ -1,6 +1,6 @@
 // Shared date-range filter bar used in Analytics and Trade Log
 
-export type Preset = '1D' | '1W' | '2W' | '1M' | '3M' | '6M' | '1Y' | 'All' | 'Custom'
+export type Preset = '1D' | '1W' | '2W' | 'MTD' | 'QTD' | 'YTD' | '1M' | '3M' | '6M' | '1Y' | 'All' | 'Custom'
 
 export const PRESETS: { key: Preset; label: string }[] = [
   { key: '1D',     label: 'Today'    },
@@ -10,6 +10,9 @@ export const PRESETS: { key: Preset; label: string }[] = [
   { key: '3M',     label: '3 Months' },
   { key: '6M',     label: '6 Months' },
   { key: '1Y',     label: '1 Year'   },
+  { key: 'MTD',    label: 'MTD'      },
+  { key: 'QTD',    label: 'QTD'      },
+  { key: 'YTD',    label: 'YTD'      },
   { key: 'All',    label: 'All time' },
   { key: 'Custom', label: 'Custom'   },
 ]
@@ -20,9 +23,23 @@ const PRESET_DAYS: Partial<Record<Preset, number>> = {
 
 export function presetRange(preset: Preset): { from: string; to: string } | null {
   const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  const today = new Date()
   if (preset === '1D') {
-    const today = fmt(new Date())
-    return { from: today, to: today }
+    const t = fmt(today)
+    return { from: t, to: t }
+  }
+  if (preset === 'MTD') {
+    const from = new Date(today.getFullYear(), today.getMonth(), 1)
+    return { from: fmt(from), to: fmt(today) }
+  }
+  if (preset === 'QTD') {
+    const q = Math.floor(today.getMonth() / 3)
+    const from = new Date(today.getFullYear(), q * 3, 1)
+    return { from: fmt(from), to: fmt(today) }
+  }
+  if (preset === 'YTD') {
+    const from = new Date(today.getFullYear(), 0, 1)
+    return { from: fmt(from), to: fmt(today) }
   }
   const days = PRESET_DAYS[preset]
   if (!days) return null

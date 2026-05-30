@@ -17,7 +17,7 @@ const DEFAULTS: FinanceSettings = {
   taxRateTrading:          30,
   taxRateBusiness:         25,
   taxRateOther:            20,
-  excludeBusinessExpenses: false,
+  excludeBusinessExpenses: true,
 }
 
 const KEY = 'oura-finance-settings'

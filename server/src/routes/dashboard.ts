@@ -6,7 +6,7 @@ import {
   calendarEvents, trainingWorkouts, financeExpenses,
   financeIncome, marketingCampaigns,
 } from '../db/schema'
-import { eq, and, gte, lte, desc } from 'drizzle-orm'
+import { eq, and, gte, lte, desc, ne } from 'drizzle-orm'
 import { localToday, localDateStr } from '../lib/date'
 
 const router = Router()
@@ -43,7 +43,7 @@ router.get('/summary', async (req, res, next) => {
       pnlByDate[d.toISOString().split('T')[0]] = 0
     }
     recentTrades.forEach(t => {
-      if (pnlByDate[t.date] !== undefined) pnlByDate[t.date] += (t.realizedPnl ?? 0)
+      if (pnlByDate[t.date] !== undefined) pnlByDate[t.date] += (t.netPnl ?? t.realizedPnl ?? 0)
     })
     const pnlLast7 = Object.entries(pnlByDate).map(([d, pnl]) => ({
       date:  d,
@@ -53,9 +53,9 @@ router.get('/summary', async (req, res, next) => {
 
     // ── MTD trading stats ─────────────────────────────────────────────────
     const mtdTrades   = await db.select().from(trades).where(and(gte(trades.date, monthStart), lte(trades.date, monthEnd)))
-    const mtdPnl      = mtdTrades.reduce((s, t) => s + (t.realizedPnl ?? 0), 0)
-    const winCount    = mtdTrades.filter(t => (t.realizedPnl ?? 0) > 0).length
-    const lossCount   = mtdTrades.filter(t => (t.realizedPnl ?? 0) < 0).length
+    const mtdPnl      = mtdTrades.reduce((s, t) => s + (t.netPnl ?? t.realizedPnl ?? 0), 0)
+    const winCount    = mtdTrades.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) > 0).length
+    const lossCount   = mtdTrades.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) < 0).length
     const winRate     = mtdTrades.length > 0 ? Math.round((winCount / mtdTrades.length) * 100) : null
     const avgRR       = mtdTrades.length > 0
       ? mtdTrades.reduce((s, t) => s + (t.rrRatio ?? 0), 0) / mtdTrades.length
@@ -64,7 +64,7 @@ router.get('/summary', async (req, res, next) => {
     // ── Checklist progress ────────────────────────────────────────────────
     const todayEntries = await db.select().from(checklistEntries).where(eq(checklistEntries.date, date))
     let totalItems = 0, completedItems = 0
-    const checklistItems: { title: string; completed: boolean; time: string | null }[] = []
+    const checklistItems: { entryId: number; itemId: number; title: string; completed: boolean; time: string | null }[] = []
     const allTemplateItems = await db.select().from(checklistTemplateItems)
     for (const entry of todayEntries) {
       const items = await db.select().from(checklistEntryItems).where(eq(checklistEntryItems.entryId, entry.id))
@@ -72,7 +72,7 @@ router.get('/summary', async (req, res, next) => {
       completedItems += items.filter(i => i.completed || i.archived).length
       items.filter(i => !i.archived).forEach(i => {
         const tmpl = allTemplateItems.find(t => t.id === i.templateItemId)
-        checklistItems.push({ title: tmpl?.label ?? '—', completed: !!i.completed, time: tmpl?.time ?? null })
+        checklistItems.push({ entryId: entry.id, itemId: i.id, title: tmpl?.label ?? '—', completed: !!i.completed, time: tmpl?.time ?? null })
       })
     }
 
@@ -96,7 +96,7 @@ router.get('/summary', async (req, res, next) => {
 
     // ── Finance ───────────────────────────────────────────────────────────
     const mtdExpenses    = await db.select().from(financeExpenses)
-      .where(and(gte(financeExpenses.date, monthStart), lte(financeExpenses.date, monthEnd)))
+      .where(and(gte(financeExpenses.date, monthStart), lte(financeExpenses.date, monthEnd), ne(financeExpenses.category, 'Business')))
     const mtdIncome      = await db.select().from(financeIncome)
       .where(and(gte(financeIncome.date, monthStart), lte(financeIncome.date, monthEnd)))
     const totalExpMTD    = mtdExpenses.reduce((s, e) => s + e.amount, 0)
@@ -156,7 +156,7 @@ router.get('/summary', async (req, res, next) => {
 
       // Checklist
       checklistProgress: { completed: completedItems, total: totalItems },
-      checklistItems: checklistItems.slice(0, 8),
+      checklistItems,
 
       // Goals
       goalHighlights: activeGoals,
