@@ -397,10 +397,24 @@ function ScoreInput({ task, onScore }: {
       }}
       title={capped ? `Capped at ${task.maxPoints} pts` : undefined}
       onFocus={e => { e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
+      onKeyDown={e => {
+        if (e.key !== 'Enter') return
+        e.preventDefault()
+        const raw = value === '' ? null : Number(value)
+        const clamped = raw === null ? null : Math.min(raw, task.maxPoints)
+        setValue(clamped != null ? String(clamped) : '')
+        onScore(task.id, clamped)
+        // Move focus to the next score input in the same goal card
+        const inputs = Array.from(
+          (e.currentTarget.closest('[data-goal-tasks]') ?? document).querySelectorAll<HTMLInputElement>('input[type="number"]')
+        )
+        const idx = inputs.indexOf(e.currentTarget)
+        if (idx >= 0 && idx < inputs.length - 1) inputs[idx + 1].focus()
+        else e.currentTarget.blur()
+      }}
       onBlur={() => {
         const raw = value === '' ? null : Number(value)
         const clamped = raw === null ? null : Math.min(raw, task.maxPoints)
-        // Update display to clamped value
         setValue(clamped != null ? String(clamped) : '')
         onScore(task.id, clamped)
       }}
@@ -699,7 +713,7 @@ function GoalCard({ goal, onCompleted, forceExpanded, seqNum }: {
 
         {/* Tasks table */}
         {expanded && (
-          <div>
+          <div data-goal-tasks>
             {/* Column headers */}
             <div className="grid grid-cols-[1fr_80px_90px] px-4 py-1.5"
               style={{ borderBottom: '1px solid var(--c-border-subtle)', background: 'var(--c-bg-input)' }}>
@@ -778,6 +792,7 @@ export function GoalsPage() {
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pastExpanded, setPastExpanded] = useState(false)  // past cards collapsed by default
+  const [newPeriodPrompt, setNewPeriodPrompt] = useState(false)
   const { data: goals, isPending } = useGoals(horizon)
 
   // Reset when horizon changes
@@ -790,7 +805,12 @@ export function GoalsPage() {
   const seqOf = (g: Goal) => allSorted.findIndex(x => x.id === g.id) + 1
 
   const active = goals?.filter(g => g.status === 'active') ?? []
-  const past   = goals?.filter(g => g.status !== 'active') ?? []
+  // Most recent period first so the just-completed week is immediately visible
+  const past = [...(goals?.filter(g => g.status !== 'active') ?? [])].sort((a, b) => {
+    const da = (a.periodStart || a.createdAt).slice(0, 10)
+    const db = (b.periodStart || b.createdAt).slice(0, 10)
+    return db.localeCompare(da)
+  })
 
   return (
     <PageShell
@@ -841,7 +861,7 @@ export function GoalsPage() {
                       key={g.id}
                       goal={g}
                       seqNum={seqOf(g)}
-                      onCompleted={() => setCreating(true)}
+                      onCompleted={() => setNewPeriodPrompt(true)}
                     />
                   ))}
                 </div>
@@ -877,6 +897,31 @@ export function GoalsPage() {
 
       <GoalModal open={creating} onClose={() => setCreating(false)} horizon={horizon} />
       <GoalsSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {/* New period prompt — shown after completing a period */}
+      <Modal open={newPeriodPrompt} onClose={() => setNewPeriodPrompt(false)} title="Period Complete!" size="sm">
+        <div className="p-6 flex flex-col items-center gap-4 text-center">
+          <div className="w-14 h-14 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(52,211,153,0.12)', border: '2px solid rgba(52,211,153,0.35)' }}>
+            <CheckCircle2 size={30} style={{ color: 'var(--c-profit)' }} />
+          </div>
+          <div>
+            <p className="text-base font-bold mb-1" style={{ color: 'var(--c-text-1)' }}>
+              {horizon === 'weekly' ? 'Week' : horizon === 'monthly' ? 'Month' : horizon === 'yearly' ? 'Year' : 'Period'} archived successfully
+            </p>
+            <p className="text-sm" style={{ color: 'var(--c-text-3)' }}>
+              It's saved in your Past Periods. Would you like to set up goals for the next{' '}
+              {horizon === 'weekly' ? 'week' : horizon === 'monthly' ? 'month' : horizon === 'yearly' ? 'year' : 'period'}?
+            </p>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" onClick={() => setNewPeriodPrompt(false)}>Not now</Button>
+            <Button onClick={() => { setNewPeriodPrompt(false); setCreating(true) }}>
+              <Plus size={14} /> Set Up Next {horizon === 'weekly' ? 'Week' : horizon === 'monthly' ? 'Month' : horizon === 'yearly' ? 'Year' : 'Period'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </PageShell>
   )
 }

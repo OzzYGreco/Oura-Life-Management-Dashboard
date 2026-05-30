@@ -881,7 +881,7 @@ export function CalendarPage() {
                 className="rounded-xl p-3 cursor-pointer transition-all hover:scale-[1.01]"
                 onClick={() => { setSelDay(startOfMonth(monthDate)); setView('month') }}
                 style={{ background: isCurMo ? 'rgba(129,140,248,0.07)' : 'var(--c-bg-input)', border: isCurMo ? '1px solid rgba(129,140,248,0.3)' : '1px solid var(--c-border-subtle)' }}>
-                <h3 className="text-sm font-bold mb-2" style={{ color: isCurMo ? '#818cf8' : 'rgba(238,238,245,0.9)' }}>{format(monthDate, 'MMMM')}</h3>
+                <h3 className="text-sm font-bold mb-2" style={{ color: isCurMo ? '#818cf8' : 'var(--c-text-1)' }}>{format(monthDate, 'MMMM')}</h3>
                 <div className="grid grid-cols-7 gap-px mb-1">
                   {['M','T','W','T','F','S','S'].map((d, i) => (
                     <div key={i} className="text-center text-[9px] font-semibold" style={{ color: 'rgba(139,139,170,0.5)' }}>{d}</div>
@@ -898,7 +898,7 @@ export function CalendarPage() {
                         onClick={e => { e.stopPropagation(); setSelDay(day as Date); setView('day') }}
                         className="relative flex flex-col items-center justify-center rounded"
                         style={{ height: 22, background: isToday ? '#818cf8' : undefined }}>
-                        <span className="text-[10px] num" style={{ color: isToday ? 'white' : 'rgba(238,238,245,0.7)' }}>{format(day as Date, 'd')}</span>
+                        <span className="text-[10px] num" style={{ color: isToday ? 'white' : 'var(--c-text-1)' }}>{format(day as Date, 'd')}</span>
                         {hasAct && !isToday && (
                           <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
                             style={{ background: act.trades ? M.trading : act.workout ? M.fitness : act.goal ? M.goals : '#818cf8' }} />
