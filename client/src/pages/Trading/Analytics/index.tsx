@@ -204,7 +204,7 @@ function CalendarHeatmap({ trades }: { trades: Trade[] }) {
                   }}>
                     <div className="text-xs font-semibold num">{day}</div>
                     <div className="text-[11px] num font-medium mt-0.5">
-                      {r !== null ? `${r >= 0 ? '+' : ''}${r.toFixed(2)} R` : <span style={{ color: 'var(--c-text-3)' }}>—</span>}
+                      {r !== null ? `${r >= 0 ? '+' : ''}${r.toFixed(2)} R` : <span style={{ color: 'var(--c-text-3)' }}> - </span>}
                     </div>
                   </td>
                 )
@@ -262,7 +262,7 @@ function SystemPerformance({ trades, fmtView }: { trades: Trade[]; fmtView: (n: 
       }))
   }, [trades])
 
-  // Aggregate (all trades) — used by the '__ALL__' card
+  // Aggregate (all trades) - used by the '__ALL__' card
   const allEquityPts = useMemo(() => {
     let cum = 0
     return [0, ...[...trades]
@@ -347,7 +347,7 @@ function SystemPerformance({ trades, fmtView }: { trades: Trade[]; fmtView: (n: 
         </div>
         {detail.equity.length > 1 && (
           <Card className="p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--c-text-3)' }}>Equity — {selected}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--c-text-3)' }}>Equity - {selected}</div>
             <div className="h-36">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={detail.equity}>
@@ -688,14 +688,14 @@ export function TradingAnalytics({ accountId }: Props) {
                 {dow.map(d => (
                   <tr key={d.day} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: d.trades === 0 ? 0.35 : 1 }}>
                     <td className="py-1.5 text-center font-medium" style={{ color: 'var(--c-text-2)' }}>{d.day}</td>
-                    <td className="py-1.5 num text-center" style={{ color: 'var(--c-text-3)' }}>{d.trades || '—'}</td>
-                    <td className="py-1.5 num text-center" style={{ color: C.profit }}>{d.wins || '—'}</td>
-                    <td className="py-1.5 num text-center" style={{ color: C.loss }}>{d.losses || '—'}</td>
+                    <td className="py-1.5 num text-center" style={{ color: 'var(--c-text-3)' }}>{d.trades || ' - '}</td>
+                    <td className="py-1.5 num text-center" style={{ color: C.profit }}>{d.wins || ' - '}</td>
+                    <td className="py-1.5 num text-center" style={{ color: C.loss }}>{d.losses || ' - '}</td>
                     <td className="py-1.5 num text-center" style={{ color: d.trades ? (d.wins/d.trades >= 0.5 ? C.profit : C.loss) : 'var(--c-text-3)' }}>
-                      {d.trades ? `${(d.wins/d.trades*100).toFixed(0)}%` : '—'}
+                      {d.trades ? `${(d.wins/d.trades*100).toFixed(0)}%` : ' - '}
                     </td>
                     <td className="py-1.5 num text-center" style={{ color: rColor(d.r) }}>
-                      {d.trades ? fmtR(d.r) : '—'}
+                      {d.trades ? fmtR(d.r) : ' - '}
                     </td>
                   </tr>
                 ))}
@@ -746,21 +746,21 @@ export function TradingAnalytics({ accountId }: Props) {
                   return (
                     <tr key={m.month} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: m.trades === 0 ? 0.4 : 1 }}>
                       <td className="py-2 text-center font-semibold" style={{ color: 'var(--c-text-2)' }}>{m.month}</td>
-                      <td className="py-2 num text-center" style={{ color: 'var(--c-text-2)' }}>{m.trades || '—'}</td>
-                      <td className="py-2 num text-center" style={{ color: C.profit }}>{m.wins || '—'}</td>
-                      <td className="py-2 num text-center" style={{ color: C.loss }}>{m.losses || '—'}</td>
+                      <td className="py-2 num text-center" style={{ color: 'var(--c-text-2)' }}>{m.trades || ' - '}</td>
+                      <td className="py-2 num text-center" style={{ color: C.profit }}>{m.wins || ' - '}</td>
+                      <td className="py-2 num text-center" style={{ color: C.loss }}>{m.losses || ' - '}</td>
                       <td className="py-2 num text-center" style={{ color: m.trades ? (wr >= 0.5 ? C.profit : C.loss) : 'var(--c-text-3)' }}>
-                        {m.trades ? `${(wr * 100).toFixed(0)}%` : '—'}
+                        {m.trades ? `${(wr * 100).toFixed(0)}%` : ' - '}
                       </td>
                       <td className="py-2 num text-center">
                         {m.pnl !== 0 ? (
                           <span style={{ ...pnlCellBg(m.pnl), padding: '2px 8px', borderRadius: 6, display: 'inline-block' }}>
                             {fmtView(m.pnl)}
                           </span>
-                        ) : <span style={{ color: 'var(--c-text-3)' }}>—</span>}
+                        ) : <span style={{ color: 'var(--c-text-3)' }}> - </span>}
                       </td>
                       <td className="py-2 num text-center" style={{ color: m.r !== 0 ? rColor(m.r) : 'var(--c-text-3)' }}>
-                        {m.r !== 0 ? fmtR(m.r) : '—'}
+                        {m.r !== 0 ? fmtR(m.r) : ' - '}
                       </td>
                     </tr>
                   )
@@ -769,9 +769,9 @@ export function TradingAnalytics({ accountId }: Props) {
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--c-border)' }}>
                   <td className="py-2.5 text-center font-bold" style={{ color: 'var(--c-text-1)' }}>YTD {displayYear}</td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: 'var(--c-text-1)' }}>{annualTotals.trades || '—'}</td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: C.profit }}>{annualTotals.wins || '—'}</td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: C.loss }}>{annualTotals.losses || '—'}</td>
+                  <td className="py-2.5 num text-center font-bold" style={{ color: 'var(--c-text-1)' }}>{annualTotals.trades || ' - '}</td>
+                  <td className="py-2.5 num text-center font-bold" style={{ color: C.profit }}>{annualTotals.wins || ' - '}</td>
+                  <td className="py-2.5 num text-center font-bold" style={{ color: C.loss }}>{annualTotals.losses || ' - '}</td>
                   <td />
                   <td className="py-2.5 num text-center font-bold" style={{ color: annualTotals.pnl >= 0 ? C.profit : C.loss }}>
                     {fmtView(annualTotals.pnl)}

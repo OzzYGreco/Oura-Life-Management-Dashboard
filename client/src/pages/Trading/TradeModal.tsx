@@ -46,7 +46,7 @@ type FormValues = {
   tags: string[]
 }
 
-// Each entry leg (has SL — you move it when adding); TP legs don't
+// Each entry leg (has SL - you move it when adding); TP legs don't
 type EntryLeg = { price: string; size: string; sl: string }
 type TPLeg    = { price: string; size: string }
 
@@ -379,7 +379,7 @@ function SystemCombobox({ value, onChange, options }: {
   const handleDelete = (e: React.MouseEvent, label: string) => {
     e.stopPropagation()
     if (pending === label) {
-      // Second click — confirm delete
+      // Second click - confirm delete
       deleteLabel.mutate(label, {
         onSuccess: () => {
           if (value === label) onChange('')
@@ -438,7 +438,7 @@ function SystemCombobox({ value, onChange, options }: {
                     <span className="w-3 shrink-0">{isSelected && <Check size={12} />}</span>
                     <span className="truncate">{o}</span>
                   </button>
-                  {/* Delete button — single click arms it (red), second click confirms */}
+                  {/* Delete button - single click arms it (red), second click confirms */}
                   <button
                     type="button"
                     onClick={e => handleDelete(e, o)}
@@ -628,7 +628,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
     const validTPs = takeProfits.filter(t => parseFloat(t.price) > 0 && parseFloat(t.size) > 0)
 
     if (!validTPs.length) {
-      // No TP legs — check for manual exit price (SL hit / stopped out)
+      // No TP legs - check for manual exit price (SL hit / stopped out)
       const manualExit = parseFloat(exit_)
       if (!manualExit || manualExit <= 0) {
         return { avgEntry, totalSize, currentSL: isNaN(currentSL) ? null : currentSL, riskIfStop, hasTPData: false as const, hasExit: false as const }
@@ -712,7 +712,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
         const avgExit     = validTPs.reduce((s, t) => s + parseFloat(t.price) * parseFloat(t.size), 0) / totalTPSize
         payload.exitPrice = avgExit
       } else {
-        // SL hit — use manual exit price if provided
+        // SL hit - use manual exit price if provided
         payload.exitPrice = data.exitPrice ? parseFloat(data.exitPrice) : undefined
       }
 
@@ -875,7 +875,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                   ))}
                 </div>
                 {compoundedComputed && (
-                  <LegSummary highlight items={[
+                  <LegSummary items={[
                     { label: 'Avg Entry',   value: `$${fmt(compoundedComputed.avgEntry)}`, highlight: true },
                     { label: 'Total Size',  value: fmtSize(compoundedComputed.totalSize, instrument) },
                     ...(compoundedComputed.currentSL != null ? [
@@ -920,7 +920,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'rgba(248,113,113,0.7)' }}>SL Hit / Exit</span>
                   <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }} />
-                  <span className="text-[9px]" style={{ color: 'var(--c-text-3)' }}>Full position stopped out — leave blank when all size closed via TPs above</span>
+                  <span className="text-[9px]" style={{ color: 'var(--c-text-3)' }}>Full position stopped out - leave blank when all size closed via TPs above</span>
                 </div>
                 <Controller name="exitPrice" control={control} render={({ field }) => (
                   <PriceInput label="Exit Price (if stopped out)" placeholder="0.00" value={field.value} onChange={field.onChange} />
@@ -954,7 +954,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
             <Controller name="expectedLoss" control={control} render={({ field }) => (
               <PriceInput label="Expected Loss ($)" placeholder="0.00" value={field.value} onChange={field.onChange} />
             )} />
-            {/* Actual broker P&L — shown for both simple and compounded trades */}
+            {/* Actual broker P&L - shown for both simple and compounded trades */}
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>
                 Actual P&L (broker)

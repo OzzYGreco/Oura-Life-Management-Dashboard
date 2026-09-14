@@ -5,7 +5,7 @@ import { eq, sql } from 'drizzle-orm'
 
 const router = Router()
 
-// GET / — list all accounts with trade count
+// GET / - list all accounts with trade count
 router.get('/', async (req, res, next) => {
   try {
     const rows = await db.select({
@@ -26,7 +26,7 @@ router.get('/', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// POST / — create account
+// POST / - create account
 router.post('/', async (req, res, next) => {
   try {
     const { name, broker, currency, startingBalance, notes } = req.body
@@ -41,7 +41,7 @@ router.post('/', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// PUT /:id — update account
+// PUT /:id - update account
 router.put('/:id', async (req, res, next) => {
   try {
     const { name, broker, currency, startingBalance, notes } = req.body
@@ -60,7 +60,7 @@ router.put('/:id', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// DELETE /:id — block if account has trades
+// DELETE /:id - block if account has trades
 router.delete('/:id', async (req, res, next) => {
   try {
     const existing = await db.select({ id: trades.id })

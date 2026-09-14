@@ -107,7 +107,7 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
 
   const isPending = create.isPending || update.isPending || deleteMut.isPending
 
-  // Inlined form JSX — NOT a component, so typing never causes unmount
+  // Inlined form JSX - NOT a component, so typing never causes unmount
   const formJsx = (
     <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.18)' }}>
       <div className="grid grid-cols-2 gap-3">

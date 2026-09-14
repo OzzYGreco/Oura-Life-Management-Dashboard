@@ -9,6 +9,8 @@ const uploadsBase = path.join(__dirname, '../uploads')
 for (const dir of ['screenshots', 'note-images']) {
   fs.mkdirSync(path.join(uploadsBase, dir), { recursive: true })
 }
+import { startAdSpendSchedule } from './lib/adSpendSync'
+import { startStripeSchedule } from './lib/stripeSync'
 import tradesRouter from './routes/trades'
 import tradingAccountsRouter from './routes/tradingAccounts'
 import checklistsRouter from './routes/checklists'
@@ -43,6 +45,9 @@ app.use('/api/notes', notesRouter)
 app.use('/api/dashboard', dashboardRouter)
 
 app.use(errorHandler)
+
+startAdSpendSchedule()
+startStripeSchedule()
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`)

@@ -8,12 +8,12 @@ import_trades.py
 import_*.py
 seed_*.py
 
-# Database files — keep the directory itself (tracked via .gitkeep)
+# Database files - keep the directory itself (tracked via .gitkeep)
 server/data/*.db
 server/data/*.db-shm
 server/data/*.db-wal
 
-# Uploaded user files — keep the top-level directory (tracked via .gitkeep)
+# Uploaded user files - keep the top-level directory (tracked via .gitkeep)
 # Subdirectories (screenshots/, note-images/) are created by the server on startup
 server/uploads/*
 !server/uploads/.gitkeep

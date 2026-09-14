@@ -46,7 +46,7 @@ router.put('/templates/:id', async (req, res, next) => {
 router.delete('/templates/:id', async (req, res, next) => {
   try {
     const id = parseInt(req.params.id)
-    // Must delete child rows first — FK is ON DELETE NO ACTION
+    // Must delete child rows first - FK is ON DELETE NO ACTION
     // 1. entry items cascade-delete when their entry is deleted
     const entries = await db.select().from(checklistEntries).where(eq(checklistEntries.templateId, id))
     for (const e of entries) {
@@ -135,7 +135,7 @@ router.get('/entries', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// Ad-hoc entry — create or reuse the templateless entry for a date, batch-add items
+// Ad-hoc entry - create or reuse the templateless entry for a date, batch-add items
 router.post('/entries/adhoc', async (req, res, next) => {
   try {
     const { date, items } = req.body as { date: string; items: { label: string; time?: string; importance?: string }[] }
@@ -176,7 +176,7 @@ router.delete('/entries/:entryId/items/:itemId', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// Archive — move all currently-completed (non-archived) items to the archived section
+// Archive - move all currently-completed (non-archived) items to the archived section
 router.delete('/entries/:entryId/completed', async (req, res, next) => {
   try {
     const entryId = parseInt(req.params.entryId)
@@ -202,7 +202,7 @@ router.put('/entries/:entryId/items/:itemId', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// Per-task streaks — consecutive days where each individual item was completed
+// Per-task streaks - consecutive days where each individual item was completed
 router.get('/task-streaks', async (_req, res, next) => {
   try {
     const entries = await db.select().from(checklistEntries)
@@ -235,7 +235,7 @@ router.get('/task-streaks', async (_req, res, next) => {
         } else if (completed) {
           streak++
         } else {
-          // Entry exists but not completed — break
+          // Entry exists but not completed - break
           if (i === 0) streak = 0
           else break
         }
@@ -249,7 +249,7 @@ router.get('/task-streaks', async (_req, res, next) => {
   } catch (e) { next(e) }
 })
 
-// Streaks — consecutive days where each template was 100% completed
+// Streaks - consecutive days where each template was 100% completed
 // Days with no entry (template disabled/paused) are skipped, not counted against the streak
 router.get('/streaks', async (_req, res, next) => {
   try {
@@ -283,13 +283,13 @@ router.get('/streaks', async (_req, res, next) => {
         const day = dateMap[dateStr]
 
         if (!day) {
-          // No entry = paused/disabled day, neutral — don't count, don't break
+          // No entry = paused/disabled day, neutral - don't count, don't break
         } else if (day.total > 0 && day.done === day.total) {
           // Fully completed
           current++
           if (current > longest) longest = current
         } else {
-          // Entry exists but not complete — break current run
+          // Entry exists but not complete - break current run
           if (i === 0) { current = 0 } // today incomplete: streak = 0
           else break
         }

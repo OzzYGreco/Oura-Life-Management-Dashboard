@@ -78,7 +78,7 @@ function computeStreak(workouts: any[]): number {
   for (const d of days) {
     if (d === cursor) {
       streak++
-      const prev = new Date(cursor + 'T00:00:00')
+      const prev: Date = new Date(cursor + 'T00:00:00')
       prev.setDate(prev.getDate() - 1)
       cursor = prev.toISOString().split('T')[0]
     } else break
@@ -1052,7 +1052,7 @@ function ProgressTab() {
                     tickFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { month: 'short', day: 'numeric' })} />
                   <YAxis tick={tickStyle} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
                   <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: '#eeeef5' }}
-                    formatter={(v: any, name: string) => [name === 'maxWeight' ? `${v} kg` : `${v} kg`, name === 'maxWeight' ? 'Max weight' : 'Volume']} />
+                    formatter={((v: any, name: any) => [`${v} kg`, name === 'maxWeight' ? 'Max weight' : 'Volume']) as any} />
                   <Line type="monotone" dataKey="maxWeight" stroke="#fbbf24" strokeWidth={2.5} dot={{ fill: '#fbbf24', r: 4, strokeWidth: 0 }} activeDot={{ r: 6 }} name="maxWeight" />
                 </LineChart>
               </ResponsiveContainer>

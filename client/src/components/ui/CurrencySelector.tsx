@@ -2,7 +2,7 @@ import { useViewCurrency, type ViewCurrency } from '../../hooks/useViewCurrency'
 import { useCurrencyRates } from '../../hooks/useCurrencyRates'
 
 interface Props {
-  /** Page key — keeps each page's selection independent */
+  /** Page key - keeps each page's selection independent */
   pageKey: string
   /** Default currency shown on first visit (should match the page's native currency) */
   defaultCurrency?: ViewCurrency

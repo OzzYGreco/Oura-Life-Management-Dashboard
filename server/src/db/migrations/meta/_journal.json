@@ -29,6 +29,55 @@
       "when": 1748476800000,
       "tag": "0003_recently_deleted",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787864388087,
+      "tag": "0004_business_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1787864388088,
+      "tag": "0005_owner_pay",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787864388089,
+      "tag": "0006_daily_ad_spend",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787864388090,
+      "tag": "0007_recurring_amount",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787864388091,
+      "tag": "0008_stripe_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787864388092,
+      "tag": "0009_payment_covers",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1787864388093,
+      "tag": "0010_payment_method",
+      "breakpoints": true
     }
   ]
 }

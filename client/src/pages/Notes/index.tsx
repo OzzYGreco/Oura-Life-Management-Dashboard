@@ -276,7 +276,7 @@ function NoteItem({ note, active, selectMode, checked, folderColor, folders, onS
         )}
       </div>
 
-      {/* Action menu — hidden in select mode */}
+      {/* Action menu - hidden in select mode */}
       {!selectMode && <NoteMenu note={note} folders={folders}
         onTogglePin={onTogglePin} onDelete={onDelete}
         onDuplicate={onDuplicate} onCopyToClipboard={onCopyToClipboard}
@@ -334,7 +334,7 @@ function NoteMenu({ note, folders, onTogglePin, onDelete, onDuplicate, onCopyToC
 
   return (
     <div ref={menuRef} className="absolute right-1.5 top-2 z-10">
-      {/* Trigger — visible on group hover OR when menu is open */}
+      {/* Trigger - visible on group hover OR when menu is open */}
       <button
         onClick={e => { e.stopPropagation(); setOpen(v => !v); setShowFolders(false); setConfirmDelete(false) }}
         className={`p-1 rounded transition-all ${open ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
@@ -382,7 +382,7 @@ function NoteMenu({ note, folders, onTogglePin, onDelete, onDuplicate, onCopyToC
 
               <MenuDivider />
 
-              {/* Move to folder — expands inline */}
+              {/* Move to folder - expands inline */}
               <button
                 onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setShowFolders(v => !v) }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 mx-1 text-xs font-medium transition-colors text-left rounded-lg"
@@ -749,7 +749,7 @@ export function NotesPage() {
             style={{ paddingLeft: `${indent + 4}px`, background: isActive ? color + '18' : 'transparent' }}
             onClick={() => { setActiveFolderId(node.id); exitSelect(); switchFromTrash() }}>
 
-            {/* Expand/collapse chevron — space reserved even when no children so dots align */}
+            {/* Expand/collapse chevron - space reserved even when no children so dots align */}
             <button
               onClick={e => { e.stopPropagation(); if (hasChildren) toggleCollapse(node.id) }}
               className="p-0.5 rounded flex-shrink-0 transition-colors"
@@ -768,7 +768,7 @@ export function NotesPage() {
               {node.name}
             </span>
 
-            {/* Count — hidden on hover, replaced by actions */}
+            {/* Count - hidden on hover, replaced by actions */}
             <span className="text-[10px] opacity-50 group-hover:hidden flex-shrink-0">{node.noteCount}</span>
 
             {/* Hover actions */}
@@ -796,7 +796,7 @@ export function NotesPage() {
           </div>
         )}
 
-        {/* Children — hidden when collapsed */}
+        {/* Children - hidden when collapsed */}
         {!isCollapsed && node.children.map(child => renderFolder(child, depth + 1))}
       </div>
     )
@@ -1038,7 +1038,7 @@ export function NotesPage() {
                     ))}
                   </div>
 
-                /* Default action buttons — two rows */
+                /* Default action buttons - two rows */
                 ) : (
                   <div className="space-y-1.5">
                     {/* Row 1: Pin · Unpin · Copy to clipboard */}

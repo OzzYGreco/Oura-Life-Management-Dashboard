@@ -44,7 +44,7 @@ export function parseItemTime(timeStr: string): Date | null {
 }
 
 // ─── Notification chime ───────────────────────────────────────────────────────
-// Two-tone bell generated via Web Audio API — no audio file required.
+// Two-tone bell generated via Web Audio API - no audio file required.
 function playChime() {
   try {
     const ctx = new AudioContext()
@@ -62,7 +62,7 @@ function playChime() {
       osc.stop(startTime + 0.6)
     }
     ping(880,  ctx.currentTime)         // A5
-    ping(1109, ctx.currentTime + 0.18)  // C#6 — major third above
+    ping(1109, ctx.currentTime + 0.18)  // C#6 - major third above
     setTimeout(() => ctx.close(), 1500)
   } catch { /* AudioContext blocked or unsupported */ }
 }

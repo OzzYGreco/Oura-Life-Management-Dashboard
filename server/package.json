@@ -3,10 +3,16 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "build": "tsc",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "test:meta": "tsx --env-file-if-exists=.env scripts/test-meta.ts",
+    "test:stripe": "tsx --env-file-if-exists=.env scripts/test-stripe.ts",
+    "audit": "tsx --env-file-if-exists=.env scripts/audit.ts",
+    "simulate": "tsx --env-file-if-exists=.env scripts/simulate.ts",
+    "test:generator": "tsx scripts/test-generator.ts"
   },
   "dependencies": {
     "express": "^4.21.0",

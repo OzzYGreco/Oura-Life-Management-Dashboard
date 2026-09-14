@@ -87,7 +87,7 @@ export const checklistTemplateItems = sqliteTable('checklist_template_items', {
 
 export const checklistEntries = sqliteTable('checklist_entries', {
   id:         integer('id').primaryKey({ autoIncrement: true }),
-  templateId: integer('template_id').references(() => checklistTemplates.id),   // nullable — null = ad-hoc entry
+  templateId: integer('template_id').references(() => checklistTemplates.id),   // nullable - null = ad-hoc entry
   date:       text('date').notNull(),
   createdAt:  text('created_at').notNull().default(sql`(datetime('now'))`),
 })
@@ -95,7 +95,7 @@ export const checklistEntries = sqliteTable('checklist_entries', {
 export const checklistEntryItems = sqliteTable('checklist_entry_items', {
   id:             integer('id').primaryKey({ autoIncrement: true }),
   entryId:        integer('entry_id').notNull().references(() => checklistEntries.id, { onDelete: 'cascade' }),
-  templateItemId: integer('template_item_id').references(() => checklistTemplateItems.id),  // nullable — null = ad-hoc item
+  templateItemId: integer('template_item_id').references(() => checklistTemplateItems.id),  // nullable - null = ad-hoc item
   label:          text('label'),       // used when templateItemId is null
   time:           text('time'),        // used when templateItemId is null
   importance:     text('importance'),  // used when templateItemId is null
@@ -174,7 +174,14 @@ export const financeExpenses = sqliteTable('finance_expenses', {
   notes:              text('notes'),
   recurringParentId:  integer('recurring_parent_id'),
   lastGeneratedDate:  text('last_generated_date'),
+  // Business cost attribution - lets a business expense be tied to the client
+  // or project it was incurred for, which is what makes per-client margin work.
+  clientId:           integer('client_id'),
+  projectId:          integer('project_id'),
+  vendor:             text('vendor'),
   createdAt:          text('created_at').notNull().default(sql`(datetime('now'))`),
+  /** The going-forward price when it differs from what this row charged. */
+  recurringAmount: real('recurring_amount'),
 })
 
 export const financeNetWorthSnapshots = sqliteTable('finance_net_worth_snapshots', {
@@ -195,6 +202,22 @@ export const financeBudgets = sqliteTable('finance_budgets', {
 
 // ─── BUSINESS ────────────────────────────────────────────────────────────────
 
+export const businessServices = sqliteTable('business_services', {
+  id:               integer('id').primaryKey({ autoIncrement: true }),
+  name:             text('name').notNull(),
+  kind:             text('kind').notNull().default('one_off'),   // 'one_off' | 'recurring'
+  defaultAmount:    real('default_amount'),
+  defaultFrequency: text('default_frequency'),                    // recurring only
+  /** One-off packages bill in milestones, e.g. [{label:'Deposit',pct:50},…] */
+  milestones:       text('milestones', { mode: 'json' }).$type<{ label: string; pct: number; offsetDays?: number }[]>(),
+  defaultTermDays:  integer('default_term_days').notNull().default(7),
+  color:            text('color'),
+  active:           integer('active').notNull().default(1),
+  sortOrder:        integer('sort_order').notNull().default(0),
+  notes:            text('notes'),
+  createdAt:        text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
 export const businessClients = sqliteTable('business_clients', {
   id:        integer('id').primaryKey({ autoIncrement: true }),
   name:      text('name').notNull(),
@@ -203,8 +226,19 @@ export const businessClients = sqliteTable('business_clients', {
   company:   text('company'),
   website:   text('website'),
   notes:     text('notes'),
-  status:    text('status').notNull().default('active'),
+  status:    text('status').notNull().default('active'),   // 'lead' | 'active' | 'churned' | 'inactive'
+  source:      text('source'),                              // 'meta' | 'tiktok' | 'referral' | 'organic' | 'outbound' | 'other'
+  campaignId:  integer('campaign_id'),
+  wonDate:     text('won_date'),                            // first became a paying client
+  churnedAt:   text('churned_at'),
+  vatNumber:   text('vat_number'),
+  addressLine: text('address_line'),
+  city:        text('city'),
+  postcode:    text('postcode'),
+  country:     text('country'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  /** Learned the first time a payment is matched; certain for every one after. */
+  stripeCustomerId: text('stripe_customer_id'),
 })
 
 export const businessProjects = sqliteTable('business_projects', {
@@ -217,6 +251,10 @@ export const businessProjects = sqliteTable('business_projects', {
   dueDate:     text('due_date'),
   value:       real('value'),
   link:        text('link'),
+  serviceId:      integer('service_id'),
+  stage:          text('stage').notNull().default('discovery'), // discovery|design|build|review|launched
+  launchedDate:   text('launched_date'),
+  estimatedHours: real('estimated_hours'),
   createdAt:   text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:   text('updated_at').notNull().default(sql`(datetime('now'))`),
 })
@@ -243,11 +281,150 @@ export const businessInvoices = sqliteTable('business_invoices', {
   dueDate:           text('due_date').notNull(),
   paidDate:          text('paid_date'),
   notes:             text('notes'),
+  // `amount` is the GROSS total (incl. tax). Net received = amount - feeAmount - refundedAmount.
+  subtotal:          real('subtotal'),
+  taxRate:           real('tax_rate').notNull().default(0),
+  taxAmount:         real('tax_amount').notNull().default(0),
+  feeAmount:         real('fee_amount').notNull().default(0),        // payment-processor fee
+  refundedAmount:    real('refunded_amount').notNull().default(0),
+  currency:          text('currency').notNull().default('GBP'),
+  retainerId:        integer('retainer_id'),
+  serviceId:         integer('service_id'),
+  milestoneLabel:    text('milestone_label'),                        // 'Deposit' | 'Presentation' | 'Launch'
+  periodStart:       text('period_start'),                           // retainer billing period
+  periodEnd:         text('period_end'),
+  sentDate:          text('sent_date'),
+  // ── Legacy recurring-template columns. Superseded by businessRetainers;
+  //    kept so historical rows stay readable.
   isRecurring:       integer('is_recurring').notNull().default(0),
   frequency:         text('frequency'),
   recurringParentId: integer('recurring_parent_id'),
   lastGeneratedDate: text('last_generated_date'),
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
+  /** 'stripe' | 'bank'. Null means nobody has said how it was paid. */
+  paymentMethod:  text('payment_method'),
+})
+
+export const businessRetainers = sqliteTable('business_retainers', {
+  id:                integer('id').primaryKey({ autoIncrement: true }),
+  clientId:          integer('client_id').notNull().references(() => businessClients.id),
+  serviceId:         integer('service_id').references(() => businessServices.id),
+  name:              text('name').notNull(),
+  amount:            real('amount').notNull(),
+  currency:          text('currency').notNull().default('GBP'),
+  frequency:         text('frequency').notNull().default('monthly'),
+  startDate:         text('start_date').notNull(),
+  endDate:           text('end_date'),                            // null = ongoing
+  status:            text('status').notNull().default('active'),  // 'active' | 'paused' | 'cancelled'
+  cancelReason:      text('cancel_reason'),
+  cancelledAt:       text('cancelled_at'),
+  netTermDays:       integer('net_term_days').notNull().default(0),
+  autoInvoice:       integer('auto_invoice').notNull().default(1),
+  lastGeneratedDate: text('last_generated_date'),
+  nextInvoiceDate:   text('next_invoice_date'),
+  notes:             text('notes'),
+  createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt:         text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
+/** Price history - this is what makes expansion / contraction MRR computable. */
+export const businessRetainerChanges = sqliteTable('business_retainer_changes', {
+  id:            integer('id').primaryKey({ autoIncrement: true }),
+  retainerId:    integer('retainer_id').notNull().references(() => businessRetainers.id, { onDelete: 'cascade' }),
+  effectiveDate: text('effective_date').notNull(),
+  oldAmount:     real('old_amount').notNull(),
+  newAmount:     real('new_amount').notNull(),
+  reason:        text('reason'),
+  createdAt:     text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const businessInvoiceItems = sqliteTable('business_invoice_items', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  invoiceId:   integer('invoice_id').notNull().references(() => businessInvoices.id, { onDelete: 'cascade' }),
+  description: text('description').notNull(),
+  quantity:    real('quantity').notNull().default(1),
+  unitPrice:   real('unit_price').notNull(),
+  amount:      real('amount').notNull(),
+  taxRate:     real('tax_rate').notNull().default(0),
+  sortOrder:   integer('sort_order').notNull().default(0),
+})
+
+/**
+ * The partners. A draw is a share of profit, so owner pay never touches
+ * finance_expenses and never reduces net profit.
+ */
+/**
+ * One row per campaign per day. Where these exist they are the truth; where
+ * they do not, spend is still pro-rated from the campaign's lifetime total.
+ */
+export const marketingSpendDaily = sqliteTable('marketing_spend_daily', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  campaignId:  integer('campaign_id').notNull().references(() => marketingCampaigns.id, { onDelete: 'cascade' }),
+  date:        text('date').notNull(),
+  spend:       real('spend').notNull(),
+  impressions: integer('impressions'),
+  clicks:      integer('clicks'),
+  leads:       integer('leads'),
+  /** 'manual' when typed in, otherwise the platform it came from. */
+  source:      text('source').notNull().default('manual'),
+  syncedAt:    text('synced_at'),
+  createdAt:   text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+/**
+ * Payments as Stripe reports them. Stored whether or not they match an invoice,
+ * so money that arrived is never invisible because the payer name was generic.
+ */
+export const stripePayments = sqliteTable('stripe_payments', {
+  id:                integer('id').primaryKey({ autoIncrement: true }),
+  stripeId:          text('stripe_id').notNull(),
+  paymentIntentId:   text('payment_intent_id'),
+  stripeCustomerId:  text('stripe_customer_id'),
+  stripeInvoiceId:   text('stripe_invoice_id'),
+  amountGross:       real('amount_gross').notNull(),
+  fee:               real('fee').notNull().default(0),
+  amountNet:         real('amount_net').notNull(),
+  refunded:          real('refunded').notNull().default(0),
+  currency:          text('currency').notNull().default('GBP'),
+  paidDate:          text('paid_date').notNull(),
+  payerName:         text('payer_name'),
+  payerEmail:        text('payer_email'),
+  description:       text('description'),
+  status:            text('status').notNull().default('succeeded'),
+  matchedInvoiceId:  integer('matched_invoice_id').references(() => businessInvoices.id),
+  matchedClientId:   integer('matched_client_id').references(() => businessClients.id),
+  /** 'exact' | 'high' | 'low' | 'none' */
+  confidence:        text('confidence').notNull().default('none'),
+  matchReason:       text('match_reason'),
+  /** JSON array of ids when one payment settled several invoices. */
+  coversInvoiceIds:  text('covers_invoice_ids'),
+  matchedAt:         text('matched_at'),
+  ignored:           integer('ignored').notNull().default(0),
+  syncedAt:          text('synced_at'),
+  createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const businessOwners = sqliteTable('business_owners', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  name:      text('name').notNull(),
+  sharePct:  real('share_pct').notNull().default(0),
+  active:    integer('active').notNull().default(1),
+  sortOrder: integer('sort_order').notNull().default(0),
+  notes:     text('notes'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const businessOwnerDraws = sqliteTable('business_owner_draws', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  ownerId:   integer('owner_id').notNull().references(() => businessOwners.id, { onDelete: 'cascade' }),
+  amount:    real('amount').notNull(),
+  currency:  text('currency').notNull().default('GBP'),
+  date:      text('date').notNull(),
+  method:    text('method'),
+  notes:     text('notes'),
+  /** Set when the draw was also posted to the personal Finances ledger. */
+  financeIncomeId: integer('finance_income_id'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 })
 
 export const businessTimeEntries = sqliteTable('business_time_entries', {
@@ -283,6 +460,10 @@ export const marketingCampaigns = sqliteTable('marketing_campaigns', {
   endDate:       text('end_date'),
   status:        text('status').notNull().default('active'), // 'active' | 'paused' | 'completed'
   notes:         text('notes'),
+  /** Which platform to pull daily spend from, and what it is called there. */
+  externalSource: text('external_source'),
+  externalId:     text('external_id'),
+  lastSyncedAt:   text('last_synced_at'),
   createdAt:     text('created_at').notNull().default(sql`(datetime('now'))`),
 })
 

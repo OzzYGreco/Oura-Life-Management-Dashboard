@@ -30,7 +30,7 @@ export function TopBar() {
     return () => clearInterval(t)
   }, [])
 
-  // Click-outside — check both the button and the portal popover
+  // Click-outside - check both the button and the portal popover
   useEffect(() => {
     if (!showConverter) return
     const handler = (e: MouseEvent) => {
@@ -104,7 +104,7 @@ export function TopBar() {
         </button>
       </div>
 
-      {/* Portal — renders directly on document.body, outside all stacking contexts */}
+      {/* Portal - renders directly on document.body, outside all stacking contexts */}
       {showConverter && createPortal(
         <div
           ref={popoverRef}

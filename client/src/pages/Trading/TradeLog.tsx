@@ -119,7 +119,7 @@ export function TradeLog({ accountId, defaultAccountId }: Props) {
                   <td className="px-3 py-2.5 font-medium text-text-primary">
                     <span className="flex items-center gap-1.5">
                       {t.isCompounded ? (
-                        <Layers size={10} title="Compounded trade" style={{ color: '#fbbf24', flexShrink: 0 }} />
+                        <Layers size={10} aria-label="Compounded trade" style={{ color: '#fbbf24', flexShrink: 0 }} />
                       ) : null}
                       {t.asset}
                     </span>
