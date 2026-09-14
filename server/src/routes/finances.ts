@@ -3,6 +3,10 @@ import { db } from '../db'
 import { financeAccounts, financeIncome, financeExpenses, financeNetWorthSnapshots, financeBudgets, trades, businessInvoices } from '../db/schema'
 import { eq, and, gte, lte, sum, isNull, ne } from 'drizzle-orm'
 import { localToday } from '../lib/date'
+// Business metrics read finance_expenses and finance_income directly, so a
+// write here has to drop that cache or the Business tab shows figures that
+// are up to fifteen seconds old and appear not to have saved.
+import { invalidateBusinessData } from '../lib/businessMetrics'
 
 const router = Router()
 
@@ -83,7 +87,10 @@ export async function materializeRecurring(): Promise<void> {
       safety++
       await db.insert(financeExpenses).values({
         description:       t.description,
-        amount:            t.amount,
+        // The going-forward price where one was set, otherwise what the
+        // template itself charged. Never `t.amount` alone: that is the figure
+        // paid on the template's own date, and a price rise must not rewrite it.
+        amount:            t.recurringAmount ?? t.amount,
         category:          t.category,
         date:              cursor,
         accountId:         t.accountId,
@@ -91,6 +98,12 @@ export async function materializeRecurring(): Promise<void> {
         frequency:         t.frequency,
         notes:             t.notes,
         recurringParentId: t.id,
+        // These three were being dropped, so every time a client's domain or
+        // mailbox renewed the new row came back as an unattributed overhead.
+        // Per-client margin quietly drifted up and overheads drifted down.
+        clientId:          t.clientId,
+        projectId:         t.projectId,
+        vendor:            t.vendor,
       })
       newLast = cursor
       cursor  = advanceDate(cursor, t.frequency)
@@ -195,14 +208,23 @@ router.post('/income', async (req, res, next) => {
     const row = (await db.insert(financeIncome).values(req.body).returning())[0]
     // If the new entry is recurring, allow materialization on the very next fetch
     if (req.body.frequency && req.body.frequency !== 'one-time') lastMaterializedAt = 0
+    invalidateBusinessData()
     res.status(201).json(row)
   } catch (e) { next(e) }
 })
 router.put('/income/:id', async (req, res, next) => {
-  try { res.json((await db.update(financeIncome).set(req.body).where(eq(financeIncome.id, parseInt(req.params.id))).returning())[0]) } catch (e) { next(e) }
+  try {
+    const row = (await db.update(financeIncome).set(req.body).where(eq(financeIncome.id, parseInt(req.params.id))).returning())[0]
+    invalidateBusinessData()
+    res.json(row)
+  } catch (e) { next(e) }
 })
 router.delete('/income/:id', async (req, res, next) => {
-  try { await db.delete(financeIncome).where(eq(financeIncome.id, parseInt(req.params.id))); res.status(204).send() } catch (e) { next(e) }
+  try {
+    await db.delete(financeIncome).where(eq(financeIncome.id, parseInt(req.params.id)))
+    invalidateBusinessData()
+    res.status(204).send()
+  } catch (e) { next(e) }
 })
 
 // ─── Expenses ─────────────────────────────────────────────────────────────────
@@ -225,14 +247,86 @@ router.post('/expenses', async (req, res, next) => {
     const row = (await db.insert(financeExpenses).values(req.body).returning())[0]
     // If the new entry is recurring, allow materialization on the very next fetch
     if (req.body.isRecurring) lastMaterializedAt = 0
+    invalidateBusinessData()
     res.status(201).json(row)
   } catch (e) { next(e) }
 })
 router.put('/expenses/:id', async (req, res, next) => {
-  try { res.json((await db.update(financeExpenses).set(req.body).where(eq(financeExpenses.id, parseInt(req.params.id))).returning())[0]) } catch (e) { next(e) }
+  try {
+    const row = (await db.update(financeExpenses).set(req.body).where(eq(financeExpenses.id, parseInt(req.params.id))).returning())[0]
+    invalidateBusinessData()
+    res.json(row)
+  } catch (e) { next(e) }
 })
+/**
+ * Change what a recurring cost costs.
+ *
+ * A plain PUT on one charge only ever edited that charge. The template it was
+ * generated from kept the old amount, so the next month regenerated at the old
+ * price and the correction silently undid itself. Localo went from 58.80 to
+ * 130.80 on the August charge and September was still going to bill 58.80.
+ *
+ * `scope` says what the new price means:
+ *   this   - a correction to this one charge, the ongoing price is unchanged
+ *   future - the price has changed; from now on it costs this. History stands.
+ *   all    - it always cost this and the earlier rows were wrong
+ */
+router.put('/expenses/:id/price', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id)
+    const newAmount = Number(req.body?.newAmount)
+    const scope: 'this' | 'future' | 'all' = req.body?.scope ?? 'future'
+
+    if (!Number.isFinite(newAmount) || newAmount < 0) {
+      return res.status(400).json({ error: 'newAmount must be a number' })
+    }
+
+    const [row] = await db.select().from(financeExpenses).where(eq(financeExpenses.id, id))
+    if (!row) return res.status(404).json({ error: 'No such cost' })
+
+    const templateId = row.recurringParentId ?? row.id
+    const updated: number[] = []
+
+    // The edited charge always takes the new figure.
+    await db.update(financeExpenses).set({ amount: newAmount }).where(eq(financeExpenses.id, id))
+    updated.push(id)
+
+    if (scope === 'future') {
+      // `recurringAmount`, not `amount`: the template row is also a real charge
+      // on its own date, and that charge is history.
+      await db.update(financeExpenses)
+        .set({ recurringAmount: newAmount })
+        .where(eq(financeExpenses.id, templateId))
+      if (templateId !== id) updated.push(templateId)
+    }
+
+    if (scope === 'all') {
+      await db.update(financeExpenses)
+        .set({ amount: newAmount, recurringAmount: null })
+        .where(eq(financeExpenses.id, templateId))
+      if (templateId !== id) updated.push(templateId)
+
+      const children = await db.select().from(financeExpenses)
+        .where(eq(financeExpenses.recurringParentId, templateId))
+      for (const c of children) {
+        if (c.id === id) continue
+        await db.update(financeExpenses).set({ amount: newAmount }).where(eq(financeExpenses.id, c.id))
+        updated.push(c.id)
+      }
+    }
+
+    const [after] = await db.select().from(financeExpenses).where(eq(financeExpenses.id, templateId))
+    invalidateBusinessData()
+    res.json({ scope, newAmount, updatedIds: updated, template: after })
+  } catch (e) { next(e) }
+})
+
 router.delete('/expenses/:id', async (req, res, next) => {
-  try { await db.delete(financeExpenses).where(eq(financeExpenses.id, parseInt(req.params.id))); res.status(204).send() } catch (e) { next(e) }
+  try {
+    await db.delete(financeExpenses).where(eq(financeExpenses.id, parseInt(req.params.id)))
+    invalidateBusinessData()
+    res.status(204).send()
+  } catch (e) { next(e) }
 })
 
 // ─── Budgets ──────────────────────────────────────────────────────────────────

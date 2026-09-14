@@ -2,12 +2,13 @@ import { Router } from 'express'
 import { db } from '../db'
 import {
   trades, checklistEntries, checklistEntryItems, checklistTemplateItems,
-  goals, businessInvoices, businessClients,
+  goals,
   calendarEvents, trainingWorkouts, financeExpenses,
   financeIncome, marketingCampaigns,
 } from '../db/schema'
 import { eq, and, gte, lte, desc, ne } from 'drizzle-orm'
 import { localToday, localDateStr } from '../lib/date'
+import { businessDashboardSummary } from '../lib/businessMetrics'
 
 const router = Router()
 
@@ -72,7 +73,7 @@ router.get('/summary', async (req, res, next) => {
       completedItems += items.filter(i => i.completed || i.archived).length
       items.filter(i => !i.archived).forEach(i => {
         const tmpl = allTemplateItems.find(t => t.id === i.templateItemId)
-        checklistItems.push({ entryId: entry.id, itemId: i.id, title: tmpl?.label ?? '—', completed: !!i.completed, time: tmpl?.time ?? null })
+        checklistItems.push({ entryId: entry.id, itemId: i.id, title: tmpl?.label ?? ' - ', completed: !!i.completed, time: tmpl?.time ?? null })
       })
     }
 
@@ -80,19 +81,15 @@ router.get('/summary', async (req, res, next) => {
     const activeGoals = await db.select().from(goals).where(eq(goals.status, 'active')).limit(5)
 
     // ── Business ──────────────────────────────────────────────────────────
-    const allInvoices   = await db.select().from(businessInvoices)
-    const allClients    = await db.select().from(businessClients)
-    const paidAll       = allInvoices.filter(i => i.status === 'paid')
-    const paidMTD       = paidAll.filter(i => (i.paidDate ?? i.issueDate) >= monthStart && (i.paidDate ?? i.issueDate) <= monthEnd)
-    const outstanding   = allInvoices.filter(i => ['unpaid','overdue'].includes(i.status))
-    const totalRevenue  = paidAll.reduce((s, i) => s + i.amount, 0)
-    const revenueMTD    = paidMTD.reduce((s, i) => s + i.amount, 0)
-    const outstandingAmt= outstanding.reduce((s, i) => s + i.amount, 0)
-    const activeClients = allClients.filter(c => c.status === 'active').length
-
-    // Next due invoice
-    const nextDue = outstanding
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0] ?? null
+    // One engine, shared with the Business tab. This panel used to compute its
+    // own net profit as revenue minus ad spend, which ignored every business
+    // expense and disagreed with the Business tab by the whole expense total.
+    const biz = await businessDashboardSummary(date)
+    const totalRevenue   = biz.totalRevenue
+    const revenueMTD     = biz.collectedMTD
+    const outstandingAmt = biz.outstanding
+    const activeClients  = biz.activeClients
+    const nextDue        = biz.nextDue
 
     // ── Finance ───────────────────────────────────────────────────────────
     const mtdExpenses    = await db.select().from(financeExpenses)
@@ -102,15 +99,13 @@ router.get('/summary', async (req, res, next) => {
     const totalExpMTD    = mtdExpenses.reduce((s, e) => s + e.amount, 0)
     const totalIncMTD    = mtdIncome.reduce((s, i) => s + i.amount, 0)
 
-    // ── Marketing / Business expenses ─────────────────────────────────────
-    const campaigns      = await db.select().from(marketingCampaigns)
-    const bizAdSpent     = campaigns
-      .filter(c => c.fundingSource === 'business')
-      .reduce((s, c) => s + (c.spent ?? 0), 0)
+    // ── Marketing ─────────────────────────────────────────────────────────
+    const campaigns       = await db.select().from(marketingCampaigns)
     const activeCampaigns = campaigns.filter(c => c.status === 'active').length
-
-    // Net business profit = revenue − business ad spend
-    const netProfit = totalRevenue - bizAdSpent
+    // Ad spend pro-rated across each campaign's running days, not charged in
+    // full to whatever window is being viewed.
+    const bizAdSpent      = biz.adSpend
+    const netProfit       = biz.netProfit
 
     // ── Training ──────────────────────────────────────────────────────────
     const allWorkouts    = await db.select().from(trainingWorkouts).orderBy(desc(trainingWorkouts.date))
@@ -170,6 +165,12 @@ router.get('/summary', async (req, res, next) => {
       netProfit,
       bizAdSpent,
       activeCampaigns,
+      mrr:             biz.mrr,
+      arr:             biz.arr,
+      activeRetainers: biz.activeRetainers,
+      netNewMrr:       biz.netNewMrr,
+      ownerPayMTD:     biz.ownerPayMTD,
+      marginPct:       biz.marginPct,
 
       // Finance
       totalExpMTD,

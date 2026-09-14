@@ -56,8 +56,8 @@ function TrackerStat({ label, value, color }: { label: string; value: string; co
 
 // ─── Period Tracker ───────────────────────────────────────────────────────────
 
-const BAR_W = 36   // px — fixed bar width
-const BAR_GAP = 5  // px — gap between bars
+const BAR_W = 36   // px - fixed bar width
+const BAR_GAP = 5  // px - gap between bars
 
 function PeriodTracker({ goals, horizon, onNewPeriod }: {
   goals: Goal[]
@@ -71,7 +71,7 @@ function PeriodTracker({ goals, horizon, onNewPeriod }: {
   const settings  = loadGoalsSettings()
   const threshold = settings.successThresholds[horizon as keyof typeof settings.successThresholds] ?? 7
 
-  // Sort chronologically oldest→newest — must be before any hook that references it
+  // Sort chronologically oldest→newest - must be before any hook that references it
   const sorted = [...goals].sort((a, b) => {
     const da = (a.periodStart || a.createdAt).slice(0, 10)
     const db = (b.periodStart || b.createdAt).slice(0, 10)
@@ -179,7 +179,7 @@ function PeriodTracker({ goals, horizon, onNewPeriod }: {
             ref={scrollRef}
             className="overflow-x-auto"
             style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--c-border) transparent', paddingTop: 6, paddingBottom: 4 }}>
-            {/* Inner row — bars + trailing spacer so last bar can reach the 2/3 scroll position */}
+            {/* Inner row - bars + trailing spacer so last bar can reach the 2/3 scroll position */}
             <div className="flex items-end"
               style={{ gap: BAR_GAP, minWidth: sorted.length * (BAR_W + BAR_GAP) - BAR_GAP }}>
               {sorted.map((g, idx) => {
@@ -231,7 +231,7 @@ function PeriodTracker({ goals, horizon, onNewPeriod }: {
                   </div>
                 )
               })}
-              {/* Trailing spacer — sized to 2/3 of scroll container width by scrollToActive() */}
+              {/* Trailing spacer - sized to 2/3 of scroll container width by scrollToActive() */}
               <div ref={spacerRef} style={{ flexShrink: 0, height: 1 }} />
             </div>
           </div>
@@ -621,7 +621,7 @@ function GoalCard({ goal, onCompleted, forceExpanded, seqNum }: {
               )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* Complete Period — active goals only */}
+              {/* Complete Period - active goals only */}
               {goal.status === 'active' && !confirmComplete && (
                 <button
                   onClick={() => setConfirmComplete(true)}
@@ -898,7 +898,7 @@ export function GoalsPage() {
       <GoalModal open={creating} onClose={() => setCreating(false)} horizon={horizon} />
       <GoalsSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
-      {/* New period prompt — shown after completing a period */}
+      {/* New period prompt - shown after completing a period */}
       <Modal open={newPeriodPrompt} onClose={() => setNewPeriodPrompt(false)} title="Period Complete!" size="sm">
         <div className="p-6 flex flex-col items-center gap-4 text-center">
           <div className="w-14 h-14 rounded-full flex items-center justify-center"

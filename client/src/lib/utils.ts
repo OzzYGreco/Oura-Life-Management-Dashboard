@@ -88,7 +88,7 @@ export function fmtSize(n: number | null | undefined, instrument?: string | null
 
 /** Returns today's date in YYYY-MM-DD using LOCAL time, not UTC.
  *  Using toISOString() would return the UTC date, which is wrong for
- *  users east of UTC — e.g. at 00:37 in UTC+3, UTC is still the previous day. */
+ *  users east of UTC - e.g. at 00:37 in UTC+3, UTC is still the previous day. */
 export function today(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`

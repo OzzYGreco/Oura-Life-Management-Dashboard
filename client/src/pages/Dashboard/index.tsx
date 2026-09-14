@@ -69,7 +69,7 @@ export function DashboardPage() {
 
   // Explicit ordered list of item IDs shown in the grid (max MAX_CHECKLIST)
   const [visibleQueue, setVisibleQueue] = useState<number[]>([])
-  // Items checked this session — held in queue while countdown runs
+  // Items checked this session - held in queue while countdown runs
   const [pendingIds, setPendingIds] = useState<Set<number>>(new Set())
   // Items playing their exit animation (opacity → 0)
   const [exitingIds, setExitingIds] = useState<Set<number>>(new Set())
@@ -154,7 +154,7 @@ export function DashboardPage() {
       <div className="space-y-4">
 
         {/* ════════════════════════════════════════════════════════════════
-            ZONE 1 — THE DAY  (most important — eyes land here first)
+            ZONE 1 - THE DAY  (most important - eyes land here first)
         ════════════════════════════════════════════════════════════════ */}
         <div className="grid grid-cols-5 gap-4">
 
@@ -311,7 +311,7 @@ export function DashboardPage() {
         </div>
 
         {/* ════════════════════════════════════════════════════════════════
-            ZONE 2 — THIS MONTH  (monthly context + trend chart)
+            ZONE 2 - THIS MONTH  (monthly context + trend chart)
         ════════════════════════════════════════════════════════════════ */}
         <Panel className="p-5">
           <div className="flex items-start justify-between mb-4">
@@ -395,7 +395,7 @@ export function DashboardPage() {
         </Panel>
 
         {/* ════════════════════════════════════════════════════════════════
-            ZONE 3 — CONTEXT  (business · calendar · goals)
+            ZONE 3 - CONTEXT  (business · calendar · goals)
         ════════════════════════════════════════════════════════════════ */}
         <div className="grid grid-cols-3 gap-4">
 
@@ -522,7 +522,7 @@ export function DashboardPage() {
         </div>
 
         {/* ════════════════════════════════════════════════════════════════
-            ZONE 4 — SUPPORTING  (finance · training — compact)
+            ZONE 4 - SUPPORTING  (finance · training - compact)
         ════════════════════════════════════════════════════════════════ */}
         <div className="grid grid-cols-2 gap-4">
 

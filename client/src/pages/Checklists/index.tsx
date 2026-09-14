@@ -99,12 +99,12 @@ function parseChecklistText(text: string): TaskItem[] {
     // Strip emojis and normalize whitespace
     const clean = raw.replace(/[✅❌✅❌]/g, '').replace(/\s+/g, ' ').trim()
 
-    // Extract importance — must be last word, one of the known codes (longest match first)
+    // Extract importance - must be last word, one of the known codes (longest match first)
     const impMatch = clean.match(/\s+(NUNI|NUI|UNI|UI)\s*$/i)
     const importance = impMatch?.[1]?.toUpperCase() ?? ''
     const withoutImp = impMatch ? clean.slice(0, impMatch.index).trim() : clean
 
-    // Extract time — pattern like "at 09:15 AM" or "at 14:30 PM"
+    // Extract time - pattern like "at 09:15 AM" or "at 14:30 PM"
     const timeMatch = withoutImp.match(/\bat\s+(\d{1,2}:\d{2}\s*[APap][Mm])\s*$/i)
     const time = timeMatch ? timeMatch[1].replace(/\s+/, '').toUpperCase() : ''
     const label = timeMatch ? withoutImp.slice(0, timeMatch.index).trim() : withoutImp
@@ -248,7 +248,7 @@ function TimePicker({ value, onChange }: { value: string; onChange: (v: string) 
         </button>
       )}
 
-      {/* Floating panel — portaled to body so modal overflow can't clip it */}
+      {/* Floating panel - portaled to body so modal overflow can't clip it */}
       {open && createPortal(
         <div ref={popRef} className="fixed z-[300] rounded-2xl p-4 overflow-y-auto"
           style={{ top: pos.top, left: pos.left, width: 236, maxHeight: 'calc(100vh - 24px)', background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', boxShadow: '0 16px 48px rgba(0,0,0,0.65)' }}>
@@ -715,7 +715,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
   const allItems: any[]      = adhocEntry?.items ?? []
   const archivedItems: any[] = allItems.filter((i: any) => i.archived)
 
-  // Non-archived — completed items sink to the bottom, same as template entries
+  // Non-archived - completed items sink to the bottom, same as template entries
   const mainItems: any[] = allItems
     .filter((i: any) => !i.archived)
     .sort((a: any, b: any) => {
@@ -757,7 +757,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
           </span>
         )}
 
-        {/* Progress bar — visible when expanded */}
+        {/* Progress bar - visible when expanded */}
         {open && total > 0 && (
           <div className="flex items-center gap-2 shrink-0">
             <div className="h-1 w-16 rounded-full overflow-hidden" style={{ background: 'var(--c-border)' }}>
@@ -768,7 +768,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
           </div>
         )}
 
-        {/* Archive button — stops propagation */}
+        {/* Archive button - stops propagation */}
         <div onClick={e => e.stopPropagation()}>
           {confirming ? (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
@@ -798,7 +798,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
           )}
         </div>
 
-        {/* Add button — stops propagation so it doesn't toggle the card */}
+        {/* Add button - stops propagation so it doesn't toggle the card */}
         <div onClick={e => { e.stopPropagation(); setOpen(true); setEditorOn(true) }}>
           <span className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-all shrink-0"
             style={{ background: 'rgba(129,140,248,0.1)', color: 'var(--c-accent)', border: '1px solid rgba(129,140,248,0.25)' }}
@@ -811,7 +811,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
 
       {open && (
         <>
-          {/* Main list — incomplete first, completed sink to bottom */}
+          {/* Main list - incomplete first, completed sink to bottom */}
           {mainItems.map((item: any) => (
             <div key={item.id}
               className="flex items-center gap-3 px-4 py-3 group transition-all"
@@ -843,7 +843,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
                 )}
                 {item.importance && !item.completed && <ImportanceBadge code={item.importance} />}
               </div>
-              {/* Delete — only on non-archived ad-hoc items */}
+              {/* Delete - only on non-archived ad-hoc items */}
               <button
                 onClick={() => deleteItem.mutate({ entryId: adhocEntry.id, itemId: item.id })}
                 className="opacity-0 group-hover:opacity-100 w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-all"
@@ -856,7 +856,7 @@ function AdhocTasksCard({ date, adhocEntry, toggle, deleteItem }: {
             </div>
           ))}
 
-          {/* Archived section — matches template entry behaviour */}
+          {/* Archived section - matches template entry behaviour */}
           {archivedItems.length > 0 && (
             <>
               <button
@@ -1003,17 +1003,17 @@ function DailyChecklist({ date }: { date: string }) {
   const [, setTick] = useState(0)
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 60_000); return () => clearInterval(t) }, [])
 
-  // State 1 — template-level collapse (hides entire task list, shows summary)
+  // State 1 - template-level collapse (hides entire task list, shows summary)
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
   const toggleCollapse = (id: number) =>
     setCollapsed(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
 
-  // State 2 — completed-section expand (independent per template)
+  // State 2 - completed-section expand (independent per template)
   const [completedOpen, setCompletedOpen] = useState<Set<number>>(new Set())
   const toggleCompleted = (id: number) =>
     setCompletedOpen(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
 
-  // State 3 — archive confirm
+  // State 3 - archive confirm
   const [confirming, setConfirming] = useState<number | null>(null)
   const handleArchive = (entryId: number) =>
     archiveCompleted.mutate(entryId, { onSuccess: () => setConfirming(null) })
@@ -1022,7 +1022,7 @@ function DailyChecklist({ date }: { date: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Ad-hoc "Today's Tasks" card — always shown at the top */}
+      {/* Ad-hoc "Today's Tasks" card - always shown at the top */}
       <AdhocTasksCard date={date} adhocEntry={adhocEntry} toggle={toggle} deleteItem={deleteItem} />
 
       {templateEntries.length === 0 && !adhocEntry?.items?.length && (
@@ -1053,7 +1053,7 @@ function DailyChecklist({ date }: { date: string }) {
         // Archived section: items explicitly archived via the button
         const archivedItems = allItems.filter((i: any) => i.archived)
 
-        // Archived items were completed then cleared — count as done for progress
+        // Archived items were completed then cleared - count as done for progress
         const done               = allItems.filter((i: any) => i.completed || i.archived)
         const total              = allItems.length
         const pct                = total > 0 ? Math.round(done.length / total * 100) : 0
@@ -1088,7 +1088,7 @@ function DailyChecklist({ date }: { date: string }) {
                 </div>
               )}
 
-              {/* Archive — stop click propagation */}
+              {/* Archive - stop click propagation */}
               <div onClick={e => e.stopPropagation()}>
                 {confirming === entry.id ? (
                   <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg"
@@ -1118,15 +1118,15 @@ function DailyChecklist({ date }: { date: string }) {
               </div>
             </button>
 
-            {/* ── Task list — visible when NOT collapsed ── */}
+            {/* ── Task list - visible when NOT collapsed ── */}
             {!isCollapsed && (
               <>
-                {/* Main list — all non-archived tasks (complete + incomplete), completed sink to bottom */}
+                {/* Main list - all non-archived tasks (complete + incomplete), completed sink to bottom */}
                 {mainItems.map((item: any) => (
                   <ChecklistTaskRow key={item.id} item={item} entryId={entry.id} toggle={toggle} getTaskStreak={getTaskStreak} />
                 ))}
 
-                {/* Archived section — only appears after pressing Archive button */}
+                {/* Archived section - only appears after pressing Archive button */}
                 {archivedItems.length > 0 && (
                   <>
                     <button

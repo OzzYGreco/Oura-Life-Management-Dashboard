@@ -239,7 +239,7 @@ function OverviewTab({ fmtView }: { fmtView: FmtView }) {
         </Card>
       </div>
 
-{/* CurrencyConverter removed — use the view-currency selector in the page header */}
+{/* CurrencyConverter removed - use the view-currency selector in the page header */}
     </div>
   )
 }

@@ -9,7 +9,7 @@ export type FmtView = (amount: number | null | undefined, nativeCurrency?: strin
  * Returns a display formatter scoped to a specific page.
  *
  * @param defaultNative  The page's primary stored currency (e.g. 'GBP' for Business).
- * @param pageKey        Unique page identifier — each page keeps its own view-currency selection.
+ * @param pageKey        Unique page identifier - each page keeps its own view-currency selection.
  */
 export function useFmtView(defaultNative: string = 'USD', pageKey: string = 'default') {
   const { viewCurrency, setViewCurrency } = useViewCurrency(pageKey, defaultNative as ViewCurrency)

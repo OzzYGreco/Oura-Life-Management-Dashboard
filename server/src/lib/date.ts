@@ -1,6 +1,6 @@
 /**
  * Returns the current date as YYYY-MM-DD using the **local** system clock,
- * not UTC. This is a local-only app — the server runs on the same machine as
+ * not UTC. This is a local-only app - the server runs on the same machine as
  * the browser, so local time is always correct and matches what the user sees.
  *
  * Using `new Date().toISOString()` returns the UTC date, which is wrong for

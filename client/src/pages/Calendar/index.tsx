@@ -28,7 +28,7 @@ import {
 } from 'lucide-react'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const GRID_START  = 0     // midnight — full 24 h day
+const GRID_START  = 0     // midnight - full 24 h day
 const GRID_END    = 24
 const HOURS_SHOWN = GRID_END - GRID_START
 const ROW_H       = 56    // px per hour
@@ -615,7 +615,7 @@ export function CalendarPage() {
   const renderTimeGrid = (
     columns: { day: Date; events: any[]; timedItems?: any[]; isToday: boolean }[],
     onSlotClick: (date: string, hour: number, minute?: number) => void,
-    scrollRef: React.RefObject<HTMLDivElement>,
+    scrollRef: React.RefObject<HTMLDivElement | null>,
     showIntel = false,
   ) => {
     const multiCol = columns.length > 1
@@ -723,7 +723,7 @@ export function CalendarPage() {
                         <div key={i} className="absolute w-full cursor-pointer group"
                           style={{ top: i * slotH, height: slotH }}
                           onClick={() => onSlotClick(dateStr, hour, minute)}>
-                          {/* Top border — thicker/brighter on the hour, subtle at :30, hairline at :15/:45 */}
+                          {/* Top border - thicker/brighter on the hour, subtle at :30, hairline at :15/:45 */}
                           <div className="absolute inset-x-0 top-0" style={{
                             borderTop: isHour
                               ? '1px solid var(--c-border)'

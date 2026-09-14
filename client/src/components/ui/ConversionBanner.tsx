@@ -4,9 +4,9 @@ import { useViewCurrency, type ViewCurrency } from '../../hooks/useViewCurrency'
 import { useCurrencyRates } from '../../hooks/useCurrencyRates'
 
 interface Props {
-  /** The page's native / stored currency — banner hides when view = native */
+  /** The page's native / stored currency - banner hides when view = native */
   native: string
-  /** Page key — must match the CurrencySelector and useFmtView on the same page */
+  /** Page key - must match the CurrencySelector and useFmtView on the same page */
   pageKey: string
   /** Optional extra detail shown after the main message */
   detail?: string
