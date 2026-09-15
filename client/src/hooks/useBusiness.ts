@@ -314,6 +314,13 @@ export function useInvoiceFromPayment() {
   }) => api.post(`/api/business/payments/${id}/invoice`, body).then(r => r.data))
 }
 
+/** Set a subscription payment up as a retainer, with its first invoice paid. */
+export function useRetainerFromPayment() {
+  return useBusinessMutation(({ id, ...body }: {
+    id: number; clientId?: number; amount?: number; frequency?: string; name?: string; serviceId?: number | null
+  }) => api.post(`/api/business/payments/${id}/retainer`, body).then(r => r.data))
+}
+
 export function useIgnorePayment() {
   return useBusinessMutation((id: number) =>
     api.post(`/api/business/payments/${id}/ignore`).then(r => r.data))

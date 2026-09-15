@@ -4,7 +4,7 @@ import { MiniBtn } from './primitives'
 import { ClientPicker } from './ClientPicker'
 import {
   useUnassignedPayments, useAssignPayment, useIgnorePayment, useClients, useInvoices,
-  useInvoiceFromPayment,
+  useInvoiceFromPayment, useRetainerFromPayment,
 } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -27,6 +27,17 @@ import type { Client, Invoice } from '../lib/types'
  *     the first month of SEO together is one payment settling two invoices, and
  *     the fee has to split across them.
  */
+/** Stripe's own enum, not a description: this is the first cycle of a new plan. */
+const isNewSubscription = (p: any) => !!p.subscriptionId && p.billingReason === 'subscription_create'
+
+const intervalWord = (p: any) => {
+  const d = p.planIntervalDays ?? 30
+  if (d <= 10) return 'wk'
+  if (d <= 45) return 'mo'
+  if (d <= 135) return 'qtr'
+  return 'yr'
+}
+
 export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
   const { data } = useUnassignedPayments()
   const { data: clients = [] } = useClients()
@@ -34,6 +45,7 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
   const assign = useAssignPayment()
   const ignore = useIgnorePayment()
   const raise = useInvoiceFromPayment()
+  const setUpRetainer = useRetainerFromPayment()
 
   const [openRow, setOpenRow] = useState<number | null>(null)
   const [clientId, setClientId] = useState<number | null>(null)
@@ -82,6 +94,22 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
     } finally { setBusy(null) }
   }
 
+  /**
+   * Stripe says this money recurs, so make it a retainer rather than a one-off.
+   *
+   * The amount, the interval and the service all come from the Stripe
+   * subscription, and the first invoice is raised already paid with its billing
+   * cursor moved past this cycle, so the month cannot be billed a second time.
+   */
+  const makeRetainer = async (p: any) => {
+    if (!clientId) return
+    setBusy(p.id)
+    try {
+      await setUpRetainer.mutateAsync({ id: p.id, clientId })
+      reset()
+    } finally { setBusy(null) }
+  }
+
   const quickConfirm = async (p: any) => {
     const cid = p.matchedClientId
     if (!cid) return
@@ -126,6 +154,12 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                   {formatDate(p.paidDate)}
                 </span>
                 <span className="flex-1 min-w-[180px] text-[11px]" style={{ color: 'var(--c-text-3)' }}>
+                  {p.subscriptionId && (
+                    <b style={{ color: '#34d399' }}>
+                      {p.billingReason === 'subscription_create' ? 'new subscription' : 'subscription renewal'}
+                      {' · '}
+                    </b>
+                  )}
                   {p.suggestedClientName
                     ? <>likely <b style={{ color: 'var(--c-text-2)' }}>{p.suggestedClientName}</b> · {p.matchReason}</>
                     : p.matchReason}
@@ -237,11 +271,19 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                               : 'Pick more than one if this payment settled several.'}
                         </span>
                         <span className="flex gap-1.5">
-                          {picked.length === 0 && (
+                          {picked.length === 0 && isNewSubscription(p) && (
                             <MiniBtn tone="accent" disabled={busy === p.id || !clientId}
+                              onClick={() => makeRetainer(p)}
+                              title="Creates the retainer at Stripe's own price and interval, with this month's invoice already paid">
+                              {busy === p.id ? '...' : `Set up a ${fmtView(p.planAmount ?? p.amountGross)}/${intervalWord(p)} retainer`}
+                            </MiniBtn>
+                          )}
+                          {picked.length === 0 && (
+                            <MiniBtn tone={isNewSubscription(p) ? 'default' : 'accent'}
+                              disabled={busy === p.id || !clientId}
                               onClick={() => raiseInvoice(p)}
                               title="Creates a paid invoice for this amount, with the fee and date already on it">
-                              {busy === p.id ? '...' : `Raise a ${fmtView(p.amountGross)} invoice`}
+                              {busy === p.id ? '...' : `One-off ${fmtView(p.amountGross)} invoice`}
                             </MiniBtn>
                           )}
                           <MiniBtn tone="good" disabled={busy === p.id || !clientId} onClick={() => submit(p)}>

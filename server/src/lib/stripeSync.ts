@@ -112,10 +112,123 @@ export interface FetchedCharge {
   status: string
   /** Whatever the app stamped on the payment when it created the link. */
   ourInvoiceId: number | null
+  /** Set when a Stripe invoice says this charge settled a subscription. */
+  plan: SubscriptionPlan | null
+}
+
+export interface SubscriptionPlan {
+  subscriptionId: string
+  /** Stripe's enum. 'subscription_create' is a retainer starting, 'subscription_cycle' a renewal. */
+  billingReason: string
+  amount: number
+  intervalDays: number
+  description: string | null
+}
+
+/** A subscription invoice, kept only long enough to pair it with its charge. */
+interface PlanInvoice extends SubscriptionPlan {
+  customer: string
+  /** What the invoice actually collected, for pairing against the charge. */
+  gross: number
+  /** Unix seconds the invoice was paid, which is the moment the charge settled. */
+  paidAt: number
+}
+
+/**
+ * The subscription facts, read from Stripe invoices rather than guessed.
+ *
+ * A charge on its own carries only the description Stripe writes for it,
+ * "Subscription creation" or "Subscription update", which is prose and cannot
+ * be trusted to decide whether money recurs. The invoice behind it carries the
+ * real thing: `billing_reason` as an enum, the subscription id, the price per
+ * cycle and the period that cycle covers.
+ */
+export async function fetchSubscriptionPlans(sinceUnix: number): Promise<PlanInvoice[]> {
+  const out: PlanInvoice[] = []
+  let startingAfter: string | undefined
+
+  for (let page = 0; page < 40; page++) {
+    const body = await stripeGet('invoices', {
+      limit: '100',
+      'created[gte]': String(sinceUnix),
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    })
+
+    for (const i of body.data ?? []) {
+      startingAfter = i.id
+
+      // Stripe's newer layout: what used to be invoice.subscription now hangs
+      // off parent, and its absence is what marks a genuine one-off.
+      const subscriptionId = i.parent?.subscription_details?.subscription
+      const customer = typeof i.customer === 'string' ? i.customer : i.customer?.id
+      if (!subscriptionId || !customer) continue
+
+      const line = i.lines?.data?.[0]
+      const unit = Number(line?.pricing?.unit_amount_decimal ?? 0) / 100
+      const period = line?.period
+
+      out.push({
+        subscriptionId,
+        billingReason: String(i.billing_reason ?? ''),
+        amount: round2(unit * Number(line?.quantity ?? 1)),
+        // The cycle length is the period the line covers, so a monthly plan
+        // reads 30 or 31 and a yearly one reads 365, with no price expansion.
+        intervalDays: period?.start && period?.end
+          ? Math.round((period.end - period.start) / 86_400)
+          : 30,
+        description: line?.description ?? null,
+        customer,
+        gross: fromMinor(i.amount_paid),
+        paidAt: i.status_transitions?.paid_at ?? i.created,
+      })
+    }
+
+    if (!body.has_more) break
+  }
+
+  return out
+}
+
+/**
+ * Pair a charge with the subscription invoice that produced it.
+ *
+ * A restricted key does not expose the link from charge to invoice, so they are
+ * paired on customer, amount and time. The invoice's paid_at and the charge's
+ * created are the same event, seconds apart, so the window is far wider than it
+ * needs to be and still cannot reach a neighbouring month's payment.
+ */
+function planForCharge(
+  plans: PlanInvoice[],
+  customerId: string | null,
+  gross: number,
+  createdUnix: number,
+): SubscriptionPlan | null {
+  if (!customerId) return null
+
+  let best: PlanInvoice | null = null
+  let bestGap = Infinity
+  for (const p of plans) {
+    if (p.customer !== customerId) continue
+    if (Math.abs(p.gross - gross) > 0.005) continue
+    const gap = Math.abs(p.paidAt - createdUnix)
+    if (gap > 900 || gap >= bestGap) continue
+    best = p
+    bestGap = gap
+  }
+  if (!best) return null
+
+  return {
+    subscriptionId: best.subscriptionId,
+    billingReason: best.billingReason,
+    amount: best.amount,
+    intervalDays: best.intervalDays,
+    description: best.description,
+  }
 }
 
 export async function fetchCharges(sinceUnix: number): Promise<FetchedCharge[]> {
   const out: FetchedCharge[] = []
+  const plans = await fetchSubscriptionPlans(sinceUnix)
   let startingAfter: string | undefined
 
   for (let page = 0; page < 40; page++) {
@@ -161,6 +274,12 @@ export async function fetchCharges(sinceUnix: number): Promise<FetchedCharge[]> 
         description: c.description ?? inv?.number ?? null,
         status: c.status,
         ourInvoiceId: Number.isFinite(ourId) && ourId > 0 ? ourId : null,
+        plan: planForCharge(
+          plans,
+          typeof c.customer === 'string' ? c.customer : c.customer?.id ?? null,
+          fromMinor(c.amount),
+          Number(c.created),
+        ),
       })
       startingAfter = c.id
     }
@@ -459,7 +578,16 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
     if (existing?.matchedInvoiceId) taken.add(existing.matchedInvoiceId)
     if (existing?.matchedAt || existing?.ignored) {
       await db.update(stripePayments)
-        .set({ fee: c.fee, amountNet: c.net, refunded: c.refunded, syncedAt: now })
+        .set({
+          fee: c.fee, amountNet: c.net, refunded: c.refunded, syncedAt: now,
+          // Safe to refresh on a decided payment: these describe what Stripe
+          // did, not what the user chose, so they can never undo a decision.
+          subscriptionId:   c.plan?.subscriptionId ?? existing.subscriptionId,
+          billingReason:    c.plan?.billingReason ?? existing.billingReason,
+          planAmount:       c.plan?.amount ?? existing.planAmount,
+          planIntervalDays: c.plan?.intervalDays ?? existing.planIntervalDays,
+          planDescription:  c.plan?.description ?? existing.planDescription,
+        })
         .where(eq(stripePayments.id, existing.id))
       continue
     }
@@ -487,6 +615,11 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
       confidence: m.confidence,
       matchReason: m.reason,
       matchedAt: auto && m.invoiceId ? now : null,
+      subscriptionId:   c.plan?.subscriptionId ?? null,
+      billingReason:    c.plan?.billingReason ?? null,
+      planAmount:       c.plan?.amount ?? null,
+      planIntervalDays: c.plan?.intervalDays ?? null,
+      planDescription:  c.plan?.description ?? null,
       syncedAt: now,
     }
 

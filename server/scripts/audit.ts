@@ -123,6 +123,35 @@ async function main() {
   const offBooks = await db.all<{ n: number; gross: number }>(sql`
     select count(*) as n, coalesce(sum(amount_gross), 0) as gross from stripe_payments
     where matched_client_id is not null and matched_invoice_id is null and ignored = 0`)
+  // Stripe collecting a subscription that Oura has no retainer for is money
+  // arriving every month and counting toward nothing: MRR, churn and every
+  // forward-looking figure are built from retainers. A live GBP 149/mo client
+  // sat outside MRR this way, found only because the payment queue misbehaved.
+  const subsNoRetainer = await db.all<{ n: number; who: string }>(sql`
+    select count(*) as n, coalesce(group_concat(distinct c.name), '') as who
+    from (select distinct subscription_id, matched_client_id,
+                 coalesce(plan_amount, amount_gross) as plan
+          from stripe_payments
+          where subscription_id is not null and ignored = 0 and matched_client_id is not null) p
+    join business_clients c on c.id = p.matched_client_id
+    where not exists (
+      select 1 from business_retainers r
+      where r.client_id = p.matched_client_id and r.status = 'active'
+        and abs(r.amount - p.plan) < 0.01)`)
+  check('every Stripe subscription has a retainer behind it',
+    (subsNoRetainer[0]?.n ?? 0) === 0,
+    `${subsNoRetainer[0]?.who} paying in Stripe with nothing counted in MRR`)
+
+  // A retainer set up from a subscription must start billing AFTER the payment
+  // that created it, or the biller raises a second invoice for a period that is
+  // already settled and the client is billed twice in the books.
+  const wouldRebill = await db.all<{ n: number }>(sql`
+    select count(*) as n from business_retainers
+    where status = 'active' and last_generated_date is not null
+      and last_generated_date < start_date`)
+  check('no retainer is set to re-bill a period it has already billed',
+    (wouldRebill[0]?.n ?? 0) === 0)
+
   check('no payment is assigned to a client but left off the books',
     (offBooks[0]?.n ?? 0) === 0,
     `${offBooks[0]?.n} payment(s), ${money(round2(offBooks[0]?.gross ?? 0))} missing from every total`)

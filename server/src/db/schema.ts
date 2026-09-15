@@ -400,6 +400,13 @@ export const stripePayments = sqliteTable('stripe_payments', {
   coversInvoiceIds:  text('covers_invoice_ids'),
   matchedAt:         text('matched_at'),
   ignored:           integer('ignored').notNull().default(0),
+  /** What the Stripe invoice behind this charge says about it recurring. */
+  subscriptionId:    text('subscription_id'),
+  /** Stripe's enum: subscription_create (new), subscription_cycle (renewal), manual. */
+  billingReason:     text('billing_reason'),
+  planAmount:        real('plan_amount'),
+  planIntervalDays:  integer('plan_interval_days'),
+  planDescription:   text('plan_description'),
   syncedAt:          text('synced_at'),
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
 })
