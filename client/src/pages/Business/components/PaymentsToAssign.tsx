@@ -4,6 +4,7 @@ import { MiniBtn } from './primitives'
 import { ClientPicker } from './ClientPicker'
 import {
   useUnassignedPayments, useAssignPayment, useIgnorePayment, useClients, useInvoices,
+  useInvoiceFromPayment,
 } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -32,6 +33,7 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
   const { data: invoices = [] } = useInvoices()
   const assign = useAssignPayment()
   const ignore = useIgnorePayment()
+  const raise = useInvoiceFromPayment()
 
   const [openRow, setOpenRow] = useState<number | null>(null)
   const [clientId, setClientId] = useState<number | null>(null)
@@ -60,6 +62,22 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
         invoiceId: picked.length === 1 ? picked[0] : null,
         remember: true,
       })
+      reset()
+    } finally { setBusy(null) }
+  }
+
+  /**
+   * Put the money on the books when there is no invoice to attach it to.
+   *
+   * Assigning to a client alone used to end here, and the payment then counted
+   * for nothing: gross volume, fees and profit are all built from paid invoices,
+   * so real money sat against a client and showed up in no figure at all.
+   */
+  const raiseInvoice = async (p: any) => {
+    if (!clientId) return
+    setBusy(p.id)
+    try {
+      await raise.mutateAsync({ id: p.id, clientId })
       reset()
     } finally { setBusy(null) }
   }
@@ -210,15 +228,26 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                         })}
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 mt-2">
+                      <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
                         <span className="text-[10.5px]" style={{ color: 'var(--c-text-3)' }}>
                           {picked.length > 1
                             ? `The ${fmtView(p.fee)} fee splits across ${picked.length} invoices by amount.`
-                            : 'Pick more than one if this payment settled several.'}
+                            : rows.length === 0
+                              ? 'Raising an invoice is what puts this money into your totals.'
+                              : 'Pick more than one if this payment settled several.'}
                         </span>
-                        <MiniBtn tone="good" disabled={busy === p.id || !clientId} onClick={() => submit(p)}>
-                          {busy === p.id ? 'Saving...' : picked.length ? `Assign ${picked.length}` : 'Assign to client only'}
-                        </MiniBtn>
+                        <span className="flex gap-1.5">
+                          {picked.length === 0 && (
+                            <MiniBtn tone="accent" disabled={busy === p.id || !clientId}
+                              onClick={() => raiseInvoice(p)}
+                              title="Creates a paid invoice for this amount, with the fee and date already on it">
+                              {busy === p.id ? '...' : `Raise a ${fmtView(p.amountGross)} invoice`}
+                            </MiniBtn>
+                          )}
+                          <MiniBtn tone="good" disabled={busy === p.id || !clientId} onClick={() => submit(p)}>
+                            {busy === p.id ? 'Saving...' : picked.length ? `Assign ${picked.length}` : 'Client only, no invoice'}
+                          </MiniBtn>
+                        </span>
                       </div>
                     </div>
                   )}

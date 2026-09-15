@@ -116,6 +116,17 @@ async function main() {
       and not exists (select 1 from business_clients c where c.id = p.matched_client_id)`)
   check('every assigned payment points at a client that exists', (orphanClient[0]?.n ?? 0) === 0)
 
+  // Money attached to a client but to no invoice is money that exists in the
+  // bank and in no figure on the page: gross volume, fees and profit are all
+  // built from paid invoices. Raising an invoice from the payment is the fix,
+  // and this is here so a silent gap cannot open up again.
+  const offBooks = await db.all<{ n: number; gross: number }>(sql`
+    select count(*) as n, coalesce(sum(amount_gross), 0) as gross from stripe_payments
+    where matched_client_id is not null and matched_invoice_id is null and ignored = 0`)
+  check('no payment is assigned to a client but left off the books',
+    (offBooks[0]?.n ?? 0) === 0,
+    `${offBooks[0]?.n} payment(s), ${money(round2(offBooks[0]?.gross ?? 0))} missing from every total`)
+
   // Paying before the invoice is raised is normal: a deposit agreed on the day,
   // or a first month bought up front. What is NOT normal is the matcher doing
   // it by itself, which is how an August payment once landed on September's

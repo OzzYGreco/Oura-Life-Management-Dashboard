@@ -1141,6 +1141,68 @@ router.post('/payments/:id/assign', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/**
+ * Raise an invoice from a payment that has nothing to attach to.
+ *
+ * Assigning a payment to a client alone recorded who paid and stopped there,
+ * which left real money off the books: every figure on this tab is built from
+ * paid invoices, so a payment with no invoice behind it is invisible to gross
+ * volume, to fees and to profit. A new client who pays before anything has been
+ * raised hits that every time, which is exactly when it matters most.
+ *
+ * The invoice is created already paid, because the money is already in. Gross,
+ * fee and the date all come from the payment, so the books agree with Stripe to
+ * the penny rather than being retyped.
+ */
+router.post('/payments/:id/invoice', async (req, res, next) => {
+  try {
+    const body = parse(z.object({
+      clientId:    z.number().int().optional(),
+      description: z.string().nullish(),
+      serviceId:   z.number().int().nullish(),
+    }), req.body)
+
+    const paymentId = id(req.params.id)
+    const [payment] = await db.select().from(stripePayments).where(eq(stripePayments.id, paymentId))
+    if (!payment) return res.status(404).json({ error: 'No such payment' })
+    if (payment.matchedInvoiceId) {
+      return res.status(409).json({ error: 'This payment already has an invoice against it' })
+    }
+
+    const clientId = body.clientId ?? payment.matchedClientId
+    if (!clientId) return res.status(400).json({ error: 'Assign the payment to a client first' })
+
+    const invoice = (await db.insert(businessInvoices).values({
+      invoiceNumber:  await nextInvoiceNumber(),
+      clientId,
+      serviceId:      body.serviceId ?? null,
+      amount:         payment.amountGross,
+      subtotal:       payment.amountGross,
+      feeAmount:      payment.fee,
+      refundedAmount: payment.refunded,
+      status:         'paid',
+      issueDate:      payment.paidDate,
+      dueDate:        payment.paidDate,
+      paidDate:       payment.paidDate,
+      paymentMethod:  'stripe',
+      notes:          body.description ?? payment.description ?? 'Raised from a Stripe payment',
+    }).returning())[0]
+
+    await db.update(stripePayments).set({
+      matchedClientId:  clientId,
+      matchedInvoiceId: invoice.id,
+      confidence:       'exact',
+      matchReason:      `Invoice ${invoice.invoiceNumber} raised from this payment`,
+      matchedAt:        new Date().toISOString(),
+    }).where(eq(stripePayments.id, paymentId))
+
+    if (payment.stripeCustomerId) await learnCustomer(clientId, payment.stripeCustomerId)
+
+    invalidate()
+    res.status(201).json(invoice)
+  } catch (e) { next(e) }
+})
+
 /** Not business income: a refund, a transfer, a personal card. */
 router.post('/payments/:id/ignore', async (req, res, next) => {
   try {
