@@ -16,7 +16,7 @@ import {
   stripePayments, marketingSpendDaily, marketingCampaigns, financeExpenses,
 } from '../src/db/schema'
 import { sql } from 'drizzle-orm'
-import { businessMetrics, businessDashboardSummary, loadBusinessData, clientEconomics, invalidateBusinessData } from '../src/lib/businessMetrics'
+import { businessMetrics, businessDashboardSummary, loadBusinessData, clientEconomics, invalidateBusinessData, adSpendStaleness } from '../src/lib/businessMetrics'
 
 const API = 'http://localhost:3001'
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -181,6 +181,31 @@ async function main() {
     select count(*) as n from (select campaign_id, date from marketing_spend_daily group by 1,2 having count(*) > 1)`)
   check('one ad-spend row per campaign per day', (dayDupes[0]?.n ?? 0) === 0)
   check('no negative ad spend', !daily.some(x => x.spend < 0))
+
+  // A dead connector is the one fault the rest of the tab cannot show, because
+  // days after the last recorded one count as zero rather than being estimated:
+  // costs fall, profit rises, and nothing on screen says why. These assert the
+  // warning both fires and stays quiet at the right times, since a warning that
+  // cried wolf would be turned off and one that never fires is not there at all.
+  const lastDay = daily.map(x => x.date).sort().slice(-1)[0] ?? '1970-01-01'
+  const dayAfter = (iso: string, n: number) => {
+    const [y, mo, dd] = iso.split('-').map(Number)
+    const t = new Date(y, mo - 1, dd + n)
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+  }
+  check('ad-spend staleness is quiet the day after the last figure',
+    adSpendStaleness(d, dayAfter(lastDay, 1)).campaigns.length === 0,
+    'a platform finalises a day some hours late, so one day behind is normal')
+  const twoBehind = adSpendStaleness(d, dayAfter(lastDay, 2))
+  check('ad-spend staleness fires once a whole day is missing',
+    twoBehind.campaigns.length > 0 && twoBehind.estimatedMissing > 0,
+    `${twoBehind.campaigns.length} campaign(s), ${money(twoBehind.estimatedMissing)} estimated`)
+  check('the staleness estimate grows with the gap',
+    adSpendStaleness(d, dayAfter(lastDay, 6)).estimatedMissing > twoBehind.estimatedMissing)
+  check('hand-logged campaigns never go stale',
+    adSpendStaleness({ ...d, campaigns: d.campaigns.map(c => ({ ...c, externalId: null })) },
+      dayAfter(lastDay, 30)).campaigns.length === 0,
+    'nothing is feeding them, so there is nothing to have stopped')
 
   // ── Monthly rows sum to the total ─────────────────────────────────────────
   section('6. Monthly breakdown sums to the whole')

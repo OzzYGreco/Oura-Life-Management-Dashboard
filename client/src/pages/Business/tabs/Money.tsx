@@ -6,6 +6,7 @@ import { DateFilter, type Preset, presetRange } from '../../../components/shared
 import { Waterfall } from '../components/Waterfall'
 import { RecurringCosts } from '../components/RecurringCosts'
 import { OwnerPayPanel } from '../components/OwnerPayPanel'
+import { AdSpendStale } from '../components/AdSpendStale'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow, fmtMonth, fmtHours,
 } from '../components/primitives'
@@ -73,6 +74,8 @@ export function Money({
         customFrom={customFrom} onCustomFrom={setCustomFrom}
         customTo={customTo} onCustomTo={setCustomTo}
       />
+
+      <AdSpendStale stale={m.adStale} fmtView={fmtView} onLogAdSpend={onLogAdSpend} />
 
       <div className="grid gap-4" style={{ gridTemplateColumns: 'minmax(280px, 360px) 1fr' }}>
         <Section label="Where the money went">

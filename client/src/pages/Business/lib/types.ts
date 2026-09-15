@@ -295,6 +295,27 @@ export interface BusinessMetrics {
     retainerGapsMrr: number
     totalActions: number
   }
+  /** Auto-synced campaigns that have stopped reporting. Empty when all is well. */
+  adStale: {
+    campaigns: StaleCampaign[]
+    estimatedMissing: number
+  }
+}
+
+/**
+ * A campaign whose daily spend has gone quiet. Days after `lastDay` are counted
+ * as zero rather than estimated, so an unnoticed gap understates costs and
+ * overstates profit.
+ */
+export interface StaleCampaign {
+  campaignId: number
+  name: string
+  platform: string
+  lastDay: string
+  /** Whole days with no figure. Today is excluded: it is not over yet. */
+  missingDays: number
+  perDay: number
+  estimatedMissing: number
 }
 
 export const STAGES: { key: ProjectStage; label: string; color: string }[] = [
