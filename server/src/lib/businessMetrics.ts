@@ -419,6 +419,83 @@ function addOneDay(date: string, step = 1): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
 
+export interface StaleCampaign {
+  campaignId: number
+  name: string
+  platform: string
+  /** The most recent day with a figure. */
+  lastDay: string
+  /** Whole days with no figure at all. Today is excluded: it is not over yet. */
+  missingDays: number
+  perDay: number
+  estimatedMissing: number
+}
+
+/**
+ * Auto-synced campaigns whose daily spend has stopped arriving.
+ *
+ * This matters more than "the number is a bit old". `campaignSpendResolved`
+ * pro-rates the era BEFORE the first recorded day, but days after the last
+ * recorded one are read as zero rather than estimated. So a broken connector
+ * does not leave ad spend merely stale, it leaves it too LOW, and net profit
+ * correspondingly too HIGH, drifting further every day it stays broken.
+ *
+ * That is exactly what happened on 13 September 2026: Meta blocked the app,
+ * the sync failed silently, and September read about GBP 39 more profitable
+ * than it was with nothing on screen to say so. Hence this.
+ *
+ * Only auto-synced, still-running, business-funded campaigns can be stale. One
+ * that is paused, hand-logged or personally funded is quiet by design, and a
+ * personal one could not move business profit anyway.
+ *
+ * One clear day of grace: a platform finalises a day some hours into the next
+ * one, so "yesterday is missing" is normal and only two days behind is a fault.
+ */
+export function adSpendStaleness(d: BusinessData, today = localToday()) {
+  const campaigns = d.campaigns
+    .filter(c => c.externalId
+      && c.status === 'active'
+      && c.fundingSource === 'business'
+      && (!c.endDate || c.endDate >= today))
+    .map((c): StaleCampaign | null => {
+      const rows = d.adSpendDaily.filter(x => x.campaignId === c.id)
+      if (!rows.length) return null
+
+      const lastDay = rows.map(x => x.date).sort()[rows.length - 1]
+      const daysBehind = dayDiff(lastDay, today)
+      if (daysBehind < 2) return null
+
+      // Estimate from the fortnight before the gap rather than the campaign's
+      // whole life, so a budget raised last week is reflected in what the
+      // missing days are worth.
+      const recent = [...rows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14)
+      const perDay = recent.reduce((s, x) => s + x.spend, 0) / recent.length
+      const missingDays = daysBehind - 1
+
+      return {
+        campaignId: c.id,
+        name: c.name,
+        platform: c.platform,
+        lastDay,
+        missingDays,
+        perDay: round2(perDay),
+        estimatedMissing: round2(perDay * missingDays),
+      }
+    })
+    .filter((c): c is StaleCampaign => c !== null)
+    .sort((a, b) => b.estimatedMissing - a.estimatedMissing)
+
+  return {
+    campaigns,
+    /**
+     * Roughly how much ad spend is absent, and so how much net profit is
+     * currently overstated. Deliberately conservative: today is left out
+     * because the day is still running.
+     */
+    estimatedMissing: round2(campaigns.reduce((s, c) => s + c.estimatedMissing, 0)),
+  }
+}
+
 export function costs(d: BusinessData, r: Range, today = localToday()) {
   const biz = d.expenses.filter(e => isBusinessExpense(e) && inRange(e.date, r))
 
@@ -902,6 +979,7 @@ export async function businessMetrics(r: Range = {}, opts: OwnerPayOptions = {},
     cohorts:   cohorts(d, 12, today),
     ownerPay:  ownerPay(d, r, opts, today),
     actions:   actionQueue(d, today),
+    adStale:   adSpendStaleness(d, today),
   }
 }
 
