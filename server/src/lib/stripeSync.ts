@@ -447,10 +447,17 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
     const [existing] = await db.select().from(stripePayments)
       .where(eq(stripePayments.stripeId, c.stripeId))
 
-    // An already-assigned payment is left alone: a re-sync must never undo a
+    // An already-decided payment is left alone: a re-sync must never undo a
     // correction that was made by hand.
+    //
+    // Guarded on `matchedAt`, not on the invoice id. Assigning a payment to a
+    // client who has no invoice is a complete decision that sets no invoice id,
+    // and testing the invoice id let the next sync overwrite it wholesale:
+    // client, confidence and reason all reverted, and the payment reappeared in
+    // the queue as though the user had never touched it. Only the money fields
+    // are refreshed below, because Stripe can still restate a fee or a refund.
     if (existing?.matchedInvoiceId) taken.add(existing.matchedInvoiceId)
-    if (existing?.matchedInvoiceId || existing?.ignored) {
+    if (existing?.matchedAt || existing?.ignored) {
       await db.update(stripePayments)
         .set({ fee: c.fee, amountNet: c.net, refunded: c.refunded, syncedAt: now })
         .where(eq(stripePayments.id, existing.id))
@@ -521,9 +528,20 @@ export async function learnCustomer(clientId: number, stripeCustomerId: string):
 }
 
 /** Payments still waiting on a decision, newest first. */
+/**
+ * Payments still waiting on a decision from the user.
+ *
+ * Keyed on `matchedAt`, which is set only when a match is actually applied or
+ * confirmed by hand, never by a mere suggestion. Keying it on the invoice id
+ * instead was wrong in a way that looked like a broken button: assigning a
+ * payment to a client who has no invoice saved perfectly and then reappeared
+ * in the queue on the next render, with nothing the user could do to clear it.
+ * A payment can legitimately belong to a client and to no invoice, and that is
+ * a finished decision, not an unfinished one.
+ */
 export async function unassignedPayments() {
   return db.select().from(stripePayments)
-    .where(and(isNull(stripePayments.matchedInvoiceId), eq(stripePayments.ignored, 0)))
+    .where(and(isNull(stripePayments.matchedAt), eq(stripePayments.ignored, 0)))
     .orderBy(sql`${stripePayments.paidDate} desc`)
 }
 
