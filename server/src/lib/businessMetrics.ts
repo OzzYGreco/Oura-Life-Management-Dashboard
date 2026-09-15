@@ -21,7 +21,7 @@ import {
   businessClients, businessProjects, businessInvoices, businessRetainers,
   businessRetainerChanges, businessServices, businessTimeEntries,
   businessOwners, businessOwnerDraws,
-  financeExpenses, marketingCampaigns, marketingSpendDaily,
+  financeExpenses, marketingCampaigns, marketingSpendDaily, stripePayments,
 } from '../db/schema'
 import { localToday } from './date'
 
@@ -47,6 +47,7 @@ export interface BusinessData {
   owners:    (typeof businessOwners.$inferSelect)[]
   draws:     (typeof businessOwnerDraws.$inferSelect)[]
   adSpendDaily: (typeof marketingSpendDaily.$inferSelect)[]
+  payments: (typeof stripePayments.$inferSelect)[]
 }
 
 /**
@@ -63,7 +64,7 @@ export function invalidateBusinessData(): void { cache = null }
 export async function loadBusinessData(): Promise<BusinessData> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.data
 
-  const [clients, projects, invoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily] =
+  const [clients, projects, invoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments] =
     await Promise.all([
       db.select().from(businessClients),
       db.select().from(businessProjects),
@@ -77,9 +78,10 @@ export async function loadBusinessData(): Promise<BusinessData> {
       db.select().from(businessOwners),
       db.select().from(businessOwnerDraws),
       db.select().from(marketingSpendDaily),
+      db.select().from(stripePayments),
     ])
 
-  const data = { clients, projects, invoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily }
+  const data = { clients, projects, invoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments }
   cache = { data, at: Date.now() }
   return data
 }
@@ -1143,6 +1145,38 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
       clientId: match.client.id, clientName: e.description,
       what: `cost that looks like ${match.client.name}`, amount: e.amount,
       detail: e.date, rank: 600,
+    })
+  }
+
+  // A subscription Stripe is collecting with no retainer behind it in Oura.
+  //
+  // This is money that arrives every month and counts for nothing: MRR, churn
+  // and every forward-looking figure are built from retainers, so a live
+  // subscription with no retainer is invisible to all of them. It happened with
+  // a GBP 149/mo client who paid on time and sat outside MRR entirely, and the
+  // only reason it was caught was the payment queue behaving oddly.
+  const seenSubs = new Set<string>()
+  for (const p of d.payments) {
+    if (!p.subscriptionId || p.ignored || seenSubs.has(p.subscriptionId)) continue
+    seenSubs.add(p.subscriptionId)
+
+    const clientId = p.matchedClientId
+    if (!clientId) continue                       // still in the payment queue, which says this already
+
+    const plan = p.planAmount ?? p.amountGross
+    const covered = d.retainers.some(r =>
+      r.clientId === clientId
+      && r.status === 'active'
+      && Math.abs(r.amount - plan) < 0.01)
+    if (covered) continue
+
+    rows.push({
+      key: `sub-${p.subscriptionId}`, action: 'setup',
+      clientId, clientName: clientName(clientId),
+      what: 'paying monthly in Stripe, no retainer here',
+      amount: plan,
+      detail: 'not counted in MRR',
+      rank: 450,
     })
   }
 

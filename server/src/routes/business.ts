@@ -1203,6 +1203,120 @@ router.post('/payments/:id/invoice', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/**
+ * Set a subscription payment up as a retainer, in one step.
+ *
+ * Stripe already knows everything this needs. The invoice behind the charge
+ * carries the price per cycle, the length of the cycle and what the client is
+ * buying, so none of it is retyped and none of it is guessed.
+ *
+ * The important part is the high-water mark. The retainer starts on the day the
+ * subscription started, so MRR counts from the right date, but
+ * `lastGeneratedDate` is set to that same day and `nextInvoiceDate` to the cycle
+ * after it. Without that the biller would raise a second invoice for a period
+ * this payment has already settled, and the client would be billed twice for
+ * one month in the books. That trap is the whole reason this exists rather than
+ * the user creating the retainer by hand and remembering the date.
+ */
+router.post('/payments/:id/retainer', async (req, res, next) => {
+  try {
+    const body = parse(z.object({
+      clientId:  z.number().int().optional(),
+      amount:    z.number().positive().optional(),
+      frequency: z.enum(['weekly', 'monthly', 'quarterly', 'yearly']).optional(),
+      name:      z.string().min(1).optional(),
+      serviceId: z.number().int().nullish(),
+    }), req.body)
+
+    const paymentId = id(req.params.id)
+    const [payment] = await db.select().from(stripePayments).where(eq(stripePayments.id, paymentId))
+    if (!payment) return res.status(404).json({ error: 'No such payment' })
+    if (payment.matchedInvoiceId) {
+      return res.status(409).json({ error: 'This payment already has an invoice against it' })
+    }
+
+    const clientId = body.clientId ?? payment.matchedClientId
+    if (!clientId) return res.status(400).json({ error: 'Assign the payment to a client first' })
+
+    const amount = body.amount ?? payment.planAmount ?? payment.amountGross
+    const frequency = body.frequency ?? frequencyFromDays(payment.planIntervalDays)
+    const start = payment.paidDate
+
+    // Name it after what Stripe calls it, cleaned of the quantity and price
+    // Stripe prefixes: "1 x local SEO (at £149.00 / month)" is just "Local SEO".
+    const planName = (payment.planDescription ?? '')
+      .replace(/^\s*\d+\s*[x×]\s*/i, '')
+      .replace(/\s*\(at .*$/i, '')
+      .trim()
+    const name = body.name ?? (planName ? planName[0].toUpperCase() + planName.slice(1) : 'Retainer')
+
+    const services = await db.select().from(businessServices)
+    const serviceId = body.serviceId
+      ?? services.find(sv => sv.name.toLowerCase() === planName.toLowerCase())?.id
+      ?? null
+
+    // better-sqlite3 transactions are synchronous, so anything that needs a
+    // round trip is resolved before the transaction opens.
+    const invoiceNumber = await nextInvoiceNumber()
+    const matchedAt = new Date().toISOString()
+
+    const result = db.transaction(tx => {
+      const retainer = tx.insert(businessRetainers).values({
+        clientId, serviceId, name, amount, frequency,
+        status: 'active',
+        startDate: start,
+        // This payment settles the first cycle, so the biller must start after it.
+        lastGeneratedDate: start,
+        nextInvoiceDate:   advance(start, frequency),
+        autoInvoice: 1,
+      }).returning().get()
+
+      const invoice = tx.insert(businessInvoices).values({
+        invoiceNumber,
+        clientId, serviceId,
+        retainerId:     retainer.id,
+        amount:         payment.amountGross,
+        subtotal:       payment.amountGross,
+        feeAmount:      payment.fee,
+        refundedAmount: payment.refunded,
+        status:         'paid',
+        issueDate:      start,
+        dueDate:        start,
+        paidDate:       start,
+        periodStart:    start,
+        periodEnd:      advance(start, frequency),
+        isRecurring:    1,
+        paymentMethod:  'stripe',
+        notes:          payment.planDescription ?? name,
+      }).returning().get()
+
+      tx.update(stripePayments).set({
+        matchedClientId:  clientId,
+        matchedInvoiceId: invoice.id,
+        confidence:       'exact',
+        matchReason:      `Retainer set up from this subscription, invoice ${invoice.invoiceNumber}`,
+        matchedAt,
+      }).where(eq(stripePayments.id, paymentId)).run()
+
+      return { retainer, invoice }
+    })
+
+    if (payment.stripeCustomerId) await learnCustomer(clientId, payment.stripeCustomerId)
+
+    invalidate()
+    res.status(201).json(result)
+  } catch (e) { next(e) }
+})
+
+/** Stripe reports a cycle in days; a retainer thinks in named frequencies. */
+function frequencyFromDays(days: number | null): 'weekly' | 'monthly' | 'quarterly' | 'yearly' {
+  if (!days) return 'monthly'
+  if (days <= 10) return 'weekly'
+  if (days <= 45) return 'monthly'
+  if (days <= 135) return 'quarterly'
+  return 'yearly'
+}
+
 /** Not business income: a refund, a transfer, a personal card. */
 router.post('/payments/:id/ignore', async (req, res, next) => {
   try {

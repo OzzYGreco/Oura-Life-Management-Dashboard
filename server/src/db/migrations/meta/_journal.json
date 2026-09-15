@@ -78,6 +78,13 @@
       "when": 1787864388093,
       "tag": "0010_payment_method",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1789510125699,
+      "tag": "0011_subscription_payments",
+      "breakpoints": true
     }
   ]
 }
