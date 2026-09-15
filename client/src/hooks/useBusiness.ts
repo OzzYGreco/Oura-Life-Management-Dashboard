@@ -307,6 +307,13 @@ export function useAssignPayment() {
   }) => api.post(`/api/business/payments/${id}/assign`, body).then(r => r.data))
 }
 
+/** Raise a paid invoice from a payment that has nothing to attach to. */
+export function useInvoiceFromPayment() {
+  return useBusinessMutation(({ id, ...body }: {
+    id: number; clientId?: number; description?: string | null; serviceId?: number | null
+  }) => api.post(`/api/business/payments/${id}/invoice`, body).then(r => r.data))
+}
+
 export function useIgnorePayment() {
   return useBusinessMutation((id: number) =>
     api.post(`/api/business/payments/${id}/ignore`).then(r => r.data))
