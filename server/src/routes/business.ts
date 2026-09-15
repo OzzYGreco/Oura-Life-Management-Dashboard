@@ -1016,7 +1016,8 @@ router.get('/payments/status', async (_req, res, next) => {
   try {
     const [row] = await db.select({
       total:    sql<number>`count(*)`,
-      unmatched: sql<number>`sum(case when ${stripePayments.matchedInvoiceId} is null and ${stripePayments.ignored} = 0 then 1 else 0 end)`,
+      // Same definition as unassignedPayments(), or the badge disagrees with the list.
+      unmatched: sql<number>`sum(case when ${stripePayments.matchedAt} is null and ${stripePayments.ignored} = 0 then 1 else 0 end)`,
       fees:     sql<number>`coalesce(sum(${stripePayments.fee}), 0)`,
       latest:   sql<string>`max(${stripePayments.paidDate})`,
     }).from(stripePayments)

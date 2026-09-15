@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Section } from '../../../components/ui/Section'
 import { MiniBtn } from './primitives'
+import { ClientPicker } from './ClientPicker'
 import {
   useUnassignedPayments, useAssignPayment, useIgnorePayment, useClients, useInvoices,
 } from '../../../hooks/useBusiness'
@@ -85,6 +86,7 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
         style={{ background: 'var(--c-bg-card)', border: '1px solid rgba(245,158,11,0.25)' }}>
         {payments.map((p: any, idx: number) => {
           const isOpen = openRow === p.id
+          const chosen = clientId ? (clients as Client[]).find(c => c.id === clientId) ?? null : null
           const rows = clientId ? availableFor(clientId) : []
           const selected = rows.filter(i => picked.includes(i.id))
           const total = selected.reduce((s, i) => s + i.amount, 0)
@@ -132,17 +134,22 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                 <div className="px-4 pb-3.5 pt-1 space-y-2.5">
                   {/* Step one: whose payment is it. */}
                   <div>
-                    <div className="text-[9.5px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--c-text-3)' }}>
-                      Client
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <span className="text-[9.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--c-text-3)' }}>
+                        Client
+                      </span>
+                      {chosen && (
+                        <span className="text-[11px]" style={{ color: 'var(--c-accent)' }}>
+                          {chosen.name}{chosen.company ? ` · ${chosen.company}` : ''}
+                        </span>
+                      )}
                     </div>
-                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                      {(clients as Client[]).map(c => (
-                        <MiniBtn key={c.id} tone={clientId === c.id ? 'accent' : 'default'}
-                          onClick={() => { setClientId(c.id); setPicked([]) }}>
-                          {c.name}
-                        </MiniBtn>
-                      ))}
-                    </div>
+                    <ClientPicker
+                      clients={clients as Client[]}
+                      value={clientId}
+                      hint={[p.payerName, p.payerEmail].filter(Boolean).join(' ')}
+                      onPick={cid => { setClientId(cid); setPicked([]) }}
+                    />
                   </div>
 
                   {/* Step two: which of their invoices it settled. Paid ones are
@@ -164,8 +171,10 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                         style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
                         {rows.length === 0 ? (
                           <p className="px-3 py-4 text-center text-[11px]" style={{ color: 'var(--c-text-3)' }}>
-                            Every invoice of theirs already has a payment against it.
-                            Confirm the client alone to record who paid, without attaching a fee.
+                            {(invoices as Invoice[]).some(i => i.clientId === clientId)
+                              ? 'Every invoice of theirs already has a payment against it.'
+                              : 'They have no invoices yet, so there is nothing to attach this to.'}
+                            {' '}Assigning the client alone records who paid and clears this from the queue.
                           </p>
                         ) : rows.map(i => {
                           const on = picked.includes(i.id)

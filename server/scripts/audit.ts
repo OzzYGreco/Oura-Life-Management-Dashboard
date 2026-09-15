@@ -92,6 +92,30 @@ async function main() {
   check('no invoice is claimed by two payments', dupes.length === 0,
     dupes.map(r => `invoice ${r.id} x${r.n}`).join(', '))
 
+  // A decision the user made by hand has to survive the next sync, and has to
+  // leave the queue. Both once keyed off matched_invoice_id, so assigning a
+  // payment to a client who had no invoice saved correctly, stayed in the queue
+  // anyway, and was then overwritten wholesale by the following sync. The field
+  // that marks a decision is matched_at; these assert nothing drifts back.
+  const decided = await db.all<{ n: number }>(sql`
+    select count(*) as n from stripe_payments
+    where match_reason like 'Assigned by hand%' and matched_at is null`)
+  check('a hand assignment is never left without a decision stamp',
+    (decided[0]?.n ?? 0) === 0,
+    'without matched_at the next sync overwrites it and it returns to the queue')
+
+  const ghostQueue = await db.all<{ n: number }>(sql`
+    select count(*) as n from stripe_payments
+    where matched_at is not null and ignored = 0 and matched_client_id is null`)
+  check('nothing is marked decided without a client to show for it',
+    (ghostQueue[0]?.n ?? 0) === 0)
+
+  const orphanClient = await db.all<{ n: number }>(sql`
+    select count(*) as n from stripe_payments p
+    where p.matched_client_id is not null
+      and not exists (select 1 from business_clients c where c.id = p.matched_client_id)`)
+  check('every assigned payment points at a client that exists', (orphanClient[0]?.n ?? 0) === 0)
+
   // Paying before the invoice is raised is normal: a deposit agreed on the day,
   // or a first month bought up front. What is NOT normal is the matcher doing
   // it by itself, which is how an August payment once landed on September's
