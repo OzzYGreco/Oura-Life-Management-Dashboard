@@ -8,7 +8,7 @@ import {
   useClients, useProjects, useServices,
   useCreateClient, useUpdateClient,
   useCreateProject, useUpdateProject,
-  useCreateInvoice, useUpdateInvoice,
+  useInvoice, useCreateInvoice, useUpdateInvoice,
   useCreateRetainer, useLogTime,
   useCreateMeetingNote, useCreateCampaign, useUpdateCampaign, useDeleteCampaign,
   useCampaignSpend,
@@ -155,10 +155,26 @@ export function InvoiceModal({
   const { data: projects = [] } = useProjects()
   const create = useCreateInvoice()
   const update = useUpdateInvoice()
+  // Editing starts from the stored invoice. Opening on a blank form and saving
+  // it wrote amount 0, unpaid and no notes over a paid invoice.
+  const { data: existing } = useInvoice(open ? invoiceId : null)
+  const loading = !!invoiceId && !existing
   const [f, setF] = useState<any>({})
 
   useEffect(() => {
     if (!open) return
+    if (invoiceId) {
+      if (!existing) return
+      setF({
+        clientId: existing.clientId, projectId: existing.projectId ?? '',
+        amount: String(existing.amount), status: existing.status,
+        issueDate: existing.issueDate, dueDate: existing.dueDate ?? '',
+        paidDate: existing.paidDate ?? '',
+        feeAmount: existing.feeAmount ? String(existing.feeAmount) : '',
+        notes: existing.notes ?? '',
+      })
+      return
+    }
     const project = (projects as Project[]).find(p => p.id === projectId)
     setF({
       clientId: clientId ?? project?.clientId ?? '',
@@ -166,7 +182,7 @@ export function InvoiceModal({
       amount: '', status: 'unpaid',
       issueDate: today(), dueDate: '', feeAmount: '', notes: '',
     })
-  }, [open, clientId, projectId])
+  }, [open, invoiceId, existing, clientId, projectId])
 
   const clientProjects = (projects as Project[]).filter(p => String(p.clientId) === String(f.clientId))
 
@@ -215,7 +231,7 @@ export function InvoiceModal({
         <p className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>
           Leave the due date blank for 7-day terms.
         </p>
-        <Footer onCancel={onClose} onSave={save} saving={create.isPending || update.isPending}
+        <Footer onCancel={onClose} onSave={save} saving={loading || create.isPending || update.isPending}
           label={invoiceId ? 'Save' : 'Create invoice'} />
       </div>
     </Modal>

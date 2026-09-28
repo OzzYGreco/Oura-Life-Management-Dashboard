@@ -779,9 +779,21 @@ router.post('/invoices/:id/send', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/** One invoice as stored, so the edit form starts from what is there. */
+router.get('/invoices/:id', async (req, res, next) => {
+  try {
+    const [row] = await db.select().from(businessInvoices).where(eq(businessInvoices.id, id(req.params.id)))
+    if (!row) return res.status(404).json({ error: 'No such invoice' })
+    res.json(row)
+  } catch (e) { next(e) }
+})
+
 router.put('/invoices/:id', async (req, res, next) => {
   try {
     const body = parse(invoiceSchema.partial(), req.body)
+    // Subtotal is written equal to the amount everywhere else; an edit to the
+    // amount that left it behind would have the two disagree.
+    if (body.amount != null && body.subtotal === undefined) body.subtotal = body.amount
     const row = (await db.update(businessInvoices).set(body).where(eq(businessInvoices.id, id(req.params.id))).returning())[0]
     invalidate()
     res.json(row)
