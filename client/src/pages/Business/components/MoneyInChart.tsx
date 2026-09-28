@@ -40,12 +40,7 @@ export function MoneyInChart({
               <CartesianGrid {...gridProps} />
               <XAxis dataKey="label" {...axisProps} />
               <YAxis {...axisProps} tickFormatter={v => compact(v)} width={46} />
-              <Tooltip
-                cursor={barCursor}
-                contentStyle={tooltipStyle}
-                labelStyle={{ color: 'var(--c-text-1)', fontWeight: 600 }}
-                formatter={((value: any, name: any) => [fmtView(Number(value)), String(name)]) as any}
-              />
+              <Tooltip cursor={barCursor} content={<MonthTooltip fmtView={fmtView} />} />
               <Legend
                 verticalAlign="top" align="left" height={28} iconType="circle" iconSize={7}
                 wrapperStyle={{ fontSize: 11, color: 'var(--c-text-3)', paddingBottom: 6 }}
@@ -62,6 +57,36 @@ export function MoneyInChart({
           Nothing collected in this window yet.
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * The default tooltip, plus the month's total. Retainer and one-off are the two
+ * halves of one bar, and the figure wanted from it is the whole: without this
+ * line it had to be added up by hand.
+ */
+function MonthTooltip({ active, payload, label, fmtView }: {
+  active?: boolean; payload?: any[]; label?: string; fmtView: FmtView
+}) {
+  if (!active || !payload?.length) return null
+  const row = payload[0].payload as { retainer: number; oneOff: number }
+  // MRR first, so the two lines the total adds up sit directly above it.
+  const lines = [...payload].sort((a, b) => Number(b.dataKey === 'mrr') - Number(a.dataKey === 'mrr'))
+  return (
+    <div style={{ ...tooltipStyle, padding: '8px 10px' }}>
+      <p style={{ color: 'var(--c-text-1)', fontWeight: 600, marginBottom: 4 }}>{label}</p>
+      {lines.map(p => (
+        <p key={p.dataKey} style={{ color: p.color, lineHeight: 1.7 }}>
+          {p.name} : {fmtView(Number(p.value))}
+        </p>
+      ))}
+      <p style={{
+        color: 'var(--c-text-1)', fontWeight: 600, lineHeight: 1.7,
+        borderTop: '1px solid var(--c-border)', marginTop: 4, paddingTop: 4,
+      }}>
+        Total : {fmtView(row.retainer + row.oneOff)}
+      </p>
     </div>
   )
 }
