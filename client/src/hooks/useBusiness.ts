@@ -17,6 +17,10 @@ export function useProjectTasks(projectId: number) {
 export function useInvoices(params = {}) {
   return useQuery({ queryKey: ['invoices', params], queryFn: () => api.get('/api/business/invoices', { params }).then(r => r.data) })
 }
+/** Keyed under 'invoices' so every invoice mutation refreshes it too. */
+export function useInvoice(id: number | null | undefined) {
+  return useQuery({ queryKey: ['invoices', 'one', id], queryFn: () => api.get(`/api/business/invoices/${id}`).then(r => r.data), enabled: !!id })
+}
 export function useMeetingNotes(params = {}) {
   return useQuery({ queryKey: ['meeting-notes', params], queryFn: () => api.get('/api/business/meeting-notes', { params }).then(r => r.data) })
 }
