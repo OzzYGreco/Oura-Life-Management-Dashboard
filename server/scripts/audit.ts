@@ -129,10 +129,14 @@ async function main() {
   // sat outside MRR this way, found only because the payment queue misbehaved.
   const subsNoRetainer = await db.all<{ n: number; who: string }>(sql`
     select count(*) as n, coalesce(group_concat(distinct c.name), '') as who
-    from (select distinct subscription_id, matched_client_id,
+    -- Each subscription's latest charge only: after a price change the older
+    -- charges carry the old price and would never match the current retainer.
+    from (select subscription_id, matched_client_id,
                  coalesce(plan_amount, amount_gross) as plan
-          from stripe_payments
-          where subscription_id is not null and ignored = 0 and matched_client_id is not null) p
+          from stripe_payments s
+          where subscription_id is not null and ignored = 0 and matched_client_id is not null
+            and paid_date = (select max(paid_date) from stripe_payments s2
+                             where s2.subscription_id = s.subscription_id and s2.ignored = 0)) p
     join business_clients c on c.id = p.matched_client_id
     where not exists (
       select 1 from business_retainers r
