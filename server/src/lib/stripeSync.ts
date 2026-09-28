@@ -515,6 +515,21 @@ export async function applyPaymentToInvoice(paymentId: number): Promise<void> {
     .filter(i => ids.includes(i.id))
   if (!invoices.length) return
 
+  // A subscription charge is Stripe billing the plan's price for the period, so
+  // when it settles one invoice it IS what that period cost. The invoice may
+  // have been raised before a price change reached the retainer (raised at the
+  // old price, collected at the new one), and keeping it books the wrong money.
+  // Only for subscriptions: a one-off paying less than its invoice may be a
+  // part payment, and rewriting the amount there would erase what is still owed.
+  const restate = p.subscriptionId && invoices.length === 1
+    && round2(invoices[0].amount) !== round2(p.amountGross)
+  if (restate) {
+    await db.update(businessInvoices)
+      .set({ amount: p.amountGross, subtotal: p.amountGross })
+      .where(eq(businessInvoices.id, invoices[0].id))
+    invoices[0].amount = p.amountGross
+  }
+
   const total = invoices.reduce((s2, i) => s2 + i.amount, 0)
   let allocatedFee = 0
   let allocatedRefund = 0
