@@ -150,13 +150,13 @@ export function Overview({
       */}
       <Section label="The business">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
-          <KpiCard onClick={() => navigate('/business/retainers')} hero label="MRR" value={`${fmtView(m.mrr.current)}/mo`} color="var(--c-accent)"
+          <KpiCard spark={m.mrr.movement.map(r => r.endingMrr)} sparkColor="#818cf8" onClick={() => navigate('/business/retainers')} hero label="MRR" value={`${fmtView(m.mrr.current)}/mo`} color="var(--c-accent)"
             sub={`${m.mrr.activeCount} active retainer${m.mrr.activeCount === 1 ? '' : 's'}${
               m.mrr.netNewThisMonth ? ` · ${m.mrr.netNewThisMonth > 0 ? '+' : ''}${fmtView(m.mrr.netNewThisMonth)} this month` : ''}`} />
           <KpiCard onClick={() => navigate('/business/money')} hero label="Gross volume" value={fmtView(m.pnl.grossVolume)}
             sub={`${m.volume.invoiceCount} invoice${m.volume.invoiceCount === 1 ? '' : 's'} ${periodLabel}${
               lastMonthNet ? ` · last month ${fmtView(lastMonthNet)}` : ''}`} />
-          <KpiCard onClick={() => navigate('/business/money')} hero label="Net volume" value={fmtView(m.pnl.netVolume)} color="var(--c-profit)"
+          <KpiCard spark={m.volume.byMonth.map(r => r.net)} sparkColor="#34d399" onClick={() => navigate('/business/money')} hero label="Net volume" value={fmtView(m.pnl.netVolume)} color="var(--c-profit)"
             sub={m.pnl.fees || m.pnl.refunds
               ? `after ${fmtView(m.pnl.fees)} fees and ${fmtView(m.pnl.refunds)} refunds`
               : 'no fees or refunds recorded'} />
@@ -167,7 +167,7 @@ export function Overview({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
-          <KpiCard onClick={() => navigate('/business/money')} label="Net profit" value={fmtView(m.pnl.netProfit)}
+          <KpiCard spark={m.pnlByMonth.map(r => r.netProfit)} sparkColor="#34d399" onClick={() => navigate('/business/money')} label="Net profit" value={fmtView(m.pnl.netProfit)}
             color={m.pnl.netProfit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}
             sub={`${m.pnl.marginPct.toFixed(1)}% margin ${periodLabel}`} />
           <KpiCard onClick={() => navigate('/business/invoices?status=open')} label="Outstanding" value={fmtView(m.ar.total)}
