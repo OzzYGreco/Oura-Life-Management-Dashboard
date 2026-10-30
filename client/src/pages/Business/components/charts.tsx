@@ -39,6 +39,13 @@ export function ChartTooltip({
   )
 }
 
+/**
+ * Categorical colours in a fixed order: a client or service keeps its colour
+ * by position, and anything past eight folds into "others" rather than a
+ * ninth hue nobody can tell apart.
+ */
+export const SERIES = ['#818cf8', '#34d399', '#f59e0b', '#22d3ee', '#a78bfa', '#f472b6', '#facc15', '#60a5fa']
+
 export interface Part { key: string; value: number; color: string; note?: ReactNode }
 
 /**

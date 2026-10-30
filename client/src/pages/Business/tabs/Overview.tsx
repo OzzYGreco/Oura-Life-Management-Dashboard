@@ -6,6 +6,8 @@ import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { DateFilter, type Preset, presetRange } from '../../../components/shared/DateFilter'
 import { MoneyInChart } from '../components/MoneyInChart'
+import { Question } from '../components/MoneySections'
+import { hoverCard } from '../components/charts'
 import { NeedsYou } from '../components/NeedsYou'
 import { PaymentsToAssign } from '../components/PaymentsToAssign'
 import { MiniBtn, Pill, fmtHours } from '../components/primitives'
@@ -148,7 +150,13 @@ export function Overview({
         arrival. Point-in-time facts (MRR, retainers, what is owed) ignore the
         date filter; period facts name their period in the sub-line.
       */}
-      <Section label="The business">
+      <Question q="How is the business doing?"
+        answer={<>
+          <b className="num" style={{ color: 'var(--c-accent)' }}>{fmtView(m.mrr.current)}/mo</b> recurring
+          {m.mrr.netNewThisMonth ? <> ({m.mrr.netNewThisMonth > 0 ? 'up' : 'down'} {fmtView(Math.abs(m.mrr.netNewThisMonth))} this month)</> : null},{' '}
+          <b className="num" style={{ color: m.pnl.netProfit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>{fmtView(m.pnl.netProfit)}</b> profit {periodLabel}
+          {m.ar.total ? <>, and <b className="num" style={{ color: '#f59e0b' }}>{fmtView(m.ar.total)}</b> still owed</> : <>, and nobody owes you</>}.
+        </>}>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
           <KpiCard spark={m.mrr.movement.map(r => r.endingMrr)} sparkColor="#818cf8" onClick={() => navigate('/business/retainers')} hero label="MRR" value={`${fmtView(m.mrr.current)}/mo`} color="var(--c-accent)"
             sub={`${m.mrr.activeCount} active retainer${m.mrr.activeCount === 1 ? '' : 's'}${
@@ -186,12 +194,13 @@ export function Overview({
           <KpiCard onClick={() => navigate('/business/retainers')} label="Average client" value={`${fmtView(m.mrr.arpa)}/mo`}
             sub={`across ${m.mrr.activeCount} retainers`} />
         </div>
-      </Section>
+      </Question>
 
-      <Section label="Money in" count="12 months"
+      <Question q="Is money coming in?"
+        answer={prevMonth ? <><b className="num" style={{ color: 'var(--c-profit)' }}>{fmtView(lastMonthNet)}</b> came in last month after fees.</> : 'The last 12 months of money in.'}
         action={<MiniBtn onClick={onOpenStats}>Full breakdown</MiniBtn>}>
         <MoneyInChart metrics={m} fmtView={fmtView} />
-      </Section>
+      </Question>
 
       <PaymentsToAssign fmtView={fmtView} />
 
@@ -208,10 +217,8 @@ export function Overview({
                   key={b.id}
                   type="button"
                   onClick={() => b.clientId && onOpenClient(b.clientId)}
-                  className="text-left rounded-xl p-3.5 transition-colors"
-                  style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(129,140,248,0.4)')}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--c-border)')}
+                  className={`text-left rounded-xl p-3.5 border border-[var(--c-border)] ${hoverCard}`}
+                  style={{ background: 'var(--c-bg-card)' }}
                 >
                   <div className="text-[13px] font-semibold truncate" style={{ color: 'var(--c-text-1)' }}>{b.name}</div>
                   <div className="text-[11px] mb-2.5" style={{ color: 'var(--c-text-3)' }}>{b.clientName}</div>
