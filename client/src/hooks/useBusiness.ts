@@ -142,6 +142,14 @@ export function useServices() {
   })
 }
 
+/** Add a service the business has started selling. */
+export function useCreateService() {
+  return useBusinessMutation((body: {
+    name: string; kind: 'one_off' | 'recurring'; defaultAmount?: number | null
+    defaultFrequency?: string | null; milestones?: { label: string; pct: number; offsetDays?: number }[] | null
+  }) => api.post('/api/business/services', body).then(r => r.data as Service))
+}
+
 export function useActiveProjects() {
   return useQuery<ActiveProject[]>({
     queryKey: ['projects-active'],
@@ -179,7 +187,7 @@ function useBusinessMutation<TArgs>(fn: (args: TArgs) => Promise<any>) {
         'projects-active', 'business-needs', 'owner-pay', 'invoices', 'clients',
         'projects', 'dashboard', 'finance-summary', 'income-streams', 'cashflow',
         'expenses', 'time-entries-all', 'campaigns', 'campaign-spend', 'ad-spend-status', 'payment-status', 'payments', 'payments-unassigned',
-        'payment-options', 'meeting-notes', 'comeback', 'finance-expenses', 'finance-recurring',
+        'payment-options', 'meeting-notes', 'comeback', 'finance-expenses', 'finance-recurring', 'services',
       ]) qc.invalidateQueries({ queryKey: [key] })
     },
   })

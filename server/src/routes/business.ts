@@ -614,6 +614,41 @@ router.get('/services', async (_req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/**
+ * A new service, for something the business starts selling. Monthly ones
+ * become retainers and count in MRR; one-off ones are billed in full, or in
+ * stages like a website build when `milestones` is given.
+ */
+router.post('/services', async (req, res, next) => {
+  try {
+    const body = parse(z.object({
+      name:          z.string().trim().min(1),
+      kind:          z.enum(['one_off', 'recurring']),
+      defaultAmount: money.nullish(),
+      defaultFrequency: z.enum(['weekly', 'monthly', 'quarterly', 'yearly']).nullish(),
+      milestones:    z.array(z.object({ label: z.string().min(1), pct: z.number().positive(), offsetDays: z.number().int().min(0).optional() })).nullish(),
+      defaultTermDays: z.number().int().min(0).max(180).optional(),
+    }), req.body)
+    const taken = db.select().from(businessServices).all()
+      .find(x => x.active && x.name.trim().toLowerCase() === body.name.toLowerCase())
+    if (taken) return res.status(409).json({ error: `There is already a service called ${taken.name}` })
+    if (body.milestones?.length && Math.round(body.milestones.reduce((t, m) => t + m.pct, 0)) !== 100) {
+      return res.status(400).json({ error: 'The stages have to add up to 100%' })
+    }
+    const last = db.select().from(businessServices).all().reduce((m, x) => Math.max(m, x.sortOrder), 0)
+    const row = db.insert(businessServices).values({
+      name: body.name, kind: body.kind,
+      defaultAmount: body.defaultAmount ?? null,
+      defaultFrequency: body.kind === 'recurring' ? body.defaultFrequency ?? 'monthly' : null,
+      milestones: body.kind === 'one_off' && body.milestones?.length ? body.milestones : null,
+      defaultTermDays: body.defaultTermDays ?? 7,
+      sortOrder: last + 1,
+    }).returning().get()
+    invalidate()
+    res.status(201).json(row)
+  } catch (e) { next(e) }
+})
+
 // ─── The composer: one form, one transaction ─────────────────────────────────
 
 const dealSchema = z.object({
