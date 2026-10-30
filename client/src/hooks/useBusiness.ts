@@ -241,9 +241,14 @@ export interface PricePlan {
   mrrDelta: number
   repriced: { id: number; invoiceNumber: string; from: number; to: number; periodStart: string | null }[]
   untouchedPaid: { id: number; invoiceNumber: string; amount: number }[]
+  earlier: { id: number; invoiceNumber: string; amount: number; periodStart: string | null }[]
+  nextInvoiceDate: string | null
 }
 
-export type PriceBody = { newAmount: number; effectiveDate?: string; correction?: boolean; reason?: string }
+export type PriceBody = {
+  newAmount: number; effectiveDate?: string; correction?: boolean; reason?: string
+  serviceId?: number | null; name?: string
+}
 
 /** What a price change would do, before it is made. Same route, `dryRun`. */
 export function usePricePreview(id: number | null, body: PriceBody | null) {

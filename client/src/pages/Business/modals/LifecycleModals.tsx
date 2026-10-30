@@ -124,6 +124,8 @@ export function RetainerEditModal({
       if (priceChanged) {
         await changePrice.mutateAsync({
           id: retainer.id, newAmount, effectiveDate: from || undefined, correction, reason: reason || undefined,
+          // The invoices the new price reaches also take the new service.
+          ...(serviceChanged ? { serviceId: f.serviceId ? Number(f.serviceId) : null, name: newLabel } : {}),
         })
       }
       onClose()
@@ -133,6 +135,10 @@ export function RetainerEditModal({
   }
 
   const per = retainer.frequency === 'monthly' ? 'mo' : retainer.frequency.slice(0, 2)
+  const newService = (services as Service[]).find(sv => String(sv.id) === String(f.serviceId))
+  const newLabel = f.name || newService?.name || retainer.name
+  const serviceChanged = String(f.serviceId ?? '') !== String(retainer.serviceId ?? '') || (f.name && f.name !== retainer.name)
+  const oldLabel = retainer.serviceName ?? retainer.name
   const saving = update.isPending || changePrice.isPending
 
   return (
@@ -170,20 +176,6 @@ export function RetainerEditModal({
                       : <>From <span className="num">{formatDate(plan.effectiveDate)}</span> MRR {plan.mrrDelta >= 0 ? 'goes up' : 'goes down'} by{' '}
                         <span className="num">{fmtView(Math.abs(plan.mrrDelta))}/mo</span>, recorded as {plan.mrrDelta >= 0 ? 'expansion' : 'contraction'}.</>}
                   </Note>
-                  {plan.repriced.length > 0 ? (
-                    <Note tone="warn">
-                      Re-prices {plan.repriced.length === 1 ? 'this open invoice' : `these ${plan.repriced.length} open invoices`}:{' '}
-                      {plan.repriced.map(i => `${i.invoiceNumber} (${fmtView(i.from)} → ${fmtView(i.to)})`).join(', ')}.
-                    </Note>
-                  ) : (
-                    <Note>No open invoice is affected. The next one is raised at the new price.</Note>
-                  )}
-                  {plan.untouchedPaid.length > 0 && (
-                    <Note>
-                      {plan.untouchedPaid.map(i => i.invoiceNumber).join(', ')} {plan.untouchedPaid.length === 1 ? 'is' : 'are'} already
-                      paid, so {plan.untouchedPaid.length === 1 ? 'it stays' : 'they stay'} at what was actually collected.
-                    </Note>
-                  )}
                 </>
               )}
               {!correction && (
@@ -225,7 +217,54 @@ export function RetainerEditModal({
           </p>
         </div>
 
-        <Input id="re-notes" label="Notes" value={f.notes ?? ''} onChange={e => setF({ ...f, notes: e.target.value })} />
+        <Input id="re-notes" label="Your notes (never shown on invoices)" value={f.notes ?? ''}
+          onChange={e => setF({ ...f, notes: e.target.value })} />
+
+        {/* ── Every invoice this touches, past, present and future ─────── */}
+        {(priceChanged || correction || serviceChanged) && (
+          <div className="rounded-lg px-3.5 py-3 text-[11.5px] space-y-1.5"
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-2)' }}>
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>
+              What saving does
+            </div>
+            {plan && (priceChanged || correction) ? (
+              <>
+                <p>
+                  <b style={{ color: 'var(--c-text-1)' }}>Earlier invoices</b>{' '}
+                  {plan.earlier.length
+                    ? <>({plan.earlier.map(i => i.invoiceNumber).join(', ')}) stay exactly as they are: {oldLabel}, at the price they were billed.</>
+                    : 'none before this date.'}
+                </p>
+                {plan.untouchedPaid.length > 0 && (
+                  <p>
+                    <b style={{ color: 'var(--c-text-1)' }}>{plan.untouchedPaid.map(i => i.invoiceNumber).join(', ')}</b> already
+                    paid, so kept at what was collected.
+                  </p>
+                )}
+                <p>
+                  <b style={{ color: 'var(--c-text-1)' }}>
+                    {plan.repriced.length ? plan.repriced.map(i => i.invoiceNumber).join(', ') : 'No open invoice'}
+                  </b>
+                  {plan.repriced.length
+                    ? <> becomes {serviceChanged ? `${newLabel} ` : ''}<span className="num">{fmtView(newAmount)}</span> (was {fmtView(plan.repriced[0].from)}).</>
+                    : ' is affected.'}
+                </p>
+                <p>
+                  <b style={{ color: 'var(--c-text-1)' }}>From {plan.nextInvoiceDate ? formatDate(plan.nextInvoiceDate) : 'the next invoice'}</b>,
+                  {' '}every invoice is {newLabel} at <span className="num">{fmtView(newAmount)}/{per}</span>.
+                </p>
+              </>
+            ) : !priceChanged && !correction ? (
+              <>
+                <p><b style={{ color: 'var(--c-text-1)' }}>Invoices already raised</b> keep {oldLabel}. Nothing is merged or renamed.</p>
+                <p>
+                  <b style={{ color: 'var(--c-text-1)' }}>From {retainer.nextInvoiceDate ? formatDate(retainer.nextInvoiceDate) : 'the next invoice'}</b>,
+                  {' '}invoices say {newLabel}. To move an open invoice too, change the price from its date.
+                </p>
+              </>
+            ) : <p>Working it out...</p>}
+          </div>
+        )}
 
         {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
 
