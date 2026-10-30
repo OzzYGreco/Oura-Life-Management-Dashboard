@@ -376,6 +376,59 @@ router.get('/clients/:id/comeback', async (req, res, next) => {
 })
 
 /**
+ * A client paid: record it once, against whatever they owe, oldest first.
+ *
+ * "Which invoice was this for?" is a question nobody wants to answer for a
+ * client who simply pays what they owe. Money goes to their oldest open bill
+ * first and spills into the next; anything left over is refused rather than
+ * guessed, so it can be raised as an invoice deliberately.
+ */
+router.post('/clients/:id/payments', async (req, res, next) => {
+  try {
+    const clientId = id(req.params.id)
+    const body = parse(z.object({
+      amount:     z.number().positive(),
+      date:       dateStr.optional(),
+      fee:        z.number().nonnegative().optional(),
+      method:     z.enum(['bank', 'cash', 'stripe']).optional(),
+      invoiceIds: z.array(z.number().int()).optional(),
+      dryRun:     z.boolean().optional(),
+    }), req.body)
+    const d = await loadBusinessData()
+    const open = d.invoices
+      .filter(i => i.clientId === clientId && (i.status === 'unpaid' || i.status === 'draft')
+        && (!body.invoiceIds || body.invoiceIds.includes(i.id)))
+      .map(i => ({ inv: i, owed: owedOn(d, i) }))
+      .filter(x => x.owed > 0.005)
+      .sort((a, b) => a.inv.issueDate.localeCompare(b.inv.issueDate) || a.inv.id - b.inv.id)
+
+    let left = round2(body.amount)
+    const splits: { invoiceId: number; invoiceNumber: string; amount: number; owed: number; settles: boolean }[] = []
+    for (const x of open) {
+      if (left <= 0.005) break
+      const amt = round2(Math.min(x.owed, left))
+      splits.push({ invoiceId: x.inv.id, invoiceNumber: x.inv.invoiceNumber, amount: amt, owed: x.owed, settles: amt >= x.owed - 0.005 })
+      left = round2(left - amt)
+    }
+    const plan = { splits, leftOver: left, owedTotal: round2(open.reduce((s2, x) => s2 + x.owed, 0)) }
+    if (body.dryRun) return res.json(plan)
+    if (left > 0.005) {
+      return res.status(409).json({ error: `That is ${left.toFixed(2)} more than they owe. Raise an invoice for the rest first.` })
+    }
+    const date = body.date ?? localToday()
+    db.transaction(tx => {
+      splits.forEach((sp, idx) => recordManualPayment(tx, sp.invoiceId, {
+        amount: sp.amount, date, method: body.method ?? 'bank',
+        // The fee belongs to the payment; it rides on the first invoice it touches.
+        fee: idx === 0 ? body.fee ?? 0 : 0,
+      }))
+    })
+    invalidate()
+    res.json(plan)
+  } catch (e) { next(e) }
+})
+
+/**
  * They came back. Old debts can be restored as owed and retainers picked up
  * again in the same step: a picked-up retainer starts afresh today, never billing
  * the months they were away, and counts as reactivation MRR.
@@ -804,6 +857,104 @@ function priceOn(r: typeof businessRetainers.$inferSelect, changes: (typeof busi
   return mine.length ? mine[0].oldAmount : r.amount
 }
 
+const priceSchema = z.object({
+  newAmount:     money,
+  effectiveDate: dateStr.optional(),
+  correction:    z.boolean().optional(),
+  reason:        z.string().nullish(),
+  /**
+   * A move to another service at the same time (Local SEO down to Hosting).
+   * The invoices this re-prices take the new service too, so October reads
+   * "Hosting £20" rather than "Local SEO £20".
+   */
+  serviceId:     z.number().int().nullish(),
+  name:          z.string().min(1).optional(),
+  dryRun:        z.boolean().optional(),
+})
+
+/**
+ * Work out a price change, and return the plan plus the writes that make it.
+ * Shared by the price route and the one-step "Change plan" route, so the two
+ * can never disagree about what a change does.
+ */
+async function planPriceChange(retainerId: number, body: z.infer<typeof priceSchema>) {
+  const today = localToday()
+  const [current] = await db.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId))
+  if (!current) refuse(404, 'No such retainer')
+  const changes = await db.select().from(businessRetainerChanges).where(eq(businessRetainerChanges.retainerId, retainerId))
+  const invoices = await db.select().from(businessInvoices).where(eq(businessInvoices.retainerId, retainerId))
+
+  // The period currently open: the latest one billed, if it is still unpaid,
+  // else the next one.
+  const latest = [...invoices].filter(i => i.status !== 'void' && i.periodStart)
+    .sort((a, b) => b.periodStart!.localeCompare(a.periodStart!))[0]
+  const defaultDate = latest && latest.status !== 'paid' ? latest.periodStart! : (current.nextInvoiceDate ?? today)
+
+  let effectiveDate = body.effectiveDate ?? defaultDate
+  if (effectiveDate > today && effectiveDate !== current.nextInvoiceDate) {
+    refuse(400, 'Pick a date up to today, or the next invoice date. A price set further ahead would be billed early.')
+  }
+  // A change on or before the day it started is simply its starting price.
+  const correction = !!body.correction || effectiveDate <= current.startDate
+  const latestChange = [...changes].sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate) || b.id - a.id)[0]
+  if (correction) effectiveDate = latestChange?.effectiveDate ?? current.startDate
+
+  const oldAmount = priceOn(current, changes, effectiveDate)
+  const samePrice = round2(oldAmount) === round2(body.newAmount)
+  const serviceMoves = body.serviceId !== undefined && body.serviceId !== current.serviceId
+  if (!correction && samePrice && !serviceMoves) {
+    refuse(400, 'That is already the price on that date')
+  }
+
+  const reprice = invoices.filter(i =>
+    (i.status === 'unpaid' || i.status === 'draft')
+    && (i.periodStart ?? i.issueDate) >= effectiveDate
+    && (round2(i.amount) !== round2(body.newAmount) || (serviceMoves && i.serviceId !== body.serviceId)))
+
+  const plan = {
+    effectiveDate, correction, oldAmount, newAmount: body.newAmount,
+    mrrDelta: correction ? 0 : round2(toMonthly(body.newAmount, current.frequency) - toMonthly(oldAmount, current.frequency)),
+    repriced: reprice.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, from: i.amount, to: body.newAmount, periodStart: i.periodStart })),
+    untouchedPaid: invoices.filter(i => i.status === 'paid' && (i.periodStart ?? i.issueDate) >= effectiveDate)
+      .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount })),
+    /** Invoices for periods before the change, which keep their price and service. */
+    earlier: invoices.filter(i => i.status !== 'void' && (i.periodStart ?? i.issueDate) < effectiveDate)
+      .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, periodStart: i.periodStart })),
+    nextInvoiceDate: current.nextInvoiceDate,
+  }
+
+  const apply = (tx: Tx) => {
+    if (correction) {
+      if (latestChange) {
+        tx.update(businessRetainerChanges).set({ newAmount: body.newAmount })
+          .where(eq(businessRetainerChanges.id, latestChange.id)).run()
+      }
+    } else if (!samePrice) {
+      // Anything logged for after this date is superseded by it.
+      tx.delete(businessRetainerChanges).where(and(
+        eq(businessRetainerChanges.retainerId, retainerId), gte(businessRetainerChanges.effectiveDate, effectiveDate))).run()
+      tx.insert(businessRetainerChanges).values({
+        retainerId, effectiveDate, oldAmount, newAmount: body.newAmount, reason: body.reason ?? null,
+      }).run()
+    }
+    tx.update(businessRetainers).set({
+      amount: body.newAmount, updatedAt: new Date().toISOString(),
+      ...(serviceMoves ? { serviceId: body.serviceId } : {}),
+      ...(body.name ? { name: body.name } : {}),
+    }).where(eq(businessRetainers.id, retainerId)).run()
+    for (const i of reprice) {
+      tx.update(businessInvoices).set({
+        amount: body.newAmount, subtotal: body.newAmount,
+        ...(body.serviceId !== undefined ? { serviceId: body.serviceId } : {}),
+        ...(body.name ? { notes: body.name } : {}),
+      }).where(eq(businessInvoices.id, i.id)).run()
+      // A part-paid invoice may now be fully covered, or no longer.
+      if (allocationsFor(tx, i.id).length) recomputeInvoice(tx, i.id)
+    }
+  }
+  return { plan, apply, current, invoices }
+}
+
 /**
  * Change what a retainer costs, and say from when.
  *
@@ -814,101 +965,89 @@ function priceOn(r: typeof businessRetainers.$inferSelect, changes: (typeof busi
  * collected and are never touched.
  *
  * A correction ("it was always this") logs no change, so it moves neither
- * expansion nor contraction; it only fixes the number. Only periods from the
- * latest real change onwards are re-priced by it, since earlier ones were billed
- * at a price that was genuinely in force then.
+ * expansion nor contraction; it only fixes the number.
  */
 router.put('/retainers/:id/price', async (req, res, next) => {
   try {
-    const body = parse(z.object({
-      newAmount:     money,
-      effectiveDate: dateStr.optional(),
-      correction:    z.boolean().optional(),
-      reason:        z.string().nullish(),
-      /**
-       * A move to another service at the same time (Local SEO down to Hosting).
-       * The invoices this re-prices take the new service too, so October reads
-       * "Hosting £20" rather than "Local SEO £20".
-       */
-      serviceId:     z.number().int().nullish(),
-      name:          z.string().min(1).optional(),
-      dryRun:        z.boolean().optional(),
-    }), req.body)
-
-    const today = localToday()
-    const retainerId = id(req.params.id)
-    const [current] = await db.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId))
-    if (!current) return res.status(404).json({ error: 'No such retainer' })
-    const changes = await db.select().from(businessRetainerChanges).where(eq(businessRetainerChanges.retainerId, retainerId))
-    const invoices = await db.select().from(businessInvoices).where(eq(businessInvoices.retainerId, retainerId))
-
-    // The period currently open: the latest one billed, if it is still unpaid,
-    // else the next one.
-    const latest = [...invoices].filter(i => i.status !== 'void' && i.periodStart)
-      .sort((a, b) => b.periodStart!.localeCompare(a.periodStart!))[0]
-    const defaultDate = latest && latest.status !== 'paid' ? latest.periodStart! : (current.nextInvoiceDate ?? today)
-
-    let effectiveDate = body.effectiveDate ?? defaultDate
-    if (effectiveDate > today && effectiveDate !== current.nextInvoiceDate) {
-      return res.status(400).json({ error: 'Pick a date up to today, or the next invoice date. A price set further ahead would be billed early.' })
-    }
-    // A change on or before the day it started is simply its starting price.
-    const correction = !!body.correction || effectiveDate <= current.startDate
-    const latestChange = [...changes].sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate) || b.id - a.id)[0]
-    if (correction) effectiveDate = latestChange?.effectiveDate ?? current.startDate
-
-    const oldAmount = priceOn(current, changes, effectiveDate)
-    if (!correction && round2(oldAmount) === round2(body.newAmount)) {
-      return res.status(400).json({ error: 'That is already the price on that date' })
-    }
-
-    const reprice = invoices.filter(i =>
-      (i.status === 'unpaid' || i.status === 'draft')
-      && (i.periodStart ?? i.issueDate) >= effectiveDate
-      && round2(i.amount) !== round2(body.newAmount))
-
-    const plan = {
-      effectiveDate, correction, oldAmount, newAmount: body.newAmount,
-      mrrDelta: correction ? 0 : round2(toMonthly(body.newAmount, current.frequency) - toMonthly(oldAmount, current.frequency)),
-      repriced: reprice.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, from: i.amount, to: body.newAmount, periodStart: i.periodStart })),
-      untouchedPaid: invoices.filter(i => i.status === 'paid' && (i.periodStart ?? i.issueDate) >= effectiveDate)
-        .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount })),
-      /** Invoices for periods before the change, which keep their price and service. */
-      earlier: invoices.filter(i => i.status !== 'void' && (i.periodStart ?? i.issueDate) < effectiveDate)
-        .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, periodStart: i.periodStart })),
-      nextInvoiceDate: current.nextInvoiceDate,
-    }
+    const body = parse(priceSchema, req.body)
+    const { plan, apply } = await planPriceChange(id(req.params.id), body)
     if (body.dryRun) return res.json(plan)
-
-    db.transaction(tx => {
-      if (correction) {
-        if (latestChange) {
-          tx.update(businessRetainerChanges).set({ newAmount: body.newAmount })
-            .where(eq(businessRetainerChanges.id, latestChange.id)).run()
-        }
-      } else {
-        // Anything logged for after this date is superseded by it.
-        tx.delete(businessRetainerChanges).where(and(
-          eq(businessRetainerChanges.retainerId, retainerId), gte(businessRetainerChanges.effectiveDate, effectiveDate))).run()
-        tx.insert(businessRetainerChanges).values({
-          retainerId, effectiveDate, oldAmount, newAmount: body.newAmount, reason: body.reason ?? null,
-        }).run()
-      }
-      tx.update(businessRetainers).set({ amount: body.newAmount, updatedAt: new Date().toISOString() })
-        .where(eq(businessRetainers.id, retainerId)).run()
-      for (const i of reprice) {
-        tx.update(businessInvoices).set({
-          amount: body.newAmount, subtotal: body.newAmount,
-          ...(body.serviceId !== undefined ? { serviceId: body.serviceId } : {}),
-          ...(body.name ? { notes: body.name } : {}),
-        }).where(eq(businessInvoices.id, i.id)).run()
-        // A part-paid invoice may now be fully covered, or no longer.
-        if (allocationsFor(tx, i.id).length) recomputeInvoice(tx, i.id)
-      }
-    })
-
+    db.transaction(tx => apply(tx))
     invalidate()
     res.json(plan)
+  } catch (e) { next(e) }
+})
+
+/**
+ * Change a plan in one step: new price, new service, or both, from this
+ * month's invoice or from the next one, and what happens to this month's open
+ * invoice if the change starts next month (kept as owed, or written off).
+ *
+ * This is the move that used to take three separate operations (cancel the
+ * old retainer, void the unpaid month, set up a new retainer). The preview
+ * comes back as one plain sentence, so what is about to happen is never in
+ * doubt.
+ */
+router.post('/retainers/:id/change', async (req, res, next) => {
+  try {
+    const body = parse(z.object({
+      newAmount:   money,
+      serviceId:   z.number().int().nullish(),
+      /** 'now': this month's open invoice changes too. 'next': from the next invoice. */
+      from:        z.enum(['now', 'next']),
+      /** Only for 'next': what happens to the open invoice before it. */
+      openInvoice: z.enum(['keep', 'writeoff']).optional(),
+      reason:      z.string().nullish(),
+      dryRun:      z.boolean().optional(),
+    }), req.body)
+    const retainerId = id(req.params.id)
+    const d = await loadBusinessData()
+    const r = d.retainers.find(x => x.id === retainerId)
+    if (!r) return res.status(404).json({ error: 'No such retainer' })
+    const client = d.clients.find(c => c.id === r.clientId)
+    const oldService = d.services.find(s => s.id === r.serviceId)?.name ?? r.name
+    const serviceChanged = body.serviceId != null && body.serviceId !== r.serviceId
+    const newService = serviceChanged ? d.services.find(s => s.id === body.serviceId)?.name ?? r.name : oldService
+
+    const effectiveDate = body.from === 'next' ? (r.nextInvoiceDate ?? undefined) : undefined
+    const { plan, apply, invoices } = await planPriceChange(retainerId, {
+      newAmount: body.newAmount, effectiveDate, reason: body.reason ?? null,
+      ...(serviceChanged ? { serviceId: body.serviceId, name: newService } : {}),
+    })
+
+    // Open invoices before the change starts: kept as owed, or written off.
+    const leftOpen = invoices.filter(i => (i.status === 'unpaid' || i.status === 'draft')
+      && (i.periodStart ?? i.issueDate) < plan.effectiveDate)
+    const writeOff = body.from === 'next' && body.openInvoice === 'writeoff' ? leftOpen : []
+
+    const per = r.frequency === 'monthly' ? 'mo' : r.frequency.replace(/ly$/, '')
+    const fmt = (n: number) => `£${n.toFixed(2)}`
+    const when = new Date(plan.effectiveDate + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    const list = (xs: { invoiceNumber: string; amount: number }[]) => xs.map(i => `${i.invoiceNumber} (${fmt(i.amount)})`).join(', ')
+    const sentence = [
+      `From ${when}, ${client?.name ?? 'the client'} pays ${fmt(body.newAmount)}/${per} for ${newService}`
+        + ` (was ${fmt(plan.oldAmount)}${serviceChanged ? ` for ${oldService}` : ''}).`,
+      plan.repriced.length
+        ? `${plan.repriced.map(i => i.invoiceNumber).join(', ')} becomes ${fmt(body.newAmount)}${serviceChanged ? ` ${newService}` : ''}.` : '',
+      writeOff.length ? `${list(writeOff)} is written off; Mark paid still works if they pay it.`
+        : leftOpen.length && body.from === 'next' ? `${list(leftOpen)} stays owed at the old price.` : '',
+      plan.mrrDelta ? `MRR ${plan.mrrDelta > 0 ? 'rises' : 'falls'} by ${fmt(Math.abs(plan.mrrDelta))}/mo.` : '',
+    ].filter(Boolean).join(' ')
+
+    const preview = {
+      ...plan, sentence,
+      writtenOff: writeOff.map(i => i.invoiceNumber),
+      leftOpen: leftOpen.map(i => ({ invoiceNumber: i.invoiceNumber, amount: i.amount })),
+    }
+    if (body.dryRun) return res.json(preview)
+
+    const today = localToday()
+    db.transaction(tx => {
+      apply(tx)
+      for (const i of writeOff) voidInvoice(tx, i.id, `Written off: plan changed to ${newService}`, today)
+    })
+    invalidate()
+    res.json(preview)
   } catch (e) { next(e) }
 })
 
