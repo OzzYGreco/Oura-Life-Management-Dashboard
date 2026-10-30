@@ -250,6 +250,13 @@ router.post('/clients/:id/drop', async (req, res, next) => {
       endDate: dateStr.optional(),
       reason: z.string().nullish(),
       writeOffInvoiceIds: z.array(z.number().int()).optional(),
+      /**
+       * Sent invoices from after the last day that are still owed anyway: the
+       * client left in September but the September and October bills stand,
+       * because they will be paid if the client comes back. Churn still lands
+       * on the real last day; only these invoices are spared the void.
+       */
+      keepOwedInvoiceIds: z.array(z.number().int()).optional(),
       dryRun: z.boolean().optional(),
     }), req.body)
     const endDate = body.endDate ?? today
@@ -261,7 +268,12 @@ router.post('/clients/:id/drop', async (req, res, next) => {
     const client = d.clients.find(c => c.id === clientId)
     if (!client) return res.status(404).json({ error: 'No such client' })
 
-    const retainers = d.retainers.filter(r => r.clientId === clientId && r.status !== 'cancelled')
+    // Live retainers end on the last day. So does one already cancelled with a
+    // LATER end date: cancelling the retainer first (defaulting to today) and
+    // then saying the client left in September would otherwise keep their
+    // churn in October.
+    const retainers = d.retainers.filter(r => r.clientId === clientId
+      && (r.status !== 'cancelled' || (r.endDate != null && r.endDate > endDate)))
     // A paused retainer stopped earning on the day it was paused, so it ends then.
     const stopOf = (r: typeof retainers[number]) =>
       r.status === 'paused' && r.pausedAt && r.pausedAt < endDate ? r.pausedAt : endDate
@@ -278,6 +290,8 @@ router.post('/clients/:id/drop', async (req, res, next) => {
     })
     const before = open.filter(i => !afterEnd.includes(i))
     const writeOff = new Set(body.writeOffInvoiceIds ?? [])
+    // Only a sent invoice can be kept: a draft was never owed.
+    const keepOwed = new Set((body.keepOwedInvoiceIds ?? []).filter(id => afterEnd.some(i => i.id === id && i.status !== 'draft')))
 
     const plan = {
       client: { id: client.id, name: client.name },
@@ -288,7 +302,15 @@ router.post('/clients/:id/drop', async (req, res, next) => {
         mrr: round2(toMonthly(r.amount, r.frequency)),
       })),
       mrrLost: round2(retainers.filter(r => r.status === 'active').reduce((s, r) => s + retainerMrrOn(r, today, d.changes), 0)),
-      voided: afterEnd.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, issueDate: i.issueDate, status: i.status })),
+      /** Already cancelled, but with a later end date that moves back to the last day. */
+      endsEarlier: retainers.filter(r => r.status === 'cancelled').map(r => ({ id: r.id, from: r.endDate, to: endDate })),
+      voided: afterEnd.map(i => ({
+        id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, owed: owedOn(d, i),
+        issueDate: i.issueDate, dueDate: i.dueDate, status: i.status,
+        /** False for a draft: it was never sent, so there is nothing to keep. */
+        canKeep: i.status !== 'draft',
+        keepOwed: keepOwed.has(i.id),
+      })),
       stillOwed: before.map(i => ({
         id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, owed: owedOn(d, i),
         issueDate: i.issueDate, dueDate: i.dueDate, writeOff: writeOff.has(i.id),
@@ -301,14 +323,14 @@ router.post('/clients/:id/drop', async (req, res, next) => {
     db.transaction(tx => {
       for (const r of retainers) {
         tx.update(businessRetainers).set({
-          status: 'cancelled', endDate: stopOf(r), cancelledAt: today, autoInvoice: 0,
-          cancelReason: body.reason ?? 'Client left', updatedAt: new Date().toISOString(),
+          status: 'cancelled', endDate: stopOf(r), cancelledAt: r.cancelledAt ?? today, autoInvoice: 0,
+          cancelReason: body.reason ?? r.cancelReason ?? 'Client left', updatedAt: new Date().toISOString(),
         }).where(eq(businessRetainers.id, r.id)).run()
         // A price change dated after they left never happened.
         tx.delete(businessRetainerChanges).where(and(
           eq(businessRetainerChanges.retainerId, r.id), gte(businessRetainerChanges.effectiveDate, stopOf(r)))).run()
       }
-      for (const i of afterEnd) voidInvoice(tx, i.id, 'Client left before this period', today)
+      for (const i of afterEnd) if (!keepOwed.has(i.id)) voidInvoice(tx, i.id, 'Client left before this period', today)
       for (const i of before) if (writeOff.has(i.id)) voidInvoice(tx, i.id, 'Written off when the client left', today)
       for (const p of plan.projects) {
         tx.update(businessProjects).set({ status: 'cancelled', updatedAt: new Date().toISOString() })
