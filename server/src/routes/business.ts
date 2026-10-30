@@ -344,12 +344,74 @@ router.post('/clients/:id/drop', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-/** They came back. Old retainers stay ended; a new one counts as reactivation MRR. */
+/**
+ * What a returning client could pick back up: every invoice voided for them
+ * that can still stand as a debt, and every retainer that was ended.
+ *
+ * An invoice raised only because a Stripe payment arrived, whose payment now
+ * settles something else, is left out: it was never a bill for work.
+ */
+router.get('/clients/:id/comeback', async (req, res, next) => {
+  try {
+    const clientId = id(req.params.id)
+    const d = await loadBusinessData()
+    const usedElsewhere = (i: (typeof d.allInvoices)[number]) =>
+      !!i.raisedFromPaymentId && d.receipts.some(x => x.paymentId === i.raisedFromPaymentId)
+    res.json({
+      invoices: d.allInvoices
+        .filter(i => i.clientId === clientId && i.status === 'void' && !usedElsewhere(i))
+        .sort((a, b) => a.issueDate.localeCompare(b.issueDate))
+        .map(i => ({
+          id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, issueDate: i.issueDate,
+          voidedAt: i.voidedAt, voidReason: i.voidReason,
+        })),
+      retainers: d.retainers
+        .filter(r => r.clientId === clientId && r.status === 'cancelled')
+        .map(r => ({
+          id: r.id, name: d.services.find(sv => sv.id === r.serviceId)?.name ?? r.name,
+          amount: r.amount, frequency: r.frequency, endDate: r.endDate,
+        })),
+    })
+  } catch (e) { next(e) }
+})
+
+/**
+ * They came back. Old debts can be restored as owed and retainers picked up
+ * again in the same step: a picked-up retainer starts afresh today, never billing
+ * the months they were away, and counts as reactivation MRR.
+ */
 router.post('/clients/:id/reactivate', async (req, res, next) => {
   try {
-    const row = (await db.update(businessClients)
-      .set({ status: 'active', churnedAt: null, churnReason: null })
-      .where(eq(businessClients.id, id(req.params.id))).returning())[0]
+    const clientId = id(req.params.id)
+    const body = parse(z.object({
+      restoreInvoiceIds:    z.array(z.number().int()).optional(),
+      reinstateRetainerIds: z.array(z.number().int()).optional(),
+    }), req.body ?? {})
+    const today = localToday()
+    const row = db.transaction(tx => {
+      for (const invoiceId of body.restoreInvoiceIds ?? []) {
+        const inv = tx.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)).get()
+        if (inv?.clientId === clientId) restoreInvoice(tx, invoiceId)
+      }
+      // A NEW retainer on the same terms, starting today, rather than the old
+      // one reopened: reopening would erase the months they were away, and
+      // their churn with it. This way history shows them leaving and coming
+      // back, which MRR counts as reactivation.
+      for (const retainerId of body.reinstateRetainerIds ?? []) {
+        const r = tx.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId)).get()
+        if (!r || r.clientId !== clientId || r.status !== 'cancelled') continue
+        tx.insert(businessRetainers).values({
+          clientId, serviceId: r.serviceId, name: r.name, amount: r.amount, currency: r.currency,
+          frequency: r.frequency, startDate: today, status: 'active',
+          netTermDays: r.netTermDays, autoInvoice: 1, notes: r.notes,
+          // Bills from today, never for the gap they were away for.
+          lastGeneratedDate: null, nextInvoiceDate: today,
+        }).run()
+      }
+      return tx.update(businessClients)
+        .set({ status: 'active', churnedAt: null, churnReason: null })
+        .where(eq(businessClients.id, clientId)).returning().get()
+    })
     invalidate()
     res.json(row)
   } catch (e) { next(e) }
