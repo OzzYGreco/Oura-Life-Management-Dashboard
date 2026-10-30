@@ -34,7 +34,7 @@ export function AdSpendModal({
   fmtView: FmtView
   campaignId?: number | null
   /** Opens straight into several-days mode for these dates, as "ads were off". */
-  range?: { from: string; to: string } | null
+  range?: { from: string; to: string; fill?: boolean } | null
 }) {
   const { data: campaigns = [] } = useCampaigns()
   const { data: status } = useAdSpendStatus()
@@ -69,7 +69,8 @@ export function AdSpendModal({
     setMode(range ? 'range' : 'day')
     setFrom(range?.from ?? today())
     setTo(range?.to ?? today())
-    setHow('off')
+    // From the stale warning it is "ads were off"; from the grid it is filling in a month.
+    setHow(range?.fill ? 'perDay' : 'off')
     setRangeAmount('')
     setOverwrite(false)
   }, [open, campaignId, campaigns.length, range?.from, range?.to])

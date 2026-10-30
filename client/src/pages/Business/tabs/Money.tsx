@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useUrlState } from '../lib/useUrlState'
 import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { DateFilter, type Preset, presetRange } from '../../../components/shared/DateFilter'
 import { Waterfall } from '../components/Waterfall'
-import { RecurringCosts } from '../components/RecurringCosts'
 import { OwnerPayPanel } from '../components/OwnerPayPanel'
 import { AdSpendStale } from '../components/AdSpendStale'
 import { Profitable, WhatWeCanTake, WhereItGoes, Fold, AdSpendBars } from '../components/MoneySections'
+import { CostsSheet } from '../components/CostsSheet'
+import { AdSpendGrid } from '../components/AdSpendGrid'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow, fmtMonth, fmtHours,
 } from '../components/primitives'
@@ -25,18 +26,17 @@ const PERIOD_LABEL: Partial<Record<Preset, string>> = {
 }
 
 export function Money({
-  fmtView, ownerPayOpts, onRecordDraw, onDeleteDraw, onAddCost, onEditCost, onNewCampaign, onEditCampaign, onSettings, onLogAdSpend,
+  fmtView, ownerPayOpts, onRecordDraw, onDeleteDraw, onEditCost, onNewCampaign, onEditCampaign, onSettings, onLogAdSpend,
 }: {
   fmtView: FmtView
   ownerPayOpts: OwnerPayOpts
   onRecordDraw: () => void
   onDeleteDraw: (id: number) => void
-  onAddCost: () => void
   onEditCost: (expense: any) => void
   onNewCampaign: () => void
   onEditCampaign: (campaign: any) => void
   onSettings: () => void
-  onLogAdSpend: (campaignId?: number | null, range?: { from: string; to: string } | null) => void
+  onLogAdSpend: (campaignId?: number | null, range?: { from: string; to: string; fill?: boolean } | null) => void
 }) {
   const [preset, setPreset] = useUrlState<Preset>('range', 'All')
   const [customFrom, setCustomFrom] = useUrlState('from', '')
@@ -60,7 +60,6 @@ export function Money({
   const drawnByMonth = new Map(m.ownerPay.byMonth.map(r => [r.month, r.drawn]))
   const pnlRows = m.pnlByMonth.filter(r => r.netVolume || r.totalCosts || drawnByMonth.get(r.month))
   const bizCampaigns = (campaigns as any[]).filter(c => c.fundingSource === 'business')
-  const recentCosts = [...(expenses as any[])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12)
 
   const totals = pnlRows.reduce((a, r) => ({
     net: a.net + r.netVolume, ads: a.ads + r.adSpend,
@@ -89,64 +88,10 @@ export function Money({
 
       {/* Everything else, closed until asked for, each saying its answer while shut. */}
       <div className="space-y-2.5">
-        <Fold id="costs" title="Costs in detail"
-          summary={`${fmtView(m.costs.total)} ${periodLabel} · ${(expenses as any[]).filter((e: any) => e.isRecurring && !e.recurringParentId).length} repeating`}
-          action={<MiniBtn tone="accent" onClick={onAddCost}>+ Add cost</MiniBtn>}>
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
-          <KpiCard label="Ad spend" value={fmtView(m.costs.adSpend)} color="var(--c-loss)"
-            sub={m.costs.total ? `${Math.round((m.costs.adSpend / m.costs.total) * 100)}% of all costs` : undefined} />
-          <KpiCard label="Tools and overheads" value={fmtView(m.costs.overheads)}
-            sub={m.costs.unattributedCount ? `${m.costs.unattributedCount} not tied to a client` : 'all attributed'} />
-          <KpiCard label="Client delivery" value={fmtView(m.costs.clientCosts)}
-            sub="citations, hosting, domains" />
-          <KpiCard label="Cost per client won" value={m.clients.total ? fmtView(m.costs.total / m.clients.total) : '--'}
-            sub={`all costs across ${m.clients.total} clients`} />
-        </div>
-
-        <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>
-          What repeats
-        </div>
-        <RecurringCosts
-          expenses={expenses as any[]}
-          clients={clients as { id: number; name: string }[]}
-          fmtView={fmtView}
-          onEdit={onEditCost}
-        />
-
-        <div className="text-[10px] font-semibold uppercase tracking-widest mt-5 mb-2" style={{ color: 'var(--c-text-3)' }}>
-          Recent charges
-        </div>
-        <TablePanel>
-          <table className="w-full">
-            <THead>
-              <Th>Description</Th><Th>Paid to</Th><Th>For</Th><Th align="right">Amount</Th>
-              <Th align="right">Date</Th><Th>Type</Th><Th />
-            </THead>
-            <tbody>
-              {recentCosts.length === 0 ? (
-                <EmptyRow colSpan={7}>No business costs recorded.</EmptyRow>
-              ) : recentCosts.map((e: any) => (
-                <Row key={e.id}>
-                  <Td>{e.description}</Td>
-                  <Td color="var(--c-text-3)">{e.vendor ?? '--'}</Td>
-                  <Td color={e.clientId ? 'var(--c-text-2)' : 'var(--c-text-3)'}>
-                    {(clients as any[]).find(c => c.id === e.clientId)?.name ?? 'the business'}
-                  </Td>
-                  <Td align="right" mono color="var(--c-loss)">{fmtView(e.amount)}</Td>
-                  <Td align="right" mono color="var(--c-text-3)">{formatDate(e.date)}</Td>
-                  <Td color="var(--c-text-3)">
-                    {e.isRecurring ? (e.recurringParentId ? `${e.frequency ?? 'recurring'} renewal` : e.frequency ?? 'recurring') : 'one-off'}
-                  </Td>
-                  <Td align="right"><MiniBtn onClick={() => onEditCost(e)}>Edit</MiniBtn></Td>
-                </Row>
-              ))}
-            </tbody>
-          </table>
-        </TablePanel>
-        <p className="text-[11px] mt-2.5 leading-relaxed" style={{ color: 'var(--c-text-3)' }}>
-          Ad spend is pro-rated across each campaign's running days. Charging a campaign's whole
-          lifetime spend to every month it touches is what used to make a profitable month read as a loss.
-        </p>
+        <Fold id="costs" title="Costs"
+          summary={`${fmtView(m.costs.total)} ${periodLabel} · ${(expenses as any[]).filter((e: any) => e.isRecurring && !e.recurringParentId).length} repeating · type in a row to add one`}>
+          <CostsSheet expenses={expenses as any[]} clients={clients as { id: number; name: string }[]}
+            fmtView={fmtView} onOpenFull={onEditCost} />
         </Fold>
 
         <Fold id="marketing" title="Marketing"
@@ -156,6 +101,10 @@ export function Money({
             <MiniBtn tone="accent" onClick={onNewCampaign}>+ New campaign</MiniBtn>
           </>}>
           <div className="mb-3"><AdSpendBars m={m} fmtView={fmtView} /></div>
+          <div className="mb-3">
+            <AdSpendGrid campaigns={campaigns as any[]} fmtView={fmtView}
+              onEditDays={(campaignId, r) => onLogAdSpend(campaignId, { ...r, fill: true })} />
+          </div>
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
           <KpiCard label="Spent" value={fmtView(m.costs.adSpend)} sub={periodLabel} />
           <KpiCard label="Cost per client" value={m.clients.cac ? fmtView(m.clients.cac) : '--'}
