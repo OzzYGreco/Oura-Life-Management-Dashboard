@@ -142,6 +142,35 @@ export function useServices() {
   })
 }
 
+export function useUpdateService() {
+  return useBusinessMutation(({ id, ...body }: { id: number; name?: string; defaultAmount?: number | null }) =>
+    api.put(`/api/business/services/${id}`, body).then(r => r.data as Service))
+}
+
+/** Stop offering a service. Retired rather than deleted if anything was sold on it. */
+export function useRemoveService() {
+  return useBusinessMutation((id: number) =>
+    api.delete(`/api/business/services/${id}`).then(r => r.data as { retired: boolean }))
+}
+
+export interface ClientFootprint {
+  invoices: number; collected: number; byHand: number; stripePayments: number
+  retainers: number; liveRetainers: number; websites: number
+}
+
+/** Everything that deleting a client would take with it. */
+export function useClientFootprint(id: number | null) {
+  return useQuery<ClientFootprint>({
+    queryKey: ['client-footprint', id],
+    queryFn: () => api.get(`/api/business/clients/${id}/delete-preview`).then(r => r.data),
+    enabled: !!id,
+  })
+}
+
+export function useDeleteClientEverything() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/clients/${id}/everything`).then(r => r.data))
+}
+
 /** Add a service the business has started selling. */
 export function useCreateService() {
   return useBusinessMutation((body: {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
@@ -6,7 +7,7 @@ import { Select } from '../../../components/ui/Select'
 import { Textarea } from '../../../components/ui/Textarea'
 import {
   useClients, useProjects, useServices,
-  useSaveClient, useRemoveClient,
+  useSaveClient, useClientFootprint, useDeleteClientEverything,
   useSaveProject,
   useInvoice, useCreateInvoice, useUpdateInvoice,
   useVoidInvoice, useRestoreInvoice, useRemoveInvoice, useUnpayInvoice, useRemoveAllocation,
@@ -41,13 +42,15 @@ function Footer({ onCancel, onSave, saving, label = 'Save' }: {
 
 export function ClientModal({ open, client, onClose }: { open: boolean; client?: any; onClose: () => void }) {
   const save = useSaveClient()
-  const remove = useRemoveClient()
+  const remove = useDeleteClientEverything()
+  const navigate = useNavigate()
+  const [typed, setTyped] = useState('')
   const [f, setF] = useState<any>({})
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
-    if (open) { setF(client ?? { name: '', status: 'active' }); setError(null); setConfirmDelete(false) }
+    if (open) { setF(client ?? { name: '', status: 'active' }); setError(null); setConfirmDelete(false); setTyped('') }
   }, [open, client])
 
   const churned = client?.status === 'churned'
@@ -103,20 +106,19 @@ export function ClientModal({ open, client, onClose }: { open: boolean; client?:
             invoices too, which this status alone does not.
           </p>
         )}
+        {confirmDelete && client?.id && (
+          <DeleteClient client={client} typed={typed} onTyped={setTyped} busy={remove.isPending}
+            onCancel={() => setConfirmDelete(false)}
+            onDelete={async () => {
+              try { await remove.mutateAsync(client.id); onClose(); navigate('/business/clients') }
+              catch (e: any) { setError(e?.response?.data?.error ?? 'Could not delete') }
+            }} />
+        )}
         {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
         <div className="flex justify-between gap-2 pt-1">
-          {client?.id ? (
-            confirmDelete ? (
-              <span className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--c-loss)' }}>
-                Delete {client.name}? Only for someone added by mistake.
-                <Button variant="danger" size="sm" onClick={async () => {
-                  try { await remove.mutateAsync(client.id); onClose() }
-                  catch (e: any) { setError(e?.response?.data?.error ?? 'Could not delete'); setConfirmDelete(false) }
-                }}>Delete</Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Keep</Button>
-              </span>
-            ) : <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>Delete</Button>
-          ) : <span />}
+          {client?.id && !confirmDelete
+            ? <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>Delete client</Button>
+            : <span />}
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving...' : client?.id ? 'Save' : 'Add client'}</Button>
@@ -524,6 +526,46 @@ export function InvoiceModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Deleting a client, said in full before it happens. One with history takes
+ * money out of every figure, so the name has to be typed to go ahead.
+ */
+function DeleteClient({ client, typed, onTyped, busy, onCancel, onDelete }: {
+  client: { id: number; name: string }; typed: string; onTyped: (v: string) => void
+  busy: boolean; onCancel: () => void; onDelete: () => void
+}) {
+  const { data: f } = useClientFootprint(client.id)
+  const history = !!f && (f.invoices + f.retainers + f.stripePayments + f.websites) > 0
+  const ok = !!f && (!history || typed.trim().toLowerCase() === client.name.trim().toLowerCase())
+  const parts = f ? [
+    f.invoices && `${f.invoices} invoice${f.invoices === 1 ? '' : 's'}`,
+    f.retainers && `${f.retainers} retainer${f.retainers === 1 ? '' : 's'}${f.liveRetainers ? ` (${f.liveRetainers} still running)` : ''}`,
+    f.websites && `${f.websites} website${f.websites === 1 ? '' : 's'}`,
+  ].filter(Boolean) : []
+  return (
+    <div className="rounded-lg px-3 py-2.5 space-y-2"
+      style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)' }}>
+      <p className="text-[11.5px]" style={{ color: 'var(--c-text-2)' }}>
+        {!f ? 'Looking up what they have...'
+          : !history ? <>Delete {client.name}? They have nothing recorded, so nothing else changes.</>
+          : <>
+              Delete {client.name} and everything of theirs: {parts.join(', ')}, and their notes.
+              {f.collected > 0 && <> <b className="num">{f.collected.toFixed(2)}</b> they paid leaves every figure, MRR and profit included.</>}
+              {f.stripePayments > 0 && <> {f.stripePayments} Stripe payment{f.stripePayments === 1 ? '' : 's'} go{f.stripePayments === 1 ? 'es' : ''} back to the queue, to give to someone else or mark not income.</>}
+              {' '}Costs for them stay, as business costs. This cannot be undone. If they simply stopped working with you, use "Client left" instead.
+            </>}
+      </p>
+      {history && (
+        <Input id="c-delete-name" label={`Type ${client.name} to confirm`} value={typed} onChange={e => onTyped(e.target.value)} />
+      )}
+      <div className="flex gap-2 justify-end">
+        <Button variant="ghost" size="sm" onClick={onCancel}>Keep them</Button>
+        <Button variant="danger" size="sm" disabled={!ok || busy} onClick={onDelete}>{busy ? 'Deleting...' : 'Delete for good'}</Button>
+      </div>
+    </div>
   )
 }
 
