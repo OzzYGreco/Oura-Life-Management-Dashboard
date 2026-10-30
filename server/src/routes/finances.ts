@@ -1,12 +1,23 @@
 import { Router } from 'express'
 import { db } from '../db'
-import { financeAccounts, financeIncome, financeExpenses, financeNetWorthSnapshots, financeBudgets, trades, businessInvoices } from '../db/schema'
+import { financeAccounts, financeIncome, financeExpenses, financeNetWorthSnapshots, financeBudgets, trades } from '../db/schema'
+import { loadBusinessData } from '../lib/businessMetrics'
 import { eq, and, gte, lte, sum, isNull, ne } from 'drizzle-orm'
 import { localToday } from '../lib/date'
 // Business metrics read finance_expenses and finance_income directly, so a
 // write here has to drop that cache or the Business tab shows figures that
 // are up to fifteen seconds old and appear not to have saved.
 import { invalidateBusinessData } from '../lib/businessMetrics'
+
+/**
+ * Business money received, as the Business tab counts it: one entry per payment
+ * applied to an invoice, on the day it arrived. Reading paid invoices instead
+ * would miss part-payments and count void ones.
+ */
+async function paidBusinessMoney(): Promise<{ paidDate: string; amount: number }[]> {
+  const d = await loadBusinessData()
+  return d.receipts.map(r => ({ paidDate: r.date, amount: r.gross }))
+}
 
 const router = Router()
 
@@ -364,7 +375,7 @@ router.get('/cashflow', async (req, res, next) => {
 
     const allTrades   = includeTrading ? await db.select().from(trades) : []
     const allInvoices = includePaidInvoices
-      ? await db.select().from(businessInvoices).where(eq(businessInvoices.status, 'paid'))
+      ? await paidBusinessMoney()
       : []
 
     const result = months.map(month => {
@@ -402,7 +413,7 @@ router.get('/streams', async (req, res, next) => {
     if (from) tradeConds.push(gte(trades.date, from as string))
     if (to) tradeConds.push(lte(trades.date, to as string))
     const tradeRows = includeTrading === '1' ? await db.select().from(trades).where(tradeConds.length ? and(...tradeConds) : undefined) : []
-    const invoices  = includePaidInvoices === '1' ? await db.select().from(businessInvoices).where(eq(businessInvoices.status, 'paid')) : []
+    const invoices  = includePaidInvoices === '1' ? await paidBusinessMoney() : []
 
     const tradingTotal  = tradeRows.reduce((s, t) => s + (t.realizedPnl ?? 0), 0)
     const invoiceTotal  = invoices.filter(i => !from || (i.paidDate && i.paidDate >= (from as string))).reduce((s, i) => s + i.amount, 0)
@@ -462,7 +473,7 @@ router.get('/summary', async (req, res, next) => {
     if (from) tradeConds.push(gte(trades.date, from as string))
     if (to) tradeConds.push(lte(trades.date, to as string))
     const tradeRows = includeTrading === '1' ? await db.select().from(trades).where(tradeConds.length ? and(...tradeConds) : undefined) : []
-    const paidInvoices = includePaidInvoices === '1' ? await db.select().from(businessInvoices).where(eq(businessInvoices.status, 'paid')) : []
+    const paidInvoices = includePaidInvoices === '1' ? await paidBusinessMoney() : []
 
     const totalIncome   = income.reduce((s, i) => s + i.amount, 0)
     const tradingPnl    = tradeRows.reduce((s, t) => s + (t.realizedPnl ?? 0), 0)
