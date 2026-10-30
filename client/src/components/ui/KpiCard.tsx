@@ -27,7 +27,7 @@ export function KpiCard({
       {...(onClick ? { type: 'button' as const, onClick } : {})}
       // flex-col + start: a button centres its content by default, which left
       // cards without a trend line sitting lower than their neighbours.
-      className={`rounded-xl p-3.5 min-w-0 text-left w-full flex flex-col justify-start ${onClick ? 'transition-colors' : ''}`}
+      className={`rounded-xl p-3.5 min-w-0 text-left w-full flex flex-col justify-start ${onClick ? 'transition-all duration-150 hover:-translate-y-px hover:shadow-[0_8px_28px_rgba(0,0,0,0.28)]' : ''}`}
       style={{
         background: hero
           ? 'linear-gradient(160deg, rgba(99,102,241,0.09), var(--c-bg-card) 62%)'

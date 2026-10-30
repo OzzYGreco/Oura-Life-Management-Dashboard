@@ -20,13 +20,16 @@ export function MoneyInChart({
 }: { metrics: BusinessMetrics; fmtView: FmtView; months?: number }) {
   const data = useMemo(() => {
     const movement = new Map(metrics.mrr.movement.map(m => [m.month, m.endingMrr]))
-    return metrics.volume.byMonth.slice(-months).map(v => ({
+    const rows = metrics.volume.byMonth.slice(-months).map(v => ({
       month: v.month,
       label: fmtMonth(v.month),
       retainer: v.retainer,
       oneOff: v.oneOff,
       mrr: movement.get(v.month) ?? 0,
     }))
+    // Start at the first month anything happened, not a row of empty months.
+    const first = rows.findIndex(d => d.retainer || d.oneOff || d.mrr)
+    return first <= 0 ? rows : rows.slice(first)
   }, [metrics, months])
 
   const hasAny = data.some(d => d.retainer || d.oneOff || d.mrr)

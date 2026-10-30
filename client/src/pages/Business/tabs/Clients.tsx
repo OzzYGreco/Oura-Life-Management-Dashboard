@@ -4,6 +4,8 @@ import { Search } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Sparkline } from '../../../components/ui/Sparkline'
+import { Question } from '../components/MoneySections'
+import { SplitBar, hoverCard, SERIES } from '../components/charts'
 import { Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow } from '../components/primitives'
 import { useClientRows } from '../../../hooks/useBusiness'
 import type { ClientRow } from '../lib/types'
@@ -57,9 +59,35 @@ export function Clients({
     </Th>
   )
 
+  // Who the monthly income actually rests on, biggest first. Independent of
+  // the filters above, because the answer is about the business, not the view.
+  const payers = useMemo(() => {
+    const paying = rows.filter(r => r.mrr > 0).sort((a, b) => b.mrr - a.mrr)
+    const top = paying.slice(0, 7).map((r, i) => ({ key: r.name, value: r.mrr, color: SERIES[i], note: r.company ?? undefined }))
+    const rest = paying.slice(7).reduce((s, r) => s + r.mrr, 0)
+    const parts = rest > 0 ? [...top, { key: `${paying.length - 7} others`, value: rest, color: 'var(--c-text-3)' }] : top
+    const total = paying.reduce((s, r) => s + r.mrr, 0)
+    const owing = rows.filter(r => r.outstanding > 0)
+    return { parts, total, count: paying.length, topShare: total ? (paying.slice(0, 3).reduce((s, r) => s + r.mrr, 0) / total) * 100 : 0, owing }
+  }, [rows])
+
   if (isPending) return <PageLoader />
 
   return (
+    <div className="space-y-8">
+    <Question q="Who pays you?"
+      answer={payers.total > 0
+        ? <>{payers.count} client{payers.count === 1 ? '' : 's'} pay <b className="num" style={{ color: 'var(--c-accent)' }}>{fmtView(payers.total)}/mo</b>.
+          {payers.count > 3 ? <> The top three bring {Math.round(payers.topShare)}% of it.</> : null}
+          {payers.owing.length ? <> {payers.owing.length} owe{payers.owing.length === 1 ? 's' : ''} you money.</> : <> Nobody owes you anything.</>}</>
+        : 'Nobody pays monthly yet.'}>
+      {payers.parts.length > 0 && (
+        <div className={`rounded-xl p-4 ${hoverCard}`} style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
+          <div className="text-[11px] mb-3" style={{ color: 'var(--c-text-3)' }}>Monthly income, by client</div>
+          <SplitBar parts={payers.parts} fmtView={fmtView} />
+        </div>
+      )}
+    </Question>
     <Section
       label="Clients"
       count={`${shown.length}${shown.length !== rows.length ? ` of ${rows.length}` : ''}`}
@@ -129,6 +157,7 @@ export function Clients({
         </table>
       </TablePanel>
     </Section>
+    </div>
   )
 }
 
