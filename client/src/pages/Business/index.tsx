@@ -18,7 +18,7 @@ import { NewWorkModal } from './modals/NewWorkModal'
 import { BusinessSettingsModal } from './modals/SettingsModal'
 import { AdSpendModal } from './modals/AdSpendModal'
 import { PayInvoiceModal, RetainerActionModal, DrawModal } from './modals/MoneyModals'
-import { RetainerEditModal, DropClientModal } from './modals/LifecycleModals'
+import { RetainerEditModal, DropClientModal, ComebackModal } from './modals/LifecycleModals'
 import type { RetainerAction } from './components/RetainerTable'
 import {
   ClientModal, ProjectModal, InvoiceModal, RetainerModal,
@@ -75,6 +75,7 @@ export function BusinessPage() {
   const [retainerAction, setRetainerAction] = useState<{ r: Retainer; a: 'cancel' | 'pause' | 'resume' } | null>(null)
   const [editRetainer, setEditRetainer] = useState<Retainer | null>(null)
   const [dropClient, setDropClient] = useState<{ id: number; name: string } | null>(null)
+  const [comeback, setComeback] = useState<{ id: number; name: string } | null>(null)
   const [drawOpen, setDrawOpen] = useState(false)
   const [clientModal, setClientModal] = useState<{ open: boolean; client?: any }>({ open: false })
   const [projectModal, setProjectModal] = useState<{ open: boolean; clientId?: number | null; project?: any }>({ open: false })
@@ -152,6 +153,7 @@ export function BusinessPage() {
           onEditProject={project => setProjectModal({ open: true, project })}
           onEditNote={note => setNoteModal({ open: true, clientId: note.clientId, note })}
           onDrop={setDropClient}
+          onComeback={setComeback}
         />
       ) : (
         <Clients
@@ -217,6 +219,7 @@ export function BusinessPage() {
       />
       <RetainerEditModal retainer={editRetainer} onClose={() => setEditRetainer(null)} fmtView={fmtView} />
       <DropClientModal client={dropClient} onClose={() => setDropClient(null)} fmtView={fmtView} />
+      <ComebackModal client={comeback} onClose={() => setComeback(null)} fmtView={fmtView} />
       <RetainerModal
         open={retainerModal.open}
         clientId={retainerModal.clientId}

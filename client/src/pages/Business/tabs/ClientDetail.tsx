@@ -5,7 +5,7 @@ import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Sparkline } from '../../../components/ui/Sparkline'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
-import { useClientSummary, useReactivateClient, useSaveProject, useRemoveMeetingNote } from '../../../hooks/useBusiness'
+import { useClientSummary, useSaveProject, useRemoveMeetingNote } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
 import { STAGES } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -23,7 +23,7 @@ const STAGE_ORDER = ['discovery', 'design', 'build', 'review', 'launched']
  */
 export function ClientDetail({
   clientId, fmtView, onBack, onEdit, onAddRetainer, onAddProject, onAddInvoice, onAddCost, onAddNote,
-  onRetainerAction, onPay, onLogTime, onEditInvoice, onEditProject, onEditNote, onDrop,
+  onRetainerAction, onPay, onLogTime, onEditInvoice, onEditProject, onEditNote, onDrop, onComeback,
 }: {
   clientId: number
   fmtView: FmtView
@@ -41,9 +41,9 @@ export function ClientDetail({
   onEditProject: (project: any) => void
   onEditNote: (note: any) => void
   onDrop: (client: { id: number; name: string }) => void
+  onComeback: (client: { id: number; name: string }) => void
 }) {
   const { data, isPending } = useClientSummary(clientId)
-  const reactivate = useReactivateClient()
   const saveProject = useSaveProject()
   const removeNote = useRemoveMeetingNote()
   const [allInvoices, setAllInvoices] = useState(false)
@@ -90,7 +90,7 @@ export function ClientDetail({
           <div className="flex gap-1.5">
             <MiniBtn onClick={() => onEdit(client)}>Edit client</MiniBtn>
             {churned
-              ? <MiniBtn tone="good" disabled={reactivate.isPending} onClick={() => reactivate.mutate(client.id)}>They are back</MiniBtn>
+              ? <MiniBtn tone="good" onClick={() => onComeback({ id: client.id, name: client.name })}>They are back...</MiniBtn>
               : <MiniBtn tone="danger" onClick={() => onDrop({ id: client.id, name: client.name })}>Client left...</MiniBtn>}
           </div>
         </div>
@@ -101,7 +101,7 @@ export function ClientDetail({
           style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
           Left on <b className="num">{client.churnedAt ? formatDate(client.churnedAt) : 'an unknown date'}</b>
           {client.churnReason ? <>: {client.churnReason}</> : null}. Their retainers are ended and nothing new is billed.
-          Anything still owed from before stays in Outstanding.
+          Anything still owed stays in Outstanding, and everything voided can be restored with "They are back".
         </div>
       )}
 

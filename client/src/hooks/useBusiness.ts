@@ -179,7 +179,7 @@ function useBusinessMutation<TArgs>(fn: (args: TArgs) => Promise<any>) {
         'projects-active', 'business-needs', 'owner-pay', 'invoices', 'clients',
         'projects', 'dashboard', 'finance-summary', 'income-streams', 'cashflow',
         'expenses', 'time-entries-all', 'campaigns', 'campaign-spend', 'ad-spend-status', 'payment-status', 'payments', 'payments-unassigned',
-        'payment-options', 'meeting-notes',
+        'payment-options', 'meeting-notes', 'comeback',
       ]) qc.invalidateQueries({ queryKey: [key] })
     },
   })
@@ -317,8 +317,23 @@ export function useDropClient() {
     api.post(`/api/business/clients/${id}/drop`, body).then(r => r.data as DropPlan))
 }
 
+export interface Comeback {
+  invoices: { id: number; invoiceNumber: string; amount: number; issueDate: string; voidedAt: string | null; voidReason: string | null }[]
+  retainers: { id: number; name: string; amount: number; frequency: string; endDate: string | null }[]
+}
+
+/** What a returning client could pick back up: voided debts and ended retainers. */
+export function useComeback(clientId: number | null) {
+  return useQuery<Comeback>({
+    queryKey: ['comeback', clientId],
+    queryFn: () => api.get(`/api/business/clients/${clientId}/comeback`).then(r => r.data),
+    enabled: !!clientId,
+  })
+}
+
 export function useReactivateClient() {
-  return useBusinessMutation((id: number) => api.post(`/api/business/clients/${id}/reactivate`).then(r => r.data))
+  return useBusinessMutation(({ id, ...body }: { id: number; restoreInvoiceIds?: number[]; reinstateRetainerIds?: number[] }) =>
+    api.post(`/api/business/clients/${id}/reactivate`, body).then(r => r.data))
 }
 
 export function useRemoveClient() {

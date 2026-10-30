@@ -5,7 +5,7 @@ import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
 import {
   useServices, useUpdateRetainer, useChangeRetainerPrice, usePricePreview, useDeleteRetainer,
-  useDropPreview, useDropClient,
+  useDropPreview, useDropClient, useComeback, useReactivateClient,
 } from '../../../hooks/useBusiness'
 import type { PriceBody } from '../../../hooks/useBusiness'
 import { formatDate, today } from '../../../lib/utils'
@@ -446,6 +446,115 @@ export function DropClientModal({
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="danger" onClick={submit} disabled={!plan || drop.isPending}>
             {drop.isPending ? 'Saving...' : `End ${client.name.split(' ')[0]}`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── They are back ───────────────────────────────────────────────────────────
+
+/**
+ * A client who left comes back, and can pick up where they were.
+ *
+ * Everything voided when they left is listed, ticked by default: those were
+ * real bills, voided only so they would stop counting while the client was
+ * gone, and a client who returns usually settles them. Ended retainers can be
+ * picked up too; they bill from today, never for the months away.
+ */
+export function ComebackModal({
+  client, onClose, fmtView,
+}: { client: { id: number; name: string } | null; onClose: () => void; fmtView: FmtView }) {
+  const { data } = useComeback(client?.id ?? null)
+  const reactivate = useReactivateClient()
+  const [invoices, setInvoices] = useState<Set<number>>(new Set())
+  const [retainers, setRetainers] = useState<Set<number>>(new Set())
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!data) return
+    setInvoices(new Set(data.invoices.map(i => i.id)))
+    setRetainers(new Set())
+    setError(null)
+  }, [data])
+
+  if (!client) return null
+
+  const flip = (set: Set<number>, id: number) => {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }
+  const owed = (data?.invoices ?? []).filter(i => invoices.has(i.id)).reduce((s, i) => s + i.amount, 0)
+
+  const submit = async () => {
+    setError(null)
+    try {
+      await reactivate.mutateAsync({ id: client.id, restoreInvoiceIds: [...invoices], reinstateRetainerIds: [...retainers] })
+      onClose()
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'Could not save that')
+    }
+  }
+
+  const row = (on: boolean, onToggle: () => void, main: React.ReactNode, side: React.ReactNode, key: number, idx: number) => (
+    <label key={key} className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer"
+      style={{ borderTop: idx ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg-input)' }}>
+      <input type="checkbox" checked={on} onChange={onToggle} className="w-3.5 h-3.5 accent-indigo-500" />
+      <span className="flex-1 min-w-0 truncate" style={{ color: 'var(--c-text-2)' }}>{main}</span>
+      <span className="num" style={{ color: 'var(--c-text-1)' }}>{side}</span>
+    </label>
+  )
+
+  return (
+    <Modal open onClose={onClose} size="md" title={`${client.name} is back`}>
+      <div className="p-5 space-y-4">
+        {!data ? <Note>Looking up what they had...</Note> : (
+          <>
+            {data.invoices.length > 0 ? (
+              <div>
+                <Label>Voided invoices, restore as owed</Label>
+                <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
+                  {data.invoices.map((i, idx) => row(
+                    invoices.has(i.id), () => setInvoices(flip(invoices, i.id)),
+                    <><span className="num" style={{ color: 'var(--c-text-3)' }}>{i.invoiceNumber}</span>{' '}
+                      issued {formatDate(i.issueDate)}{i.voidReason ? ` · ${i.voidReason.toLowerCase()}` : ''}</>,
+                    fmtView(i.amount), i.id, idx))}
+                </div>
+                <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
+                  {owed > 0
+                    ? <><span className="num">{fmtView(owed)}</span> goes back into Outstanding, under the same invoice numbers.</>
+                    : 'Nothing is restored; they stay void.'}
+                </p>
+              </div>
+            ) : <Note>Nothing of theirs was voided, so there is no old debt to restore.</Note>}
+
+            {data.retainers.length > 0 && (
+              <div>
+                <Label>Pick a retainer back up</Label>
+                <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
+                  {data.retainers.map((r, idx) => row(
+                    retainers.has(r.id), () => setRetainers(flip(retainers, r.id)),
+                    <>{r.name}{r.endDate ? ` · ended ${formatDate(r.endDate)}` : ''}</>,
+                    `${fmtView(r.amount)}/${r.frequency === 'monthly' ? 'mo' : r.frequency}`, r.id, idx))}
+                </div>
+                <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
+                  A retainer picked back up bills from today, never for the months they were away, and counts as
+                  returning MRR. Leave it unticked to set up a new price instead.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+
+        {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={!data || reactivate.isPending}>
+            {reactivate.isPending ? 'Saving...' : `Welcome ${client.name.split(' ')[0]} back`}
           </Button>
         </div>
       </div>
