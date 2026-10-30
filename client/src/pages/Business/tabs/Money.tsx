@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useUrlState } from '../lib/useUrlState'
 import { Section } from '../../../components/ui/Section'
 import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
@@ -37,9 +38,9 @@ export function Money({
   onSettings: () => void
   onLogAdSpend: (campaignId?: number | null, range?: { from: string; to: string } | null) => void
 }) {
-  const [preset, setPreset] = useState<Preset>('All')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [preset, setPreset] = useUrlState<Preset>('range', 'All')
+  const [customFrom, setCustomFrom] = useUrlState('from', '')
+  const [customTo, setCustomTo] = useUrlState('to', '')
 
   const range = useMemo(() => (
     preset === 'All' ? {}

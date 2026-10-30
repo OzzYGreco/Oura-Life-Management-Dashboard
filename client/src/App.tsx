@@ -41,7 +41,7 @@ const router = createBrowserRouter([
       { path: 'checklists', element: <ChecklistsPage /> },
       { path: 'goals',      element: <GoalsPage /> },
       { path: 'finances',   element: <FinancesPage /> },
-      { path: 'business',   element: <BusinessPage /> },
+      { path: 'business/*', element: <BusinessPage /> },
       { path: 'training',   element: <TrainingPage /> },
       { path: 'calendar',   element: <CalendarPage /> },
       { path: 'notes',      element: <NotesPage /> },
