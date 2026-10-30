@@ -105,7 +105,7 @@ export function Money({
         <Fold id="marketing" title="Marketing"
           summary={`${fmtView(m.costs.adSpend)} on ads ${periodLabel} · ${m.clients.cac ? `${fmtView(m.clients.cac)} per client won` : 'no clients won in this window'}`}
           action={<>
-            <MiniBtn tone="good" onClick={() => onLogAdSpend(null)}>Log ad spend</MiniBtn>
+            <MiniBtn tone="accent" onClick={() => onLogAdSpend(null)}>Log ad spend</MiniBtn>
             <MiniBtn tone="accent" onClick={onNewCampaign}>+ New campaign</MiniBtn>
           </>}>
           <div className="mb-3"><AdSpendBars m={m} fmtView={fmtView} /></div>

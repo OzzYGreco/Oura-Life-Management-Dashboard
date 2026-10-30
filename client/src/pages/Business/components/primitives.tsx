@@ -109,29 +109,43 @@ export function TotalRow({ children }: { children: ReactNode }) {
 }
 
 /** An action that is visible at rest. No hover-only buttons anywhere in this tab. */
+/**
+ * The one small button. Its colour says what pressing it does, everywhere:
+ *
+ *   accent  create, send, or the main next step
+ *   good    money in, or something coming back (Mark paid, Resume, They are back)
+ *   warn    caution: it holds, pauses or undoes something, and can be reversed
+ *   danger  removes, voids, cancels or ends something
+ *   default looking, editing, opening
+ */
+export type Tone = 'default' | 'good' | 'warn' | 'danger' | 'accent'
+
+export const TONES: Record<Tone, { color: string; border: string; bg: string; hover: string }> = {
+  default: { color: 'var(--c-text-1)', border: 'var(--c-border-mid)', bg: 'var(--c-bg-input)', hover: 'var(--c-bg-hover)' },
+  good:    { color: 'var(--c-profit)', border: 'rgba(52,211,153,0.3)', bg: 'rgba(52,211,153,0.1)', hover: 'rgba(52,211,153,0.18)' },
+  warn:    { color: '#f59e0b', border: 'rgba(245,158,11,0.32)', bg: 'rgba(245,158,11,0.1)', hover: 'rgba(245,158,11,0.18)' },
+  danger:  { color: 'var(--c-loss)', border: 'rgba(248,113,113,0.3)', bg: 'rgba(248,113,113,0.1)', hover: 'rgba(248,113,113,0.18)' },
+  accent:  { color: 'var(--c-accent)', border: 'rgba(129,140,248,0.3)', bg: 'rgba(129,140,248,0.1)', hover: 'rgba(129,140,248,0.18)' },
+}
+
 export function MiniBtn({
   children, onClick, tone = 'default', title, disabled,
 }: {
   children: ReactNode
   onClick?: (e: React.MouseEvent) => void
-  tone?: 'default' | 'good' | 'danger' | 'accent'
+  tone?: Tone
   title?: string
   disabled?: boolean
 }) {
-  const tones = {
-    default: { color: 'var(--c-text-1)', border: 'var(--c-border-mid)', bg: 'var(--c-bg-input)' },
-    good:    { color: 'var(--c-profit)', border: 'rgba(52,211,153,0.3)', bg: 'rgba(52,211,153,0.1)' },
-    danger:  { color: 'var(--c-loss)',   border: 'rgba(248,113,113,0.3)', bg: 'rgba(248,113,113,0.1)' },
-    accent:  { color: 'var(--c-accent)', border: 'rgba(129,140,248,0.3)', bg: 'rgba(129,140,248,0.1)' },
-  }[tone]
+  const tones = TONES[tone]
   return (
     <button
       type="button"
       title={title}
       disabled={disabled}
       onClick={e => { e.stopPropagation(); onClick?.(e) }}
-      className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors disabled:opacity-40 whitespace-nowrap"
-      style={{ color: tones.color, border: `1px solid ${tones.border}`, background: tones.bg }}
+      className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap enabled:hover:-translate-y-px enabled:hover:[background:var(--mb-hover)]"
+      style={{ color: tones.color, border: `1px solid ${tones.border}`, background: tones.bg, ['--mb-hover' as any]: tones.hover }}
     >
       {children}
     </button>

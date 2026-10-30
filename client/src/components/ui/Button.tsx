@@ -2,7 +2,7 @@ import { cn } from '../../lib/utils'
 import { type ButtonHTMLAttributes, forwardRef } from 'react'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'good' | 'warn'
   size?: 'sm' | 'md' | 'lg'
 }
 
@@ -11,6 +11,8 @@ const baseStyles: Record<string, React.CSSProperties> = {
   secondary: { background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' },
   ghost:     { background: 'transparent', color: 'var(--c-text-2)' },
   danger:    { background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' },
+  good:      { background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', color: '#34d399' },
+  warn:      { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', color: '#f59e0b' },
 }
 
 const hoverStyles: Record<string, React.CSSProperties> = {
@@ -18,6 +20,8 @@ const hoverStyles: Record<string, React.CSSProperties> = {
   secondary: { background: 'var(--c-bg-hover)', borderColor: 'var(--c-border-strong)' },
   ghost:     { background: 'var(--c-bg-hover)', color: 'var(--c-text-1)' },
   danger:    { background: 'rgba(239,68,68,0.14)' },
+  good:      { background: 'rgba(52,211,153,0.15)' },
+  warn:      { background: 'rgba(245,158,11,0.15)' },
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

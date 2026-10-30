@@ -113,7 +113,7 @@ export function NeedsYou({
                         </MiniBtn>
                         {r.action === 'paid' ? (
                           <span className="relative">
-                            <MiniBtn onClick={() => setMenu(m => (m === r.key ? null : r.key))} disabled={busyKey === r.key}
+                            <MiniBtn tone="warn" onClick={() => setMenu(m => (m === r.key ? null : r.key))} disabled={busyKey === r.key}
                               title="Not paid yet: wait, accept less, or write it off">Not yet</MiniBtn>
                             {menu === r.key && (
                               <span className="absolute right-0 top-full mt-1 z-20 w-56 rounded-lg py-1 shadow-xl"
@@ -134,7 +134,10 @@ export function NeedsYou({
                             )}
                           </span>
                         ) : DISMISS[r.action] && (
-                          <MiniBtn onClick={() => onDismiss(r)} disabled={busyKey === r.key} title="This does not need doing">
+                          <MiniBtn onClick={() => onDismiss(r)} disabled={busyKey === r.key}
+                            // Voiding a draft or cancelling a website is a removal; the rest only hide a reminder.
+                            tone={r.action === 'send' || r.action === 'invoice' ? 'danger' : 'default'}
+                            title={r.action === 'send' ? 'Void this draft' : r.action === 'invoice' ? 'Cancel this website' : 'This does not need doing'}>
                             {DISMISS[r.action]}
                           </MiniBtn>
                         )}
@@ -143,11 +146,11 @@ export function NeedsYou({
                   )
                 })}
                 {list.length > LIMIT && (
-                  <button type="button" onClick={() => setOpen(o => ({ ...o, [g.key]: !o[g.key] }))}
-                    className="px-4 py-2 text-[11px] text-left hover:underline mt-auto"
-                    style={{ color: 'var(--c-accent)', borderTop: '1px solid var(--c-border)' }}>
-                    {open[g.key] ? 'Show fewer' : `Show all ${list.length}`}
-                  </button>
+                  <div className="px-4 py-2 mt-auto" style={{ borderTop: '1px solid var(--c-border)' }}>
+                    <MiniBtn onClick={() => setOpen(o => ({ ...o, [g.key]: !o[g.key] }))}>
+                      {open[g.key] ? 'Show fewer' : `Show all ${list.length}`}
+                    </MiniBtn>
+                  </div>
                 )}
               </div>
             )

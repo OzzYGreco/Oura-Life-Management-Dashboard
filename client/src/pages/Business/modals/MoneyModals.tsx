@@ -7,6 +7,7 @@ import {
   usePayInvoice, useRetainerLifecycle, useRecordDraw, useOwnerPay, useInvoice, useRemoveAllocation, useCancelPreview,
 } from '../../../hooks/useBusiness'
 import { formatDate, today } from '../../../lib/utils'
+import { MiniBtn } from '../components/primitives'
 import type { Retainer } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
@@ -88,8 +89,7 @@ export function PayInvoiceModal({
                 </span>
                 <span className="num font-semibold" style={{ color: 'var(--c-text-1)' }}>{fmtView(a.amount)}</span>
                 {!a.paymentId && (
-                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
-                    onClick={() => removeAlloc.mutate(a.id)}>remove</button>
+                  <MiniBtn tone="danger" onClick={() => removeAlloc.mutate(a.id)}>Remove</MiniBtn>
                 )}
               </div>
             ))}
@@ -244,7 +244,7 @@ export function RetainerActionModal({
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Back</Button>
-          <Button variant={action === 'cancel' ? 'danger' : 'primary'} onClick={submit} disabled={lifecycle.isPending}>
+          <Button variant={action === 'cancel' ? 'danger' : action === 'pause' ? 'warn' : 'good'} onClick={submit} disabled={lifecycle.isPending}>
             {action === 'cancel' ? 'Cancel retainer' : action === 'pause' ? 'Pause' : 'Resume'}
           </Button>
         </div>

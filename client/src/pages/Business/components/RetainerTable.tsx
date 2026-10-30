@@ -94,10 +94,10 @@ export function RetainerTable({
                   <Td align="right">
                     <div className="flex gap-1.5 justify-end">
                       <MiniBtn onClick={() => onAction(r, 'edit')}>Edit</MiniBtn>
-                      {isActive && <MiniBtn onClick={() => onAction(r, 'pause')}>Pause</MiniBtn>}
+                      {isActive && <MiniBtn tone="warn" onClick={() => onAction(r, 'pause')}>Pause</MiniBtn>}
                       {r.status === 'paused' && <MiniBtn tone="good" onClick={() => onAction(r, 'resume')}>Resume</MiniBtn>}
                       {r.status !== 'cancelled' && <MiniBtn tone="danger" onClick={() => onAction(r, 'cancel')}>Cancel</MiniBtn>}
-                      {r.status === 'cancelled' && <MiniBtn onClick={() => onAction(r, 'reinstate')} title="Undo the cancel">Reinstate</MiniBtn>}
+                      {r.status === 'cancelled' && <MiniBtn tone="good" onClick={() => onAction(r, 'reinstate')} title="Undo the cancel">Reinstate</MiniBtn>}
                     </div>
                   </Td>
                 </Row>

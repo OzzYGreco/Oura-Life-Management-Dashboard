@@ -72,7 +72,7 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                       ? `Yes, ${String(p.suggestedClientName ?? '').split(' ')[0]}...`
                       : 'Pick a client'}
                   </MiniBtn>
-                  <MiniBtn tone="danger" onClick={() => ignore.mutate(p.id)} title="Not business income">
+                  <MiniBtn tone="warn" onClick={() => ignore.mutate(p.id)} title="Not business income">
                     Not income
                   </MiniBtn>
                 </span>
