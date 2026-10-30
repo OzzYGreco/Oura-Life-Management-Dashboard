@@ -1197,10 +1197,16 @@ router.post('/invoices/:id/pay', async (req, res, next) => {
       note:        z.string().nullish(),
     }), req.body ?? {})
     const invoiceId = id(req.params.id)
-    db.transaction(tx => recordManualPayment(tx, invoiceId, {
-      amount: body.amount, date: body.paidDate ?? localToday(),
-      fee: body.feeAmount, method: body.method, note: body.note,
-    }))
+    db.transaction(tx => {
+      // A debt voided when the client left, now being paid: the same invoice
+      // comes back and is paid, under its own number. Nothing new is raised.
+      const inv = tx.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)).get()
+      if (inv?.status === 'void') restoreInvoice(tx, invoiceId)
+      recordManualPayment(tx, invoiceId, {
+        amount: body.amount, date: body.paidDate ?? localToday(),
+        fee: body.feeAmount, method: body.method, note: body.note,
+      })
+    })
     invalidate()
     res.json((await db.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)))[0])
   } catch (e) { next(e) }
@@ -1303,7 +1309,9 @@ router.get('/invoices/:id', async (req, res, next) => {
     res.json({
       ...row,
       applied: round2(allocations.reduce((s, a) => s + a.amount, 0)),
-      owed: row.status === 'void' ? 0 : remainingOn(db, row),
+      // For a void invoice this is what it would be owed if it were paid off,
+      // which is what "Mark paid" on a debt from a client who left needs.
+      owed: remainingOn(db, row),
       allocations: allocations.map(a => {
         const p = payments.find(x => x.id === a.paymentId)
         return { ...a, payerName: p?.payerName ?? null, stripeId: p?.stripeId ?? null }

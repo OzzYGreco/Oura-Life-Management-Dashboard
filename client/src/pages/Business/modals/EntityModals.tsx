@@ -398,7 +398,13 @@ export function InvoiceModal({
           <span className="flex gap-1.5 flex-wrap">
             {invoiceId && existing && !confirm && (isVoid ? (
               <>
-                <Button variant="ghost" size="sm" onClick={() => run(() => restore.mutateAsync(invoiceId!))}>Restore</Button>
+                {onRecordPayment && (
+                  <Button variant="ghost" size="sm"
+                    onClick={() => { onClose(); onRecordPayment({ id: existing.id, invoiceNumber: existing.invoiceNumber }) }}>
+                    Mark paid
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => run(() => restore.mutateAsync(invoiceId!))}>Restore as owed</Button>
                 <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')}>Delete</Button>
               </>
             ) : (
