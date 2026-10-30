@@ -392,6 +392,8 @@ router.post('/clients/:id/payments', async (req, res, next) => {
       fee:        z.number().nonnegative().optional(),
       method:     z.enum(['bank', 'cash', 'stripe']).optional(),
       invoiceIds: z.array(z.number().int()).optional(),
+      /** What money beyond their bills was for. It is raised as a paid invoice. */
+      restFor:    z.string().nullish(),
       dryRun:     z.boolean().optional(),
     }), req.body)
     const d = await loadBusinessData()
@@ -412,11 +414,20 @@ router.post('/clients/:id/payments', async (req, res, next) => {
     }
     const plan = { splits, leftOver: left, owedTotal: round2(open.reduce((s2, x) => s2 + x.owed, 0)) }
     if (body.dryRun) return res.json(plan)
-    if (left > 0.005) {
-      return res.status(409).json({ error: `That is ${left.toFixed(2)} more than they owe. Raise an invoice for the rest first.` })
-    }
     const date = body.date ?? localToday()
+    // Money beyond what is owed (or when nothing is) is not refused: it becomes
+    // a paid invoice for what it was for, so it reaches every total in one step.
+    const restNumber = left > 0.005 ? await nextInvoiceNumber() : null
     db.transaction(tx => {
+      if (restNumber) {
+        reactivateIfChurned(tx, clientId)
+        const inv = tx.insert(businessInvoices).values({
+          clientId, invoiceNumber: restNumber, amount: left, subtotal: left,
+          status: 'unpaid', issueDate: date, dueDate: date, sentDate: date,
+          notes: body.restFor?.trim() || 'Payment received',
+        }).returning().get()
+        splits.push({ invoiceId: inv.id, invoiceNumber: restNumber, amount: left, owed: left, settles: true })
+      }
       splits.forEach((sp, idx) => recordManualPayment(tx, sp.invoiceId, {
         amount: sp.amount, date, method: body.method ?? 'bank',
         // The fee belongs to the payment; it rides on the first invoice it touches.

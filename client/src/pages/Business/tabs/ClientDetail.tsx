@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
-import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
-import { Sparkline } from '../../../components/ui/Sparkline'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
 import { useClientSummary, useSaveProject, useRemoveMeetingNote } from '../../../hooks/useBusiness'
+import { Question, Fold } from '../components/MoneySections'
+import { ClientWorth } from '../components/ClientWorth'
 import { formatDate } from '../../../lib/utils'
 import { STAGES } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -67,7 +67,6 @@ export function ClientDetail({
   const { client, economics: e, retainers: rawRetainers, projects, invoices: everyInvoice, costs, meetingNotes } = data
   // The shared retainer modals expect the client name on the row.
   const retainers = rawRetainers.map((r: any) => ({ ...r, clientName: client.name }))
-  const activeRetainers = retainers.filter((r: any) => r.status !== 'cancelled')
   const churned = client.status === 'churned'
   const voidCount = everyInvoice.filter((i: any) => i.status === 'void').length
   const invoices = everyInvoice.filter((i: any) => showVoid || i.status !== 'void')
@@ -88,6 +87,9 @@ export function ClientDetail({
   const nextDue = live.filter((r: any) => r.status === 'active' && r.nextInvoiceDate)
     .map((r: any) => r.nextInvoiceDate).sort()[0]
   const owes = e.outstanding
+  const openInvoices = everyInvoice.filter((i: any) => i.status === 'unpaid' || i.status === 'draft')
+  const lateCount = openInvoices.filter((i: any) => i.status === 'unpaid' && i.dueDate < today).length
+  const lastPaid = everyInvoice.map((i: any) => i.paidDate).filter(Boolean).sort().at(-1) ?? null
 
   return (
     <div className="space-y-7">
@@ -133,7 +135,7 @@ export function ClientDetail({
           ? <MiniBtn tone="accent" onClick={() => onChangePlan(live)}>Change plan</MiniBtn>
           : <MiniBtn tone="accent" onClick={() => onAddRetainer(clientId)}>Add a plan</MiniBtn>)}
         <MiniBtn tone="good" onClick={() => onRecordPayment({ id: client.id, name: client.name })}
-          disabled={owes <= 0} title={owes > 0 ? 'Record money they paid' : 'They owe nothing'}>
+          title="Record money they paid, against what they owe or as a new paid invoice">
           Record payment
         </MiniBtn>
         <MiniBtn onClick={() => onAddInvoice(clientId)}>New invoice</MiniBtn>
@@ -155,29 +157,6 @@ export function ClientDetail({
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
-        <KpiCard label="MRR" value={e.mrr ? `${fmtView(e.mrr)}/mo` : '--'} color={e.mrr ? 'var(--c-accent)' : 'var(--c-text-2)'}
-          sub={e.retainerCount ? `${e.retainerCount} retainer${e.retainerCount === 1 ? '' : 's'}` : 'no retainer'} />
-        <KpiCard label="Lifetime" value={fmtView(e.revenue)} sub={`${e.invoiceCount} invoice${e.invoiceCount === 1 ? '' : 's'}`} />
-        <KpiCard label="Costs" value={fmtView(e.costs)} color="var(--c-text-2)"
-          sub={costs.length ? `${costs.length} attributed` : 'none attributed'} />
-        <KpiCard label="Margin" value={e.revenue ? `${e.marginPct.toFixed(0)}%` : '--'}
-          color={e.marginPct >= 50 ? 'var(--c-profit)' : e.revenue ? 'var(--c-loss)' : 'var(--c-text-2)'}
-          sub={e.revenue ? `${fmtView(e.margin)} kept` : 'nothing billed yet'} />
-        <KpiCard label="Client since"
-          value={e.since ? new Date(e.since).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) : '--'}
-          sub={e.since ? `${Math.round(e.tenureMonths)} month${Math.round(e.tenureMonths) === 1 ? '' : 's'}` : 'never invoiced'} />
-      </div>
-
-      {e.spark.some((v: number) => v > 0) && (
-        <div className="rounded-xl px-4 py-3" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
-          <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>
-            Collected, last 12 months
-          </div>
-          <Sparkline points={e.spark} color="#818cf8" height={44} />
-        </div>
-      )}
-
       {e.unbilled > 0 && (
         <div className="px-4 py-2.5 rounded-xl text-xs"
           style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.22)', color: '#fcd34d' }}>
@@ -185,8 +164,9 @@ export function ClientDetail({
         </div>
       )}
 
-      {/* ── Pays monthly ─────────────────────────────────────────────────── */}
-      <Section label="Pays monthly" count={activeRetainers.length || undefined}
+      {/* ── What do they pay? ─────────────────────────────────────────────── */}
+      <Question q="What do they pay?"
+        answer={churned ? 'Nothing now: they left.' : planParts.length ? <>{planParts.join(' and ')}{nextDue ? <>, next invoice {formatDate(nextDue)}</> : null}.</> : 'No monthly plan.'}
         action={<MiniBtn tone="accent" onClick={() => onAddRetainer(clientId)}>+ Add retainer</MiniBtn>}>
         <TablePanel>
           <table className="w-full">
@@ -226,11 +206,143 @@ export function ClientDetail({
             </tbody>
           </table>
         </TablePanel>
-      </Section>
+      </Question>
 
-      {/* ── Websites ─────────────────────────────────────────────────────── */}
-      <Section label="Websites" count={projects.length || undefined}
-        action={<MiniBtn tone="accent" onClick={() => onAddProject(clientId)}>+ Add website</MiniBtn>}>
+      {/* ── Are they paid up? ─────────────────────────────────────────────── */}
+      <Question q="Are they paid up?"
+        answer={owes > 0
+          ? <>No: they owe <b className="num" style={{ color: '#f59e0b' }}>{fmtView(owes)}</b> across {openInvoices.length} invoice{openInvoices.length === 1 ? '' : 's'}{lateCount ? <>, <span style={{ color: 'var(--c-loss)' }}>{lateCount} overdue</span></> : null}.</>
+          : <>Yes, nothing owed.{lastPaid ? <> Last paid {formatDate(lastPaid)}.</> : null}</>}
+        action={<MiniBtn tone="accent" onClick={() => onAddInvoice(clientId)}>+ New invoice</MiniBtn>}>
+        {openInvoices.length > 0 && (
+          <div className="rounded-xl overflow-hidden" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
+            {openInvoices.map((i: any, idx: number) => {
+              const late = i.dueDate < today && i.status === 'unpaid'
+              return (
+                <div key={i.id} className="flex items-center gap-4 px-4 py-2.5 transition-colors hover:bg-white/[0.03]"
+                  style={{ borderTop: idx ? '1px solid var(--c-border)' : 'none' }}>
+                  <span className="num text-[11px] w-16" style={{ color: 'var(--c-text-3)' }}>{i.invoiceNumber}</span>
+                  <span className="flex-1 text-xs truncate" style={{ color: 'var(--c-text-2)' }}>
+                    {i.milestoneLabel ? `${i.serviceName ?? 'Website'} - ${i.milestoneLabel.toLowerCase()}` : i.serviceName ?? i.notes ?? '--'}
+                  </span>
+                  <span className="text-[11px] num" style={{ color: late ? 'var(--c-loss)' : 'var(--c-text-3)' }}>
+                    {i.status === 'draft' ? 'not sent' : `${late ? 'was due' : 'due'} ${formatDate(i.dueDate)}`}
+                  </span>
+                  <span className="text-[13px] font-semibold num w-24 text-right" style={{ color: 'var(--c-text-1)' }}>{fmtView(i.owed)}</span>
+                  <span className="flex gap-1.5">
+                    <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>Mark paid</MiniBtn>
+                    <MiniBtn onClick={() => onEditInvoice(i.id)}>Edit</MiniBtn>
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      {/* ── Debts voided when they left ──────────────────────────────────── */}
+      {leftDebts.length > 0 && (
+        <Section label="Unpaid when they left" count={fmtView(leftDebts.reduce((s: number, i: any) => s + i.amount, 0))}>
+          <TablePanel>
+            <table className="w-full">
+              <THead>
+                <Th>#</Th><Th>What</Th><Th align="right">Amount</Th><Th align="right">Issued</Th><Th>Why voided</Th><Th />
+              </THead>
+              <tbody>
+                {leftDebts.map((i: any) => (
+                  <Row key={i.id}>
+                    <Td mono color="var(--c-text-3)">{i.invoiceNumber}</Td>
+                    <Td color="var(--c-text-2)">{i.serviceName ?? i.notes ?? '--'}</Td>
+                    <Td align="right" mono className="font-semibold">{fmtView(i.amount)}</Td>
+                    <Td align="right" mono color="var(--c-text-3)">{formatDate(i.issueDate)}</Td>
+                    <Td color="var(--c-text-3)">{i.voidReason}</Td>
+                    <Td align="right">
+                      <div className="flex gap-1.5 justify-end">
+                        <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>
+                          Mark paid
+                        </MiniBtn>
+                        <MiniBtn onClick={() => onEditInvoice(i.id)}>Open</MiniBtn>
+                      </div>
+                    </Td>
+                  </Row>
+                ))}
+              </tbody>
+            </table>
+          </TablePanel>
+          <p className="text-[11px] mt-2" style={{ color: 'var(--c-text-3)' }}>
+            Not counted as owed while they are gone. If they settle up, Mark paid brings the same invoice back as paid.
+          </p>
+        </Section>
+      )}
+      </Question>
+
+      {/* ── Are they worth it? ────────────────────────────────────────────── */}
+      <Question q="Are they worth it?"
+        answer={e.revenue > 0
+          ? <><b className="num">{fmtView(e.revenue)}</b> collected{e.since ? <> since {new Date(e.since).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</> : null}, {fmtView(e.costs)} in costs, so <b className="num" style={{ color: e.marginPct >= 50 ? 'var(--c-profit)' : 'var(--c-loss)' }}>{e.marginPct.toFixed(0)}%</b> is kept.</>
+          : 'Nothing collected from them yet.'}>
+        <ClientWorth e={e} fmtView={fmtView} />
+      </Question>
+
+      {/* ── Everything else, folded ───────────────────────────────────────── */}
+      <div className="space-y-2.5">
+        <Fold id="client-invoices" title="Every invoice"
+          summary={`${everyInvoice.filter((i: any) => i.status !== 'void').length} invoices${voidCount ? ` · ${voidCount} void` : ''}`}
+          action={voidCount > 0 ? <MiniBtn onClick={() => setShowVoid(v => !v)}>{showVoid ? 'Hide void' : `Show ${voidCount} void`}</MiniBtn> : undefined}>
+        <TablePanel>
+          <table className="w-full">
+            <THead>
+              <Th>#</Th><Th>What</Th><Th align="right">Amount</Th><Th align="right">Issued</Th>
+              <Th align="right">Due</Th><Th align="right">Paid</Th><Th>Status</Th><Th />
+            </THead>
+            <tbody>
+              {invoices.length === 0 ? (
+                <EmptyRow colSpan={8}>Nothing invoiced yet.</EmptyRow>
+              ) : (allInvoices ? invoices : invoices.slice(0, 8)).map((i: any) => {
+                const overdue = i.status === 'unpaid' && i.dueDate < today
+                const part = i.status === 'unpaid' && i.applied > 0
+                const isVoid = i.status === 'void'
+                return (
+                  <Row key={i.id} dim={isVoid}>
+                    <Td mono color="var(--c-text-3)">{i.invoiceNumber}</Td>
+                    <Td color="var(--c-text-2)">
+                      {i.milestoneLabel ? `${i.serviceName ?? 'Website'} - ${i.milestoneLabel.toLowerCase()}` : i.serviceName ?? i.notes ?? '--'}
+                    </Td>
+                    <Td align="right" mono className="font-semibold" style={isVoid ? { textDecoration: 'line-through' } : undefined}>
+                      {fmtView(i.amount)}
+                      {part && <span className="block text-[10px] font-normal" style={{ color: '#38bdf8' }}>{fmtView(i.owed)} left</span>}
+                    </Td>
+                    <Td align="right" mono color="var(--c-text-3)">{formatDate(i.issueDate)}</Td>
+                    <Td align="right" mono color={overdue ? 'var(--c-loss)' : 'var(--c-text-3)'}>{formatDate(i.dueDate)}</Td>
+                    <Td align="right" mono color="var(--c-text-3)">{i.paidDate ? formatDate(i.paidDate) : '--'}</Td>
+                    <Td><StatusDot status={overdue ? 'overdue' : part ? 'part-paid' : i.status} /></Td>
+                    <Td align="right">
+                      <div className="flex gap-1.5 justify-end">
+                        {i.status !== 'paid' && !isVoid && (
+                          <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>
+                            {part ? 'Add payment' : 'Mark paid'}
+                          </MiniBtn>
+                        )}
+                        <MiniBtn onClick={() => onEditInvoice(i.id)}>{isVoid ? 'Open' : 'Edit'}</MiniBtn>
+                      </div>
+                    </Td>
+                  </Row>
+                )
+              })}
+              {invoices.length > 8 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-2.5 text-center">
+                    <MiniBtn onClick={() => setAllInvoices(v => !v)}>
+                      {allInvoices ? 'Show the latest 8' : `Show ${invoices.length - 8} older`}
+                    </MiniBtn>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </TablePanel>
+        </Fold>
+        <Fold id="client-websites" title="Websites"
+          summary={projects.length ? projects.map((p: any) => p.name).join(', ') : 'none'}
+          action={<MiniBtn tone="accent" onClick={() => onAddProject(clientId)}>+ Add website</MiniBtn>}>
         {projects.length === 0 ? (
           <EmptyLine>No website for this client.</EmptyLine>
         ) : (
@@ -286,110 +398,10 @@ export function ClientDetail({
           </table>
         </TablePanel>
         )}
-      </Section>
-
-      {/* ── Debts voided when they left ──────────────────────────────────── */}
-      {leftDebts.length > 0 && (
-        <Section label="Unpaid when they left" count={fmtView(leftDebts.reduce((s: number, i: any) => s + i.amount, 0))}>
-          <TablePanel>
-            <table className="w-full">
-              <THead>
-                <Th>#</Th><Th>What</Th><Th align="right">Amount</Th><Th align="right">Issued</Th><Th>Why voided</Th><Th />
-              </THead>
-              <tbody>
-                {leftDebts.map((i: any) => (
-                  <Row key={i.id}>
-                    <Td mono color="var(--c-text-3)">{i.invoiceNumber}</Td>
-                    <Td color="var(--c-text-2)">{i.serviceName ?? i.notes ?? '--'}</Td>
-                    <Td align="right" mono className="font-semibold">{fmtView(i.amount)}</Td>
-                    <Td align="right" mono color="var(--c-text-3)">{formatDate(i.issueDate)}</Td>
-                    <Td color="var(--c-text-3)">{i.voidReason}</Td>
-                    <Td align="right">
-                      <div className="flex gap-1.5 justify-end">
-                        <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>
-                          Mark paid
-                        </MiniBtn>
-                        <MiniBtn onClick={() => onEditInvoice(i.id)}>Open</MiniBtn>
-                      </div>
-                    </Td>
-                  </Row>
-                ))}
-              </tbody>
-            </table>
-          </TablePanel>
-          <p className="text-[11px] mt-2" style={{ color: 'var(--c-text-3)' }}>
-            Not counted as owed while they are gone. If they settle up, Mark paid brings the same invoice back as paid.
-          </p>
-        </Section>
-      )}
-
-      {/* ── Invoices ─────────────────────────────────────────────────────── */}
-      <Section label="Invoices" count={invoices.length || undefined}
-        action={
-          <>
-            {voidCount > 0 && (
-              <MiniBtn onClick={() => setShowVoid(v => !v)}>{showVoid ? 'Hide void' : `Show ${voidCount} void`}</MiniBtn>
-            )}
-            <MiniBtn tone="accent" onClick={() => onAddInvoice(clientId)}>+ New invoice</MiniBtn>
-          </>
-        }>
-        <TablePanel>
-          <table className="w-full">
-            <THead>
-              <Th>#</Th><Th>What</Th><Th align="right">Amount</Th><Th align="right">Issued</Th>
-              <Th align="right">Due</Th><Th align="right">Paid</Th><Th>Status</Th><Th />
-            </THead>
-            <tbody>
-              {invoices.length === 0 ? (
-                <EmptyRow colSpan={8}>Nothing invoiced yet.</EmptyRow>
-              ) : (allInvoices ? invoices : invoices.slice(0, 8)).map((i: any) => {
-                const overdue = i.status === 'unpaid' && i.dueDate < today
-                const part = i.status === 'unpaid' && i.applied > 0
-                const isVoid = i.status === 'void'
-                return (
-                  <Row key={i.id} dim={isVoid}>
-                    <Td mono color="var(--c-text-3)">{i.invoiceNumber}</Td>
-                    <Td color="var(--c-text-2)">
-                      {i.milestoneLabel ? `${i.serviceName ?? 'Website'} - ${i.milestoneLabel.toLowerCase()}` : i.serviceName ?? i.notes ?? '--'}
-                    </Td>
-                    <Td align="right" mono className="font-semibold" style={isVoid ? { textDecoration: 'line-through' } : undefined}>
-                      {fmtView(i.amount)}
-                      {part && <span className="block text-[10px] font-normal" style={{ color: '#38bdf8' }}>{fmtView(i.owed)} left</span>}
-                    </Td>
-                    <Td align="right" mono color="var(--c-text-3)">{formatDate(i.issueDate)}</Td>
-                    <Td align="right" mono color={overdue ? 'var(--c-loss)' : 'var(--c-text-3)'}>{formatDate(i.dueDate)}</Td>
-                    <Td align="right" mono color="var(--c-text-3)">{i.paidDate ? formatDate(i.paidDate) : '--'}</Td>
-                    <Td><StatusDot status={overdue ? 'overdue' : part ? 'part-paid' : i.status} /></Td>
-                    <Td align="right">
-                      <div className="flex gap-1.5 justify-end">
-                        {i.status !== 'paid' && !isVoid && (
-                          <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>
-                            {part ? 'Add payment' : 'Mark paid'}
-                          </MiniBtn>
-                        )}
-                        <MiniBtn onClick={() => onEditInvoice(i.id)}>{isVoid ? 'Open' : 'Edit'}</MiniBtn>
-                      </div>
-                    </Td>
-                  </Row>
-                )
-              })}
-              {invoices.length > 8 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-2.5 text-center">
-                    <MiniBtn onClick={() => setAllInvoices(v => !v)}>
-                      {allInvoices ? 'Show the latest 8' : `Show ${invoices.length - 8} older`}
-                    </MiniBtn>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </TablePanel>
-      </Section>
-
-      {/* ── Costs ────────────────────────────────────────────────────────── */}
-      <Section label="What they cost you" count={costs.length || undefined}
-        action={<MiniBtn tone="accent" onClick={() => onAddCost(clientId)}>+ Add cost</MiniBtn>}>
+        </Fold>
+        <Fold id="client-costs" title="What they cost you"
+          summary={costs.length ? `${fmtView(e.costs)} across ${costs.length} cost${costs.length === 1 ? '' : 's'}` : 'nothing attributed'}
+          action={<MiniBtn tone="accent" onClick={() => onAddCost(clientId)}>+ Add cost</MiniBtn>}>
         {costs.length === 0 ? (
           <EmptyLine>No costs attributed, so their margin reads as pure profit.</EmptyLine>
         ) : (
@@ -416,11 +428,10 @@ export function ClientDetail({
           </table>
         </TablePanel>
         )}
-      </Section>
-
-      {/* ── Notes ────────────────────────────────────────────────────────── */}
-      <Section label="Notes" count={meetingNotes.length || undefined}
-        action={<MiniBtn tone="accent" onClick={() => onAddNote(clientId)}>+ Add note</MiniBtn>}>
+        </Fold>
+        <Fold id="client-notes" title="Notes"
+          summary={meetingNotes.length ? `${meetingNotes.length} note${meetingNotes.length === 1 ? '' : 's'}` : client.notes ? 'what was agreed' : 'nothing written down'}
+          action={<MiniBtn tone="accent" onClick={() => onAddNote(clientId)}>+ Add note</MiniBtn>}>
         <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
           {client.notes && (
             <div>
@@ -451,7 +462,8 @@ export function ClientDetail({
             <p className="text-xs" style={{ color: 'var(--c-text-3)' }}>Nothing written down yet.</p>
           )}
         </div>
-      </Section>
+        </Fold>
+      </div>
     </div>
   )
 }

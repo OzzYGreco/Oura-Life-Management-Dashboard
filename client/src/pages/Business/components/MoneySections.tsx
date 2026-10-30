@@ -3,8 +3,9 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
 } from 'recharts'
-import { axisProps, tooltipStyle, tooltipLabelStyle, barCursor, compact, HEX } from '../../../lib/chartTheme'
+import { axisProps, barCursor, compact, HEX } from '../../../lib/chartTheme'
 import { MiniBtn, fmtMonth } from './primitives'
+import { ChartTooltip, SplitBar, hoverCard } from './charts'
 import type { BusinessMetrics, OwnerPay } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
@@ -56,9 +57,9 @@ export function Fold({ id, title, summary, action, children }: {
   )
 }
 
-function Figure({ label, value, sub, color }: { label: string; value: ReactNode; sub?: ReactNode; color?: string }) {
+export function Figure({ label, value, sub, color }: { label: string; value: ReactNode; sub?: ReactNode; color?: string }) {
   return (
-    <div className="rounded-xl px-4 py-3" style={card}>
+    <div className={`rounded-xl px-4 py-3 ${hoverCard}`} style={card}>
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>{label}</div>
       <div className="text-xl font-bold num leading-none tracking-tight" style={{ color: color ?? 'var(--c-text-1)' }}>{value}</div>
       {sub != null && <div className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>{sub}</div>}
@@ -85,6 +86,15 @@ export function Profitable({ m, fmtView, periodLabel }: { m: BusinessMetrics; fm
   const thisMonth = m.pnlByMonth.at(-1)
   const lastMonth = m.pnlByMonth.at(-2)
   const p = m.pnl
+  // A loss of pennies next to months of thousands would stretch the scale to a
+  // round -750; under 5% of the top it sits on the zero line instead (the
+  // tooltip still gives the exact figure). A real loss keeps its own floor.
+  const low = Math.min(0, ...months.map(x => x.profit))
+  const high = Math.max(1, ...months.map(x => Math.max(x.in, x.costs)))
+  const floor = low > -0.05 * high ? 0 : 'auto'
+  // Pointing at a legend entry brings that series forward and fades the rest.
+  const [focus, setFocus] = useState<string | null>(null)
+  const fade = (k: string) => (focus && focus !== k ? 0.2 : 1)
 
   // Where each pound went, for the one bar under the chart.
   const flow = [
@@ -125,13 +135,16 @@ export function Profitable({ m, fmtView, periodLabel }: { m: BusinessMetrics; fm
                   <XAxis dataKey="label" {...axisProps} />
                   {/* Floor at the real lowest point: a -£20 month should not drag the scale to -£800. */}
                   <YAxis {...axisProps} width={44} tickFormatter={compact}
-                    domain={[Math.min(0, ...months.map(x => x.profit)), 'auto']} allowDataOverflow={false} />
-                  <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} cursor={barCursor}
-                    formatter={(v: any, name: any) => [fmtView(Number(v)), name]} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: 'var(--c-text-2)' }} />
-                  <Bar dataKey="in" name="Money in" fill={HEX.accent} radius={[4, 4, 0, 0]} maxBarSize={22} />
-                  <Bar dataKey="costs" name="Costs" fill={HEX.amber} radius={[4, 4, 0, 0]} maxBarSize={22} />
-                  <Line dataKey="profit" name="Profit" stroke={HEX.profit} strokeWidth={2} dot={{ r: 3, strokeWidth: 0, fill: HEX.profit }} />
+                    domain={[floor, 'auto']} allowDataOverflow />
+                  <Tooltip cursor={barCursor} content={<ChartTooltip fmtView={fmtView} />} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11, color: 'var(--c-text-2)', cursor: 'default' }}
+                    onMouseEnter={(o: any) => setFocus(o.dataKey)} onMouseLeave={() => setFocus(null)} />
+                  <Bar dataKey="in" name="Money in" fill={HEX.accent} fillOpacity={fade('in')} radius={[4, 4, 0, 0]} maxBarSize={22}
+                    activeBar={{ fillOpacity: 1, stroke: HEX.accent, strokeWidth: 1 }} />
+                  <Bar dataKey="costs" name="Costs" fill={HEX.amber} fillOpacity={fade('costs')} radius={[4, 4, 0, 0]} maxBarSize={22}
+                    activeBar={{ fillOpacity: 1, stroke: HEX.amber, strokeWidth: 1 }} />
+                  <Line dataKey="profit" name="Profit" stroke={HEX.profit} strokeOpacity={fade('profit')} strokeWidth={2}
+                    dot={{ r: 3, strokeWidth: 0, fill: HEX.profit }} activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--c-bg-card)' }} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -142,22 +155,7 @@ export function Profitable({ m, fmtView, periodLabel }: { m: BusinessMetrics; fm
           <div className="text-[11px] mb-3" style={{ color: 'var(--c-text-3)' }}>Where each pound went, {periodLabel}</div>
           {gross > 0 ? (
             <>
-              <div className="flex h-4 rounded overflow-hidden gap-[2px]" style={{ background: 'var(--c-bg-card)' }}>
-                {flow.map(f => (
-                  <div key={f.key} title={`${f.key}: ${fmtView(f.value)}`}
-                    style={{ width: `${(f.value / gross) * 100}%`, background: f.color, minWidth: 3 }} />
-                ))}
-              </div>
-              <div className="mt-3 space-y-1.5 text-[12px]">
-                {flow.map(f => (
-                  <div key={f.key} className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: f.color }} />
-                    <span className="flex-1" style={{ color: 'var(--c-text-2)' }}>{f.key}</span>
-                    <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(f.value)}</span>
-                    <span className="num w-10 text-right" style={{ color: 'var(--c-text-3)' }}>{Math.round((f.value / gross) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
+              <SplitBar parts={flow.map(f => ({ key: f.key, value: f.value, color: f.color }))} fmtView={fmtView} />
               <p className="text-[10.5px] mt-auto pt-3" style={{ color: 'var(--c-text-3)' }}>
                 Out of {fmtView(p.grossVolume)} billed and paid. Owner draws come out of profit, not costs.
               </p>
@@ -211,18 +209,7 @@ export function WhatWeCanTake({
           <div className="text-[11px] mt-1" style={{ color: 'var(--c-text-3)' }}>of {fmtView(profit)} profit {periodLabel}</div>
           {total > 0 && (
             <>
-              <div className="flex h-3 rounded overflow-hidden gap-[2px] mt-4">
-                {parts.map(x => <div key={x.key} title={`${x.key}: ${fmtView(x.value)}`} style={{ width: `${(x.value / total) * 100}%`, background: x.color, minWidth: 3 }} />)}
-              </div>
-              <div className="mt-2.5 space-y-1 text-[11.5px]">
-                {parts.map(x => (
-                  <div key={x.key} className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full" style={{ background: x.color }} />
-                    <span className="flex-1" style={{ color: 'var(--c-text-2)' }}>{x.key}</span>
-                    <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(x.value)}</span>
-                  </div>
-                ))}
-              </div>
+              <div className="mt-4"><SplitBar parts={parts} fmtView={fmtView} height={12} /></div>
             </>
           )}
         </div>
@@ -319,7 +306,7 @@ export function WhereItGoes({
     >
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
         {types.map(t => (
-          <div key={t.key} className="rounded-xl p-4" style={card}>
+          <div key={t.key} className={`rounded-xl p-4 ${hoverCard}`} style={card}>
             <div className="flex items-baseline justify-between">
               <span className="text-[12.5px] font-semibold" style={{ color: 'var(--c-text-1)' }}>{t.key}</span>
               <span className="text-lg font-bold num" style={{ color: 'var(--c-text-1)' }}>{fmtView(t.value)}</span>
@@ -359,8 +346,7 @@ export function AdSpendBars({ m, fmtView }: { m: BusinessMetrics; fmtView: FmtVi
           <CartesianGrid {...grid} />
           <XAxis dataKey="label" {...axisProps} />
           <YAxis {...axisProps} width={44} tickFormatter={compact} />
-          <Tooltip contentStyle={tooltipStyle} labelStyle={tooltipLabelStyle} cursor={barCursor}
-            formatter={(v: any) => [fmtView(Number(v)), 'Ad spend']} />
+          <Tooltip cursor={barCursor} content={<ChartTooltip fmtView={fmtView} />} />
           <Bar dataKey="ads" name="Ad spend" radius={[4, 4, 0, 0]} maxBarSize={26}>
             {data.map((_, i) => <Cell key={i} fill={HEX.amber} />)}
           </Bar>

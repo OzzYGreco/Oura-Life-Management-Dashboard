@@ -298,7 +298,7 @@ export interface ClientPaymentPlan {
   leftOver: number
   owedTotal: number
 }
-export type ClientPaymentBody = { amount: number; date?: string; fee?: number; method?: 'bank' | 'cash' | 'stripe' }
+export type ClientPaymentBody = { amount: number; date?: string; fee?: number; method?: 'bank' | 'cash' | 'stripe'; restFor?: string }
 
 /** One payment from a client, spread over what they owe, oldest first. */
 export function useClientPaymentPreview(clientId: number | null, body: ClientPaymentBody | null) {

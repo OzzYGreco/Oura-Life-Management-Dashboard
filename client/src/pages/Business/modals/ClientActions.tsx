@@ -3,14 +3,13 @@ import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
-import { ClientPicker } from '../components/ClientPicker'
 import {
-  useServices, usePlanChangePreview, useChangePlan, useClientPaymentPreview, useRecordClientPayment, useClients,
+  useServices, usePlanChangePreview, useChangePlan, useClientPaymentPreview, useRecordClientPayment, useClientRows,
 } from '../../../hooks/useBusiness'
 import type { PlanChange, ClientPaymentBody } from '../../../hooks/useBusiness'
 import { formatDate, today } from '../../../lib/utils'
 import type { FmtView } from '../../../hooks/useFmtView'
-import type { Client, Retainer, Service } from '../lib/types'
+import type { Retainer, Service } from '../lib/types'
 
 /** Debounce a value so a preview does not fire on every keystroke. */
 function useSettled<T>(value: T, ms = 300): T {
@@ -183,11 +182,12 @@ export function ChangePlanModal({
 // ─── Record a payment from a client ──────────────────────────────────────────
 
 /**
- * "They paid me £X." Recorded once, spread over what they owe, oldest first.
+ * "They paid me £X." One amount, nothing to look up.
  *
- * Opened from a client's page with the client already chosen, or from the New
- * menu with a picker. No invoice to hunt for: the preview lists which bills
- * the money settles before it is saved.
+ * Clients who owe money are listed first, with what they owe; pick one and the
+ * amount fills in. The money settles their oldest bills first. Anything beyond
+ * what they owe, or a payment when they owe nothing, is not refused: say what
+ * it was for and it is recorded as a paid invoice in the same step.
  */
 export function RecordPaymentModal({
   client, open, onClose, fmtView,
@@ -198,30 +198,39 @@ export function RecordPaymentModal({
   onClose: () => void
   fmtView: FmtView
 }) {
-  const { data: clients = [] } = useClients()
+  const { data: rows = [] } = useClientRows()
   const record = useRecordClientPayment()
   const [clientId, setClientId] = useState<number | null>(null)
+  const [q, setQ] = useState('')
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(today())
   const [fee, setFee] = useState('')
   const [method, setMethod] = useState<'bank' | 'cash' | 'stripe'>('bank')
+  const [restFor, setRestFor] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setClientId(client?.id ?? null); setAmount(''); setDate(today()); setFee(''); setMethod('bank'); setError(null)
+    setClientId(client?.id ?? null); setQ(''); setAmount(''); setDate(today()); setFee(''); setMethod('bank'); setRestFor(''); setError(null)
   }, [open, client?.id])
 
-  const owedQuery = useSettled<ClientPaymentBody | null>(clientId ? { amount: 1_000_000 } : null, 0)
-  const { data: owed } = useClientPaymentPreview(clientId, owedQuery)
-  // Default the amount to everything they owe, once it is known.
-  useEffect(() => { if (owed && amount === '') setAmount(owed.owedTotal ? String(owed.owedTotal) : '') }, [owed?.owedTotal])
+  const chosen = rows.find(r => r.id === clientId) ?? null
+  const owes = chosen?.outstanding ?? 0
+  // The amount starts at what they owe, the moment they are picked.
+  useEffect(() => { if (chosen) setAmount(owes > 0 ? String(owes) : '') }, [chosen?.id])
+
+  const list = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    return rows
+      .filter(r => r.status !== 'lead')
+      .filter(r => !term || r.name.toLowerCase().includes(term) || (r.company ?? '').toLowerCase().includes(term))
+      .sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name))
+  }, [rows, q])
 
   const body = useSettled<ClientPaymentBody | null>(clientId && Number(amount) > 0
     ? { amount: Number(amount), date, fee: Number(fee) || 0, method } : null)
   const { data: plan } = useClientPaymentPreview(clientId, body)
-
-  const chosen = useMemo(() => (clients as Client[]).find(c => c.id === clientId), [clients, clientId])
+  const extra = plan?.leftOver ?? 0
 
   if (!open) return null
 
@@ -229,7 +238,7 @@ export function RecordPaymentModal({
     if (!clientId) return
     setError(null)
     try {
-      await record.mutateAsync({ clientId, amount: Number(amount), date, fee: Number(fee) || 0, method })
+      await record.mutateAsync({ clientId, amount: Number(amount), date, fee: Number(fee) || 0, method, restFor: restFor || undefined })
       onClose()
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Could not save that')
@@ -237,18 +246,43 @@ export function RecordPaymentModal({
   }
 
   return (
-    <Modal open onClose={onClose} size="sm" title={chosen ? `${chosen.name} paid` : 'Record a payment'}>
+    <Modal open onClose={onClose} size="sm" title={chosen ? `${chosen.name} paid` : 'Who paid?'}>
       <div className="p-5 space-y-4">
-        {!client && (
-          <ClientPicker clients={clients as Client[]} value={clientId} onPick={id => { setClientId(id); setAmount('') }} />
-        )}
-
-        {clientId && owed && owed.owedTotal === 0 ? (
-          <p className="text-xs px-3 py-2 rounded-lg" style={{ background: 'var(--c-bg-input)', color: 'var(--c-text-2)' }}>
-            {chosen?.name ?? 'They'} owe nothing right now. For money with no invoice behind it, raise an invoice first.
-          </p>
-        ) : clientId && (
+        {!chosen ? (
+          <div>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search by name or company"
+              onKeyDown={e => { if (e.key === 'Enter' && list[0]) setClientId(list[0].id) }}
+              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+              style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }} />
+            <div className="mt-2 rounded-lg overflow-hidden max-h-72 overflow-y-auto" style={{ border: '1px solid var(--c-border)' }}>
+              {list.map((r, i) => (
+                <button key={r.id} type="button" onClick={() => setClientId(r.id)}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-white/5"
+                  style={{ borderTop: i ? '1px solid var(--c-border)' : 'none' }}>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-[13px] truncate" style={{ color: 'var(--c-text-1)' }}>{r.name}</span>
+                    {r.company && <span className="block text-[11px] truncate" style={{ color: 'var(--c-text-3)' }}>{r.company}</span>}
+                  </span>
+                  <span className="text-[12px] num shrink-0" style={{ color: r.outstanding > 0 ? '#f59e0b' : 'var(--c-text-3)' }}>
+                    {r.outstanding > 0 ? `owes ${fmtView(r.outstanding)}` : 'owes nothing'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
           <>
+            <div className="flex items-center justify-between rounded-lg px-3 py-2"
+              style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
+              <span className="text-[12.5px]" style={{ color: 'var(--c-text-2)' }}>
+                {owes > 0 ? <>Owes <b className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(owes)}</b></> : 'Owes nothing right now'}
+              </span>
+              {!client && (
+                <button type="button" className="text-[11px] hover:underline" style={{ color: 'var(--c-accent)' }}
+                  onClick={() => { setClientId(null); setAmount('') }}>someone else</button>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <Input id="rp-amount" label="Amount received" type="number" step="0.01" value={amount} autoFocus
                 onChange={e => setAmount(e.target.value)} />
@@ -259,19 +293,25 @@ export function RecordPaymentModal({
                 onChange={e => setFee(e.target.value)} />
             </div>
 
-            {plan && (
+            {extra > 0.005 && (
+              <Input id="rp-rest" label={owes > 0 ? `What was the extra ${fmtView(extra)} for?` : 'What was it for?'}
+                value={restFor} onChange={e => setRestFor(e.target.value)} placeholder="Website work, a domain, a one-off job" />
+            )}
+
+            {plan && (plan.splits.length > 0 || extra > 0.005) && (
               <div className="rounded-lg px-3 py-2.5 text-[11.5px] space-y-1"
-                style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
+                style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.2)', color: 'var(--c-text-2)' }}>
                 {plan.splits.map(sp => (
                   <div key={sp.invoiceId} className="flex justify-between gap-3">
                     <span>{sp.invoiceNumber} {sp.settles ? 'paid in full' : `part paid, ${fmtView(sp.owed - sp.amount)} still owed`}</span>
                     <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(sp.amount)}</span>
                   </div>
                 ))}
-                {plan.leftOver > 0.005 && (
-                  <p style={{ color: 'var(--c-loss)' }}>
-                    {fmtView(plan.leftOver)} more than they owe ({fmtView(plan.owedTotal)}). Raise an invoice for it first.
-                  </p>
+                {extra > 0.005 && (
+                  <div className="flex justify-between gap-3">
+                    <span>New paid invoice{restFor ? `: ${restFor}` : ''}</span>
+                    <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(extra)}</span>
+                  </div>
                 )}
               </div>
             )}
@@ -282,9 +322,11 @@ export function RecordPaymentModal({
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} disabled={!clientId || !plan || plan.leftOver > 0.005 || !plan.splits.length || record.isPending}>
-            {record.isPending ? 'Saving...' : 'Record payment'}
-          </Button>
+          {chosen && (
+            <Button onClick={save} disabled={!plan || Number(amount) <= 0 || record.isPending}>
+              {record.isPending ? 'Saving...' : 'Record payment'}
+            </Button>
+          )}
         </div>
       </div>
     </Modal>

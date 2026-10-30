@@ -290,7 +290,7 @@ export function BusinessPage() {
 }
 
 /**
- * The four things worth starting from anywhere on the tab. Everything else
+ * The five things worth starting from anywhere on the tab. Everything else
  * starts where it belongs: an invoice on the client, hours on the website.
  */
 function NewMenu({
@@ -308,10 +308,11 @@ function NewMenu({
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
   }, [open])
 
-  const items: { label: string; hint: string; run: () => void; extra?: { label: string; run: () => void } }[] = [
+  const items: { label: string; hint: string; run: () => void }[] = [
     { label: 'New client or work', hint: 'Client, website, invoices and a monthly plan in one go', run: onNewWork },
     { label: 'Record a payment', hint: 'Someone paid by bank or cash: pick them, enter the amount', run: onRecordPayment },
-    { label: 'Add spending', hint: 'A tool, a client cost, or a bill', run: onAddCost, extra: { label: 'Ad spend', run: onLogAdSpend } },
+    { label: 'Add a cost', hint: 'A tool, a client cost, or a bill', run: onAddCost },
+    { label: 'Log ad spend', hint: 'A day, several days, or ads switched off', run: onLogAdSpend },
     { label: 'Owner draw', hint: 'Money one of you took out', run: onRecordDraw },
   ]
 
@@ -343,15 +344,7 @@ function NewMenu({
                 <span className="block text-xs font-semibold" style={{ color: 'var(--c-text-1)' }}>{it.label}</span>
                 <span className="block text-[10.5px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>{it.hint}</span>
               </button>
-              {it.extra && (
-                <button type="button" onClick={() => { setOpen(false); it.extra!.run() }}
-                  className="px-3 text-[11px] font-semibold"
-                  style={{ color: 'var(--c-accent)', borderLeft: '1px solid var(--c-border)' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg-hover)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  {it.extra.label}
-                </button>
-              )}
+
             </div>
           ))}
         </div>
