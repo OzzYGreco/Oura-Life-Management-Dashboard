@@ -3,7 +3,7 @@ import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
-import { useClientSummary, useSaveProject, useRemoveMeetingNote } from '../../../hooks/useBusiness'
+import { useClientSummary, useSaveProject, useRemoveMeetingNote, useReactivateClient } from '../../../hooks/useBusiness'
 import { Question, Fold } from '../components/MoneySections'
 import { ClientWorth } from '../components/ClientWorth'
 import { formatDate } from '../../../lib/utils'
@@ -60,6 +60,7 @@ export function ClientDetail({
   const { data, isPending } = useClientSummary(clientId)
   const saveProject = useSaveProject()
   const removeNote = useRemoveMeetingNote()
+  const stay = useReactivateClient()
   const [allInvoices, setAllInvoices] = useState(false)
   const [showVoid, setShowVoid] = useState(false)
   if (isPending || !data) return <PageLoader />
@@ -81,7 +82,8 @@ export function ClientDetail({
   const per = (f: string) => (f === 'monthly' ? 'mo' : f.replace(/ly$/, ''))
   const since = (d: string) => new Date(d).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
   const planParts = live.map((r: any) =>
-    r.status === 'paused' ? `${r.serviceName} paused`
+    r.status === 'paused' ? `${r.serviceName} paused${r.resumeOn ? ` until ${formatDate(r.resumeOn)}` : ''}`
+      : r.endDate && r.endDate > today ? `${fmtView(r.amount)}/${per(r.frequency)} for ${r.serviceName} until ${formatDate(r.endDate)}`
       : r.startDate > today ? `${fmtView(r.amount)}/${per(r.frequency)} for ${r.serviceName} from ${formatDate(r.startDate)}`
       : `${fmtView(r.amount)}/${per(r.frequency)} for ${r.serviceName} since ${since(r.startDate)}`)
   const nextDue = live.filter((r: any) => r.status === 'active' && r.nextInvoiceDate)
@@ -148,6 +150,20 @@ export function ClientDetail({
           : <MiniBtn tone="danger" onClick={() => onDrop({ id: client.id, name: client.name })}>Client left...</MiniBtn>}
       </div>
 
+      {!churned && client.leavingOn && (
+        <div className="px-4 py-2.5 rounded-xl text-xs flex items-center gap-3"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: 'var(--c-text-2)' }}>
+          <span className="flex-1">
+            Leaving on <b className="num">{formatDate(client.leavingOn)}</b>{client.churnReason ? <>: {client.churnReason}</> : null}.
+            They are billed as normal until then, and ended on the day by themselves.
+          </span>
+          <MiniBtn tone="good" disabled={stay.isPending}
+            onClick={() => window.confirm(`Take ${client.name}'s notice back? Their plan carries on with no end date.`) && stay.mutate({ id: client.id })}>
+            They are staying
+          </MiniBtn>
+        </div>
+      )}
+
       {churned && (
         <div className="px-4 py-2.5 rounded-xl text-xs"
           style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
@@ -187,9 +203,10 @@ export function ClientDetail({
                   </Td>
                   <Td align="right" mono color="var(--c-text-3)">{formatDate(r.startDate)}</Td>
                   <Td align="right" mono color="var(--c-text-2)">
-                    {r.status === 'active' && r.nextInvoiceDate ? formatDate(r.nextInvoiceDate)
+                    {r.status === 'active' && r.nextInvoiceDate
+                      ? `${formatDate(r.nextInvoiceDate)}${r.endDate ? `, ends ${formatDate(r.endDate)}` : ''}`
                       : r.endDate ? `ended ${formatDate(r.endDate)}`
-                      : r.status === 'paused' ? `paused${r.pausedAt ? ` ${formatDate(r.pausedAt)}` : ''}` : '--'}
+                      : r.status === 'paused' ? `paused${r.resumeOn ? `, restarts ${formatDate(r.resumeOn)}` : r.pausedAt ? ` ${formatDate(r.pausedAt)}` : ''}` : '--'}
                   </Td>
                   <Td><StatusDot status={r.status} /></Td>
                   <Td align="right">

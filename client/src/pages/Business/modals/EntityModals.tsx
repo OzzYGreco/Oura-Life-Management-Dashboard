@@ -10,6 +10,7 @@ import {
   useSaveProject,
   useInvoice, useCreateInvoice, useUpdateInvoice,
   useVoidInvoice, useRestoreInvoice, useRemoveInvoice, useUnpayInvoice, useRemoveAllocation,
+  useSettleInvoice, useHoldInvoice, useRefundAllocation, useMoveAllocation,
   useCreateRetainer, useLogTime,
   useSaveMeetingNote, useCreateCampaign, useUpdateCampaign, useDeleteCampaign,
   useCampaignSpend,
@@ -18,6 +19,8 @@ import { useCreateExpense, useUpdateExpense } from '../../../hooks/useFinances'
 import { useChangeCostPrice } from '../../../hooks/useBusiness'
 import { today, formatDate } from '../../../lib/utils'
 import type { Client, Project, Service } from '../lib/types'
+
+const round2 = (n: number) => Math.round(n * 100) / 100
 
 const STAGES = ['discovery', 'design', 'build', 'review', 'launched']
 const PROJECT_STATUS = ['active', 'completed', 'paused', 'cancelled']
@@ -208,6 +211,15 @@ export function InvoiceModal({
   const remove = useRemoveInvoice()
   const unpay = useUnpayInvoice()
   const removeAlloc = useRemoveAllocation()
+  const settle = useSettleInvoice()
+  const hold = useHoldInvoice()
+  const refundAlloc = useRefundAllocation()
+  const moveAlloc = useMoveAllocation()
+  // Lowered below what was paid: where the difference went.
+  const [excess, setExcess] = useState<number | null>(null)
+  // One payment's open action: give some back, or move it to another client.
+  const [allocAct, setAllocAct] = useState<{ id: number; kind: 'refund' | 'move'; value: string } | null>(null)
+  const [holdUntil, setHoldUntil] = useState<string | null>(null)
   // Editing starts from the stored invoice. Opening on a blank form and saving
   // it wrote amount 0, unpaid and no notes over a paid invoice.
   const { data: existing } = useInvoice(open ? invoiceId : null)
@@ -219,7 +231,7 @@ export function InvoiceModal({
 
   useEffect(() => {
     if (!open) return
-    setConfirm(null); setVoidReason(''); setError(null)
+    setConfirm(null); setVoidReason(''); setError(null); setExcess(null); setAllocAct(null); setHoldUntil(null)
     if (invoiceId) {
       if (!existing) return
       setF({
@@ -251,8 +263,9 @@ export function InvoiceModal({
     catch (e: any) { setError(e?.response?.data?.error ?? 'Could not save that') }
   }
 
-  const save = () => run(async () => {
+  const save = (excessTo?: 'credit' | 'refund') => run(async () => {
     const body: any = {
+      ...(excessTo ? { excess: excessTo } : {}),
       clientId: Number(f.clientId),
       projectId: f.projectId ? Number(f.projectId) : null,
       amount: Number(f.amount) || 0,
@@ -267,7 +280,14 @@ export function InvoiceModal({
         body.status = 'paid'; body.feeAmount = Number(f.feeAmount) || 0
         if (f.paidDate) body.paidDate = f.paidDate
       }
-      await update.mutateAsync({ id: invoiceId, ...body })
+      try {
+        await update.mutateAsync({ id: invoiceId, ...body })
+      } catch (e: any) {
+        // Lowered below what was paid: ask where the difference went.
+        // The modal stays open on the question, with no error line under it.
+        if (e?.response?.data?.excess) { setExcess(e.response.data.excess); throw Object.assign(new Error(), { response: { data: { error: '' } } }) }
+        throw e
+      }
     } else {
       await create.mutateAsync({
         ...body, status: f.status,
@@ -349,7 +369,19 @@ export function InvoiceModal({
                     {a.paymentId ? `Stripe${a.payerName ? `, ${a.payerName}` : ''}` : a.method === 'cash' ? 'Cash' : 'Bank transfer'}
                     {a.fee ? ` · fee ${a.fee.toFixed(2)}` : ''}
                   </span>
-                  <span className="num font-semibold" style={{ color: 'var(--c-text-1)' }}>{a.amount.toFixed(2)}</span>
+                  <span className="num font-semibold" style={{ color: 'var(--c-text-1)' }}>
+                    {a.amount.toFixed(2)}{a.refunded ? <span className="font-normal" style={{ color: 'var(--c-loss)' }}> ({a.refunded.toFixed(2)} given back)</span> : null}
+                  </span>
+                  {!a.paymentId && (
+                    <>
+                      <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-text-2)' }}
+                        title="Some or all of this went back to them"
+                        onClick={() => setAllocAct({ id: a.id, kind: 'refund', value: String(round2(a.amount - a.refunded)) })}>give back</button>
+                      <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-text-2)' }}
+                        title="This money came from a different client"
+                        onClick={() => setAllocAct({ id: a.id, kind: 'move', value: '' })}>wrong client</button>
+                    </>
+                  )}
                   <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
                     title={a.paymentId ? 'Detach the Stripe payment; it goes back to the queue to assign again' : 'Remove this payment'}
                     onClick={() => run(() => removeAlloc.mutateAsync(a.id), false)}>
@@ -358,6 +390,26 @@ export function InvoiceModal({
                 </div>
               ))}
             </div>
+            {allocAct && (
+              <div className="flex items-end gap-2 mt-2">
+                {allocAct.kind === 'refund' ? (
+                  <Input id="i-refund" label="Given back" type="number" step="0.01" value={allocAct.value}
+                    onChange={e => setAllocAct({ ...allocAct, value: e.target.value })} />
+                ) : (
+                  <Select id="i-move" label="It came from" value={allocAct.value} placeholder="Pick the client"
+                    onChange={e => setAllocAct({ ...allocAct, value: e.target.value })}
+                    options={(clients as Client[]).filter(c => c.id !== existing.clientId).map(c => ({ value: String(c.id), label: c.name }))} />
+                )}
+                <Button size="sm" disabled={!Number(allocAct.value)}
+                  onClick={() => run(() => allocAct.kind === 'refund'
+                    ? refundAlloc.mutateAsync({ id: allocAct.id, amount: Number(allocAct.value) })
+                    : moveAlloc.mutateAsync({ id: allocAct.id, clientId: Number(allocAct.value) }), allocAct.kind === 'move')
+                    .then(() => setAllocAct(null))}>
+                  {allocAct.kind === 'refund' ? 'Record it' : 'Move it'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setAllocAct(null)}>Cancel</Button>
+              </div>
+            )}
             {existing.owed > 0 && onRecordPayment && (
               <button type="button" className="text-[11px] mt-1.5 hover:underline" style={{ color: 'var(--c-accent)' }}
                 onClick={() => { onClose(); onRecordPayment({ id: existing.id, invoiceNumber: existing.invoiceNumber }) }}>
@@ -392,6 +444,32 @@ export function InvoiceModal({
           </div>
         )}
 
+        {excess != null && (
+          <div className="rounded-lg px-3 py-2.5 space-y-2"
+            style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
+            <p className="text-[11.5px]" style={{ color: 'var(--c-text-2)' }}>
+              They have paid {excess.toFixed(2)} more than the new amount. Where did it go?
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setExcess(null)}>Back</Button>
+              <Button variant="ghost" size="sm" onClick={() => save('refund')}>We gave it back</Button>
+              <Button size="sm" onClick={() => save('credit')}>Put it toward their next bill</Button>
+            </div>
+          </div>
+        )}
+
+        {holdUntil != null && (
+          <div className="flex items-end gap-2 rounded-lg px-3 py-2.5"
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
+            <Input id="i-hold" label="Don't chase until" type="date" value={holdUntil} onChange={e => setHoldUntil(e.target.value)} />
+            <Button size="sm" disabled={!holdUntil}
+              onClick={() => run(() => hold.mutateAsync({ id: invoiceId!, until: holdUntil, reason: 'On hold' }), false).then(() => setHoldUntil(null))}>
+              Hold it
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setHoldUntil(null)}>Cancel</Button>
+          </div>
+        )}
+
         {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
 
         <div className="flex justify-between gap-2 pt-1">
@@ -411,6 +489,24 @@ export function InvoiceModal({
               <>
                 <Button variant="ghost" size="sm" onClick={() => setConfirm('void')}>Void</Button>
                 {hasMoney && <Button variant="ghost" size="sm" onClick={() => setConfirm('unpay')}>Mark unpaid</Button>}
+                {hasMoney && existing.owed > 0 && (
+                  <Button variant="ghost" size="sm" title="Accept what arrived as payment in full; the rest is recorded as a discount"
+                    onClick={() => window.confirm(`Accept ${round2(existing.amount - existing.owed).toFixed(2)} as payment in full? The ${existing.owed.toFixed(2)} left is recorded as a discount.`)
+                      && run(() => settle.mutateAsync({ id: invoiceId! }), false)}>
+                    Accept what was paid
+                  </Button>
+                )}
+                {existing.owed > 0 && (existing.chaseAfter && existing.chaseAfter > today() ? (
+                  <Button variant="ghost" size="sm" title={`On hold until ${formatDate(existing.chaseAfter)}`}
+                    onClick={() => run(() => hold.mutateAsync({ id: invoiceId!, until: null }), false)}>
+                    Take off hold
+                  </Button>
+                ) : (
+                  <Button variant="ghost" size="sm" title="Disputed, or agreed to wait: keep it out of Chase until a date"
+                    onClick={() => setHoldUntil(new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10))}>
+                    Hold
+                  </Button>
+                ))}
                 {existing.status === 'draft' && !hasMoney && (
                   <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')}>Delete draft</Button>
                 )}
@@ -420,7 +516,7 @@ export function InvoiceModal({
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>{isVoid ? 'Close' : 'Cancel'}</Button>
             {!isVoid && (
-              <Button onClick={save} disabled={loading || create.isPending || update.isPending}>
+              <Button onClick={() => save()} disabled={loading || create.isPending || update.isPending}>
                 {create.isPending || update.isPending ? 'Saving...' : invoiceId ? 'Save' : 'Create invoice'}
               </Button>
             )}

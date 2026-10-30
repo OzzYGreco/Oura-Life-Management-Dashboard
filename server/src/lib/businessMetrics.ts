@@ -966,6 +966,11 @@ export function ownerPay(d: BusinessData, r: Range, opts: OwnerPayOptions = {}, 
     : period.totalCosts
   const buffer = round2(monthlyCosts * bufferMonths)
   const distributable = round2(period.netProfit - taxReserve)
+  // Costs a partner paid personally. Profit already counts them, so safe to
+  // draw needs no change: the business is holding exactly that cash, and it is
+  // owed back to the partner rather than drawn.
+  const owedBack = d.expenses.filter(e => e.paidByOwnerId && !e.reimbursedAt)
+  const owedBackTotal = round2(owedBack.reduce((s2, e) => s2 + e.amount, 0))
   const safeToDraw    = round2(distributable - buffer)
 
   const allTimeTax = taxReserveEnabled
@@ -1001,6 +1006,13 @@ export function ownerPay(d: BusinessData, r: Range, opts: OwnerPayOptions = {}, 
     buffer,
     distributable,
     safeToDraw,
+    /** Partner-paid costs not yet paid back, by partner. */
+    owedBack: d.owners.map(o => ({
+      ownerId: o.id, name: o.name,
+      amount: round2(owedBack.filter(e => e.paidByOwnerId === o.id).reduce((s2, e) => s2 + e.amount, 0)),
+      items: owedBack.filter(e => e.paidByOwnerId === o.id).map(e => ({ id: e.id, description: e.description, amount: e.amount, date: e.date })),
+    })).filter(x => x.amount > 0),
+    owedBackTotal,
     drawnPeriod,
     drawnAllTime,
     /** Profit kept in the business after the partners have been paid. */
@@ -1101,7 +1113,7 @@ export async function businessDashboardSummary(today = localToday()) {
 
 // ─── Home screen ──────────────────────────────────────────────────────────────
 
-export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void'
+export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void' | 'open' | 'repay'
 
 export interface NeedRow {
   key: string
@@ -1120,6 +1132,8 @@ export interface NeedRow {
   invoiceId?: number
   projectId?: number
   expenseId?: number
+  /** Some of it has been paid: "accept what arrived" is an answer too. */
+  partPaid?: boolean
 }
 
 /**
@@ -1162,13 +1176,15 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
       continue
     }
     if (!['unpaid', 'overdue'].includes(i.status)) continue
+    // On hold (disputed, or agreed to wait): back in the list on its date.
+    if (i.chaseAfter && i.chaseAfter > today) continue
 
     const overdueBy = days(i.dueDate, today)
     if (overdueBy > 0) {
       rows.push({
         key: `overdue-${i.id}`, action: 'paid', invoiceId: i.id,
         clientId: i.clientId, clientName: clientName(i.clientId),
-        what: describe(i), amount: owedOn(d, i),
+        what: describe(i), amount: owedOn(d, i), partPaid: (d.applied.get(i.id) ?? 0) > 0,
         detail: `${overdueBy} day${overdueBy === 1 ? '' : 's'} overdue`,
         rank: 100 - Math.min(overdueBy, 99),
       })
@@ -1176,7 +1192,7 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
       rows.push({
         key: `due-${i.id}`, action: 'paid', invoiceId: i.id,
         clientId: i.clientId, clientName: clientName(i.clientId),
-        what: describe(i), amount: owedOn(d, i),
+        what: describe(i), amount: owedOn(d, i), partPaid: (d.applied.get(i.id) ?? 0) > 0,
         detail: overdueBy === 0 ? 'due today' : `due in ${-overdueBy} days`,
         rank: 200 + -overdueBy,
       })
@@ -1268,6 +1284,30 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
       amount: plan,
       detail: 'not counted in MRR',
       rank: 450,
+    })
+  }
+
+  // A card payment the client disputed with their bank. Stripe holds the money
+  // until the bank decides; a lost dispute is recorded as a refund.
+  for (const p of d.payments) {
+    if (!p.disputed || p.ignored) continue
+    rows.push({
+      key: `dispute-${p.id}`, action: 'open',
+      clientId: p.matchedClientId, clientName: p.matchedClientId ? clientName(p.matchedClientId) : (p.payerName ?? 'Unknown payer'),
+      what: 'card payment disputed with their bank', amount: p.amountGross,
+      detail: `paid ${p.paidDate}, answer it in Stripe`, rank: 90,
+    })
+  }
+
+  // Costs a partner paid out of their own pocket, not yet paid back.
+  for (const e of d.expenses) {
+    if (!e.paidByOwnerId || e.reimbursedAt) continue
+    const owner = d.owners.find(o => o.id === e.paidByOwnerId)
+    rows.push({
+      key: `repay-${e.id}`, action: 'repay', expenseId: e.id, clientId: null,
+      clientName: owner?.name ?? 'A partner',
+      what: `paid ${e.description} personally`, amount: e.amount,
+      detail: e.date, rank: 550,
     })
   }
 

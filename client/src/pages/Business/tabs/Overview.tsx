@@ -8,12 +8,12 @@ import { DateFilter, type Preset, presetRange } from '../../../components/shared
 import { MoneyInChart } from '../components/MoneyInChart'
 import { Question } from '../components/MoneySections'
 import { hoverCard } from '../components/charts'
-import { NeedsYou } from '../components/NeedsYou'
+import { NeedsYou, type DismissHow } from '../components/NeedsYou'
 import { PaymentsToAssign } from '../components/PaymentsToAssign'
 import { MiniBtn, Pill, fmtHours } from '../components/primitives'
 import {
   useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice, useVoidInvoice,
-  useSaveProject,
+  useSaveProject, useHoldInvoice, useSettleInvoice, useSaveCost,
 } from '../../../hooks/useBusiness'
 import type { OwnerPayOpts } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
@@ -66,6 +66,9 @@ export function Overview({
   const unpay = useUnpayInvoice()
   const send = useSendInvoice()
   const voidInvoice = useVoidInvoice()
+  const hold = useHoldInvoice()
+  const settle = useSettleInvoice()
+  const saveCost = useSaveCost()
   const [undo, setUndo] = useState<{ id: number; label: string } | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
 
@@ -95,6 +98,12 @@ export function Overview({
         case 'assign':
           if (row.expenseId) onAssignCost(row.expenseId)
           break
+        case 'open':
+          if (row.clientId) onOpenClient(row.clientId)
+          break
+        case 'repay':
+          if (row.expenseId) await saveCost.mutateAsync({ id: row.expenseId, reimbursedAt: new Date().toISOString().slice(0, 10) })
+          break
       }
     } finally {
       setBusyKey(null)
@@ -102,10 +111,16 @@ export function Overview({
   }
 
   /** The second answer on a row. Each one does the real thing where there is one. */
-  const dismiss = async (row: NeedRow) => {
+  const dismiss = async (row: NeedRow, how: DismissHow = 'writeoff') => {
     setBusyKey(row.key)
     try {
-      if (row.action === 'paid' && row.invoiceId) {
+      if (row.action === 'paid' && row.invoiceId && how === 'hold') {
+        const until = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10)
+        await hold.mutateAsync({ id: row.invoiceId, until, reason: 'Agreed to wait' })
+      } else if (row.action === 'paid' && row.invoiceId && how === 'settle') {
+        if (!window.confirm(`Accept what ${row.clientName} has paid as payment in full? The ${fmtView(row.amount)} left is recorded as a discount.`)) return
+        await settle.mutateAsync({ id: row.invoiceId })
+      } else if (row.action === 'paid' && row.invoiceId) {
         if (!window.confirm(`Write off ${row.clientName}'s ${fmtView(row.amount)}? It is voided, and can still be marked paid later from their page.`)) return
         await voidInvoice.mutateAsync({ id: row.invoiceId, reason: 'Written off' })
       } else if (row.action === 'send' && row.invoiceId) {

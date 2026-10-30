@@ -19,8 +19,8 @@ const inputStyle = { color: 'var(--c-text-1)', border: '1px solid transparent' }
 const focusStyle = (e: React.FocusEvent<HTMLElement>) => { e.currentTarget.style.borderColor = 'rgba(129,140,248,0.5)'; e.currentTarget.style.background = 'var(--c-bg-input)' }
 const blurStyle = (e: React.FocusEvent<HTMLElement>) => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }
 
-interface Draft { description: string; vendor: string; clientId: string; amount: string; date: string; repeat: string }
-const empty = (): Draft => ({ description: '', vendor: '', clientId: '', amount: '', date: today(), repeat: 'once' })
+interface Draft { description: string; vendor: string; clientId: string; amount: string; date: string; repeat: string; paidBy: string }
+const empty = (): Draft => ({ description: '', vendor: '', clientId: '', amount: '', date: today(), repeat: 'once', paidBy: '' })
 
 /**
  * Business costs, logged like a spreadsheet.
@@ -32,10 +32,12 @@ const empty = (): Draft => ({ description: '', vendor: '', clientId: '', amount:
  * amount changes just that charge.
  */
 export function CostsSheet({
-  expenses, clients, fmtView, onOpenFull,
+  expenses, clients, owners = [], fmtView, onOpenFull,
 }: {
   expenses: any[]
   clients: { id: number; name: string }[]
+  /** Partners, for a cost one of them paid out of their own pocket. */
+  owners?: { id: number; name: string }[]
   fmtView: FmtView
   /** The full form, for anything the sheet does not do (notes, other price scopes). */
   onOpenFull: (expense: any) => void
@@ -62,6 +64,7 @@ export function CostsSheet({
       await save.mutateAsync({
         description: draft.description.trim(), vendor: draft.vendor || null,
         clientId: draft.clientId ? Number(draft.clientId) : null,
+        paidByOwnerId: draft.paidBy ? Number(draft.paidBy) : null,
         amount, date: draft.date || today(), category: 'Business',
         isRecurring: repeats ? 1 : 0, frequency: repeats ? draft.repeat : null,
       })
@@ -91,6 +94,11 @@ export function CostsSheet({
         await save.mutateAsync({ id: row.id, isRecurring: repeats ? 1 : 0, frequency: repeats ? raw : null })
         return
       }
+      if (field === 'paidByOwnerId') {
+        // Switching who paid starts the "owed back" over: not yet repaid.
+        await save.mutateAsync({ id: row.id, paidByOwnerId: raw ? Number(raw) : null, reimbursedAt: null })
+        return
+      }
       const value = field === 'clientId' ? (raw ? Number(raw) : null) : raw || null
       if ((row[field] ?? null) === value) return
       if (field === 'description' && !raw.trim()) return
@@ -108,6 +116,15 @@ export function CostsSheet({
       data-autosave={autoSave ? '1' : undefined}>
       <option value="">The business</option>
       {clients.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+    </select>
+  )
+
+  const PaidBySelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <select aria-label="Paid from" value={value} onChange={e => onChange(e.target.value)} onFocus={focusStyle} onBlur={blurStyle}
+      className={input} style={{ ...inputStyle, color: value ? '#f59e0b' : 'var(--c-text-3)' }}
+      title="A partner who paid this personally is owed it back">
+      <option value="">Business</option>
+      {owners.map(o => <option key={o.id} value={String(o.id)}>{o.name.split(' ')[0]}, personally</option>)}
     </select>
   )
 
@@ -132,12 +149,12 @@ export function CostsSheet({
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col /><col style={{ width: '15%' }} /><col style={{ width: '16%' }} /><col style={{ width: 100 }} />
-              <col style={{ width: 132 }} /><col style={{ width: 110 }} /><col style={{ width: 96 }} /><col style={{ width: 92 }} />
+              <col style={{ width: 132 }} /><col style={{ width: 110 }} /><col style={{ width: 128 }} /><col style={{ width: 96 }} /><col style={{ width: 92 }} />
             </colgroup>
             <thead>
               <tr style={{ background: 'var(--c-bg-input)', borderBottom: '1px solid var(--c-border)' }}>
-                {['What it was', 'Paid to', 'For', 'Amount', 'Date', 'Repeats', 'A month', ''].map((h, i) => (
-                  <th key={i} className={`${cell} text-[9.5px] font-bold uppercase tracking-wider ${i >= 3 && i !== 5 && i < 7 ? 'text-right' : 'text-left'}`}
+                {['What it was', 'Paid to', 'For', 'Amount', 'Date', 'Repeats', 'Paid from', 'A month', ''].map((h, i) => (
+                  <th key={i} className={`${cell} text-[9.5px] font-bold uppercase tracking-wider ${[3, 4, 7].includes(i) ? 'text-right' : 'text-left'}`}
                     style={{ color: 'var(--c-text-3)' }}>{h}</th>
                 ))}
               </tr>
@@ -164,6 +181,7 @@ export function CostsSheet({
                     {REPEATS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
                 </td>
+                <td className={cell}><PaidBySelect value={draft.paidBy} onChange={v => setDraft({ ...draft, paidBy: v })} /></td>
                 <td className={`${cell} text-right num`} style={{ color: 'var(--c-text-3)' }}>
                   {draft.repeat !== 'once' && Number(draft.amount) > 0 ? fmtView(Number(draft.amount) * (PER_MONTH[draft.repeat] ?? 0)) : ''}
                 </td>
@@ -177,7 +195,7 @@ export function CostsSheet({
                 const repeat = e.isRecurring ? (e.frequency ?? 'monthly') : 'once'
                 const amount = isTemplate ? (e.recurringAmount ?? e.amount) : e.amount
                 return (
-                  <tr key={`${e.id}:${e.description}:${amount}:${e.vendor}:${e.clientId}:${repeat}`} style={{ borderBottom: "1px solid rgba(255,255,255,0.045)" }}>
+                  <tr key={`${e.id}:${e.description}:${amount}:${e.vendor}:${e.clientId}:${repeat}:${e.paidByOwnerId}`} style={{ borderBottom: "1px solid rgba(255,255,255,0.045)" }}>
                     <td className={cell}>
                       <input aria-label="What it was" defaultValue={e.description} onFocus={focusStyle}
                         onBlur={ev => { blurStyle(ev); patch(e, 'description', ev.target.value) }}
@@ -213,6 +231,9 @@ export function CostsSheet({
                         </select>
                       )}
                     </td>
+                    <td className={cell} title={e.paidByOwnerId ? (e.reimbursedAt ? `Paid back ${formatDate(e.reimbursedAt)}` : 'Not paid back yet') : undefined}>
+                      <PaidBySelect value={e.paidByOwnerId ? String(e.paidByOwnerId) : ''} onChange={v => patch(e, 'paidByOwnerId', v)} />
+                    </td>
                     <td className={`${cell} text-right num`} style={{ color: 'var(--c-text-3)' }}>
                       {isTemplate ? fmtView(amount * (PER_MONTH[repeat] ?? 0)) : ''}
                     </td>
@@ -232,7 +253,7 @@ export function CostsSheet({
                   {rows.length} {show === 'all' ? 'charges' : 'repeating costs'}
                 </td>
                 <td className={`${cell} text-right num font-semibold`} style={{ color: 'var(--c-text-1)' }}>{fmtView(total)}</td>
-                <td colSpan={4} />
+                <td colSpan={5} />
               </tr>
             </tfoot>
           </table>

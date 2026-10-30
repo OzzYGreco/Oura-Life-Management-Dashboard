@@ -297,8 +297,12 @@ export interface ClientPaymentPlan {
   splits: { invoiceId: number; invoiceNumber: string; amount: number; owed: number; settles: boolean }[]
   leftOver: number
   owedTotal: number
+  /** Retainer months the extra pays ahead. */
+  ahead?: { retainerId: number; name: string; periodStart: string; amount: number; pays: number }[]
+  /** The same amount already recorded for them within three days. */
+  duplicate?: { date: string; amount: number } | null
 }
-export type ClientPaymentBody = { amount: number; date?: string; fee?: number; method?: 'bank' | 'cash' | 'stripe'; restFor?: string }
+export type ClientPaymentBody = { amount: number; date?: string; fee?: number; method?: 'bank' | 'cash' | 'stripe'; restFor?: string; ahead?: boolean }
 
 /** One payment from a client, spread over what they owe, oldest first. */
 export function useClientPaymentPreview(clientId: number | null, body: ClientPaymentBody | null) {
@@ -343,12 +347,16 @@ export function useUpdateRetainer() {
 export function useRetainerLifecycle() {
   return useBusinessMutation(({ id, action, ...body }: {
     id: number; action: 'pause' | 'resume' | 'cancel' | 'reinstate'
-    endDate?: string; reason?: string; voidOpen?: boolean; date?: string
+    endDate?: string; reason?: string; voidOpen?: boolean; date?: string; resumeOn?: string | null
   }) => api.post(`/api/business/retainers/${id}/${action}`, body).then(r => r.data))
 }
 
 export function useCancelPreview(id: number | null, endDate: string | null) {
-  return useQuery<{ endDate: string; voided: { id: number; invoiceNumber: string; amount: number; periodStart: string | null }[] }>({
+  return useQuery<{
+    endDate: string; scheduled?: boolean
+    voided: { id: number; invoiceNumber: string; amount: number; periodStart: string | null }[]
+    stillToBill?: { periodStart: string; amount: number }[]
+  }>({
     queryKey: ['cancel-preview', id, endDate],
     queryFn: () => api.post(`/api/business/retainers/${id}/cancel`, { endDate, dryRun: true }).then(r => r.data),
     enabled: !!id && !!endDate,
@@ -374,6 +382,9 @@ export interface DropPlan {
   }[]
   stillOwed: { id: number; invoiceNumber: string; amount: number; owed: number; issueDate: string; dueDate: string; writeOff: boolean }[]
   projects: { id: number; name: string; stage: string }[]
+  /** A last day ahead: they have given notice. */
+  notice?: boolean
+  stillToBill?: { periodStart: string; amount: number; name: string }[]
 }
 
 export function useDropPreview(clientId: number | null, endDate: string | null) {
@@ -407,9 +418,41 @@ export function useComeback(clientId: number | null) {
 }
 
 export function useReactivateClient() {
-  return useBusinessMutation(({ id, ...body }: { id: number; restoreInvoiceIds?: number[]; reinstateRetainerIds?: number[] }) =>
-    api.post(`/api/business/clients/${id}/reactivate`, body).then(r => r.data))
+  return useBusinessMutation(({ id, ...body }: {
+    id: number; restoreInvoiceIds?: number[]; reinstateRetainerIds?: number[]
+    startDate?: string; prices?: Record<string, number>
+  }) => api.post(`/api/business/clients/${id}/reactivate`, body).then(r => r.data))
 }
+
+// ─── Edge cases: discounts, holds, refunds, moves, export ────────────────────
+
+/** Accept what has been paid on an invoice as payment in full. */
+export function useSettleInvoice() {
+  return useBusinessMutation(({ id, reason }: { id: number; reason?: string }) =>
+    api.post(`/api/business/invoices/${id}/settle`, { reason }).then(r => r.data))
+}
+
+/** Keep an invoice out of chasing until a date; no date takes the hold off. */
+export function useHoldInvoice() {
+  return useBusinessMutation(({ id, until, reason }: { id: number; until: string | null; reason?: string }) =>
+    api.post(`/api/business/invoices/${id}/hold`, { until, reason }).then(r => r.data))
+}
+
+/** Give back part or all of a bank or cash payment. */
+export function useRefundAllocation() {
+  return useBusinessMutation(({ id, amount }: { id: number; amount: number }) =>
+    api.post(`/api/business/allocations/${id}/refund`, { amount }).then(r => r.data))
+}
+
+/** Move a bank or cash payment to the client it really came from. */
+export function useMoveAllocation() {
+  return useBusinessMutation(({ id, clientId }: { id: number; clientId: number }) =>
+    api.post(`/api/business/allocations/${id}/move`, { clientId }).then(r => r.data))
+}
+
+/** Where a CSV of the books downloads from. */
+export const exportUrl = (kind: 'invoices' | 'payments' | 'costs', range: { from?: string; to?: string }) =>
+  `/api/business/export?${new URLSearchParams({ kind, ...(range.from ? { from: range.from } : {}), ...(range.to ? { to: range.to } : {}) })}`
 
 export function useRemoveClient() {
   return useBusinessMutation((id: number) => api.delete(`/api/business/clients/${id}`))

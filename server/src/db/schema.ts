@@ -182,6 +182,9 @@ export const financeExpenses = sqliteTable('finance_expenses', {
   createdAt:          text('created_at').notNull().default(sql`(datetime('now'))`),
   /** The going-forward price when it differs from what this row charged. */
   recurringAmount: real('recurring_amount'),
+  /** Paid by one partner personally: the business owes it back. */
+  paidByOwnerId:   integer('paid_by_owner_id'),
+  reimbursedAt:    text('reimbursed_at'),
 })
 
 export const financeNetWorthSnapshots = sqliteTable('finance_net_worth_snapshots', {
@@ -240,6 +243,8 @@ export const businessClients = sqliteTable('business_clients', {
   /** Learned the first time a payment is matched; certain for every one after. */
   stripeCustomerId: text('stripe_customer_id'),
   churnReason: text('churn_reason'),
+  /** Has given notice: still active and paying until this day, churned on it. */
+  leavingOn:   text('leaving_on'),
 })
 
 export const businessProjects = sqliteTable('business_projects', {
@@ -310,6 +315,9 @@ export const businessInvoices = sqliteTable('business_invoices', {
   voidedFrom:  text('voided_from'),
   /** Set when the invoice exists only because this payment arrived with nothing to settle. */
   raisedFromPaymentId: integer('raised_from_payment_id'),
+  /** On hold: kept out of chasing until this date. */
+  chaseAfter:  text('chase_after'),
+  holdReason:  text('hold_reason'),
 })
 
 /**
@@ -348,6 +356,8 @@ export const businessRetainers = sqliteTable('business_retainers', {
   lastGeneratedDate: text('last_generated_date'),
   nextInvoiceDate:   text('next_invoice_date'),
   pausedAt:          text('paused_at'),
+  /** A pause with a date it restarts on its own. */
+  resumeOn:          text('resume_on'),
   notes:             text('notes'),
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:         text('updated_at').notNull().default(sql`(datetime('now'))`),
@@ -435,6 +445,8 @@ export const stripePayments = sqliteTable('stripe_payments', {
   planDescription:   text('plan_description'),
   /** Moved by hand. Sync may suggest a match for it again but never applies one. */
   releasedAt:        text('released_at'),
+  /** The client disputed the charge with their bank. */
+  disputed:          integer('disputed').notNull().default(0),
   syncedAt:          text('synced_at'),
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
 })

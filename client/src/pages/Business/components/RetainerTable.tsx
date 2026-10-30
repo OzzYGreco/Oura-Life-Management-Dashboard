@@ -80,9 +80,10 @@ export function RetainerTable({
                   <Td align="right" mono color="var(--c-text-3)">{formatDate(r.startDate)}</Td>
                   <Td align="right" mono color="var(--c-text-2)">{tenure} mo</Td>
                   <Td align="right" mono color={isActive ? 'var(--c-text-1)' : 'var(--c-text-3)'}>
-                    {isActive && r.nextInvoiceDate ? formatDate(r.nextInvoiceDate)
+                    {isActive && r.nextInvoiceDate
+                      ? `${formatDate(r.nextInvoiceDate)}${r.endDate ? `, ends ${formatDate(r.endDate)}` : ''}`
                       : r.endDate ? `ended ${formatDate(r.endDate)}`
-                      : r.status === 'paused' ? `paused${r.pausedAt ? ` ${formatDate(r.pausedAt)}` : ''}` : '--'}
+                      : r.status === 'paused' ? `paused${r.resumeOn ? `, restarts ${formatDate(r.resumeOn)}` : r.pausedAt ? ` ${formatDate(r.pausedAt)}` : ''}` : '--'}
                   </Td>
                   <Td align="right" mono color="var(--c-text-3)">
                     {isActive && totalMrr > 0 ? `${((monthly / totalMrr) * 100).toFixed(1)}%` : '--'}

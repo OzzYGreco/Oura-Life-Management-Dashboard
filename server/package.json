@@ -12,7 +12,9 @@
     "test:stripe": "tsx --env-file-if-exists=.env scripts/test-stripe.ts",
     "audit": "tsx --env-file-if-exists=.env scripts/audit.ts",
     "simulate": "tsx --env-file-if-exists=.env scripts/simulate.ts",
-    "test:generator": "tsx scripts/test-generator.ts"
+    "test:generator": "tsx scripts/test-generator.ts",
+    "stress": "node scripts/stress-scenarios.mjs",
+    "stress:dates": "tsx scripts/stress-dates.ts"
   },
   "dependencies": {
     "express": "^4.21.0",
