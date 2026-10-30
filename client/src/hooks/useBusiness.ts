@@ -26,19 +26,22 @@ export function useMeetingNotes(params = {}) {
   return useQuery({ queryKey: ['meeting-notes', params], queryFn: () => api.get('/api/business/meeting-notes', { params }).then(r => r.data) })
 }
 
-function crud(base: string, qk: string) {
+// Every save refreshes everything that can depend on it. Refreshing only the
+// saved object's own list left "Needs you", the client page and the figures
+// showing the old state until the page was reloaded.
+function crud(base: string) {
   return {
-    useCreate: () => { const qc = useQueryClient(); return useMutation({ mutationFn: (d: any) => api.post(base, d).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: [qk] }) }) },
-    useUpdate: () => { const qc = useQueryClient(); return useMutation({ mutationFn: ({ id, ...d }: any) => api.put(`${base}/${id}`, d).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: [qk] }) }) },
-    useDelete: () => { const qc = useQueryClient(); return useMutation({ mutationFn: (id: number) => api.delete(`${base}/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: [qk] }) }) },
+    useCreate: () => useBusinessMutation((d: any) => api.post(base, d).then(r => r.data)),
+    useUpdate: () => useBusinessMutation(({ id, ...d }: any) => api.put(`${base}/${id}`, d).then(r => r.data)),
+    useDelete: () => useBusinessMutation((id: number) => api.delete(`${base}/${id}`)),
   }
 }
 
-export const { useCreate: useCreateClient, useUpdate: useUpdateClient, useDelete: useDeleteClient } = crud('/api/business/clients', 'clients')
-export const { useCreate: useCreateProject, useUpdate: useUpdateProject, useDelete: useDeleteProject } = crud('/api/business/projects', 'projects')
-export const { useCreate: useCreateInvoice, useUpdate: useUpdateInvoice, useDelete: useDeleteInvoice } = crud('/api/business/invoices', 'invoices')
-export const { useCreate: useCreateMeetingNote, useUpdate: useUpdateMeetingNote, useDelete: useDeleteMeetingNote } = crud('/api/business/meeting-notes', 'meeting-notes')
-export const { useCreate: useCreateCampaign, useUpdate: useUpdateCampaign, useDelete: useDeleteCampaign } = crud('/api/business/campaigns', 'campaigns')
+export const { useCreate: useCreateClient, useUpdate: useUpdateClient, useDelete: useDeleteClient } = crud('/api/business/clients')
+export const { useCreate: useCreateProject, useUpdate: useUpdateProject, useDelete: useDeleteProject } = crud('/api/business/projects')
+export const { useCreate: useCreateInvoice, useUpdate: useUpdateInvoice, useDelete: useDeleteInvoice } = crud('/api/business/invoices')
+export const { useCreate: useCreateMeetingNote, useUpdate: useUpdateMeetingNote, useDelete: useDeleteMeetingNote } = crud('/api/business/meeting-notes')
+export const { useCreate: useCreateCampaign, useUpdate: useUpdateCampaign, useDelete: useDeleteCampaign } = crud('/api/business/campaigns')
 
 export function useCampaigns() {
   return useQuery({ queryKey: ['campaigns'], queryFn: () => api.get('/api/business/campaigns').then(r => r.data) })
@@ -51,18 +54,10 @@ export function useAllTimeEntries() {
   return useQuery({ queryKey: ['time-entries-all'], queryFn: () => api.get('/api/business/time').then(r => r.data) })
 }
 export function useCreateTimeEntry(projectId: number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (d: any) => api.post(`/api/business/projects/${projectId}/time`, d).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['time-entries', projectId] }); qc.invalidateQueries({ queryKey: ['time-entries-all'] }) },
-  })
+  return useBusinessMutation((d: any) => api.post(`/api/business/projects/${projectId}/time`, d).then(r => r.data))
 }
 export function useDeleteTimeEntry() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: number) => api.delete(`/api/business/time/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['time-entries'] }); qc.invalidateQueries({ queryKey: ['time-entries-all'] }) },
-  })
+  return useBusinessMutation((id: number) => api.delete(`/api/business/time/${id}`))
 }
 
 export function useCreateTask(projectId: number) {
@@ -218,6 +213,7 @@ function useBusinessMutation<TArgs>(fn: (args: TArgs) => Promise<any>) {
         'expenses', 'time-entries-all', 'campaigns', 'campaign-spend', 'ad-spend-status', 'payment-status', 'payments', 'payments-unassigned',
         'payment-options', 'meeting-notes', 'comeback', 'finance-expenses', 'finance-recurring', 'services',
         'business-settings', 'client-events', 'forecast', 'vat', 'month-summary', 'reminder',
+        'time-entries', 'project-tasks', 'finance-accounts', 'client-footprint',
       ]) qc.invalidateQueries({ queryKey: [key] })
     },
   })
