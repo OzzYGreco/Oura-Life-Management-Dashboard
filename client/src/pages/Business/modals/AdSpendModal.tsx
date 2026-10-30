@@ -6,8 +6,9 @@ import { Select } from '../../../components/ui/Select'
 import { Th, Td, THead, Row, MiniBtn, EmptyRow } from '../components/primitives'
 import {
   useCampaigns, useCampaignSpend, useLogAdSpend, useDeleteAdSpend,
-  useAdSpendStatus, useSyncAdSpend,
+  useAdSpendStatus, useSyncAdSpend, useRangePreview, useLogAdSpendRange,
 } from '../../../hooks/useBusiness'
+import type { RangeBody } from '../../../hooks/useBusiness'
 import { formatDate, today } from '../../../lib/utils'
 import type { FmtView } from '../../../hooks/useFmtView'
 
@@ -20,14 +21,20 @@ import type { FmtView } from '../../../hooks/useFmtView'
  * what makes a monthly profit figure true rather than pro-rated.
  *
  * Entering the same day twice corrects it rather than adding to it.
+ *
+ * "Several days" covers a run of days in one go: the same amount each day, a
+ * total spread across them, or nothing because the ads were switched off. The
+ * last one used to mean typing a zero for every single day.
  */
 export function AdSpendModal({
-  open, onClose, fmtView, campaignId,
+  open, onClose, fmtView, campaignId, range,
 }: {
   open: boolean
   onClose: () => void
   fmtView: FmtView
   campaignId?: number | null
+  /** Opens straight into several-days mode for these dates, as "ads were off". */
+  range?: { from: string; to: string } | null
 }) {
   const { data: campaigns = [] } = useCampaigns()
   const { data: status } = useAdSpendStatus()
@@ -40,6 +47,14 @@ export function AdSpendModal({
   const [spend, setSpend] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [syncNote, setSyncNote] = useState<string | null>(null)
+  const [mode, setMode] = useState<'day' | 'range'>('day')
+  const [from, setFrom] = useState(today())
+  const [to, setTo] = useState(today())
+  const [how, setHow] = useState<'off' | 'perDay' | 'total'>('off')
+  const [rangeAmount, setRangeAmount] = useState('')
+  const [overwrite, setOverwrite] = useState(false)
+  const [rangeNote, setRangeNote] = useState<string | null>(null)
+  const logRange = useLogAdSpendRange()
 
   const business = (campaigns as any[]).filter(c => c.fundingSource === 'business')
 
@@ -50,7 +65,33 @@ export function AdSpendModal({
     setSpend('')
     setError(null)
     setSyncNote(null)
-  }, [open, campaignId, campaigns.length])
+    setRangeNote(null)
+    setMode(range ? 'range' : 'day')
+    setFrom(range?.from ?? today())
+    setTo(range?.to ?? today())
+    setHow('off')
+    setRangeAmount('')
+    setOverwrite(false)
+  }, [open, campaignId, campaigns.length, range?.from, range?.to])
+
+  const rangeBody: RangeBody | null = mode === 'range' && from && to && from <= to
+    ? how === 'off' ? { from, to, perDay: 0, overwrite }
+      : how === 'perDay' ? (rangeAmount !== '' ? { from, to, perDay: Number(rangeAmount) || 0, overwrite } : null)
+      : (rangeAmount !== '' ? { from, to, total: Number(rangeAmount) || 0, overwrite } : null)
+    : null
+  const { data: rangePlan, error: rangeError, refetch: refetchRange } = useRangePreview(selected ? Number(selected) : null, rangeBody)
+
+  const saveRange = async () => {
+    if (!rangeBody || !selected) return
+    setError(null)
+    try {
+      const res = await logRange.mutateAsync({ campaignId: Number(selected), ...rangeBody })
+      setRangeNote(`${res.writing} day${res.writing === 1 ? '' : 's'} recorded, ${fmtView(res.total)} in all.`)
+      refetchRange()
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'Could not save that')
+    }
+  }
 
   const { data: rows = [] } = useCampaignSpend(selected ? Number(selected) : null)
   const campaign = business.find(c => String(c.id) === selected)
@@ -128,6 +169,85 @@ export function AdSpendModal({
         )}
 
         {/* ── Manual entry ────────────────────────────────────────────── */}
+        <div className="flex gap-1 p-1 rounded-xl w-fit"
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
+          {(['day', 'range'] as const).map(m => (
+            <button key={m} type="button" onClick={() => setMode(m)}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={mode === m
+                ? { background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(167,139,250,0.12))', border: '1px solid rgba(129,140,248,0.25)', color: 'var(--c-text-1)' }
+                : { color: 'var(--c-text-2)', border: '1px solid transparent' }}>
+              {m === 'day' ? 'One day' : 'Several days'}
+            </button>
+          ))}
+        </div>
+
+        {mode === 'range' ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-12 gap-3 items-end">
+              <div className="col-span-6">
+                <Select id="asr-campaign" label="Campaign" value={selected}
+                  onChange={e => setSelected(e.target.value)}
+                  options={business.map((c: any) => ({ value: String(c.id), label: c.name }))} />
+              </div>
+              <div className="col-span-3">
+                <Input id="asr-from" label="From" type="date" value={from} max={today()} onChange={e => setFrom(e.target.value)} />
+              </div>
+              <div className="col-span-3">
+                <Input id="asr-to" label="To" type="date" value={to} max={today()} onChange={e => setTo(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              {([
+                ['off', 'Nothing, ads were off'],
+                ['perDay', 'The same each day'],
+                ['total', 'A total, spread evenly'],
+              ] as const).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setHow(k)}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-semibold"
+                  style={how === k
+                    ? { background: 'var(--c-accent)', color: '#fff' }
+                    : { background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-12 gap-3 items-end">
+              {how !== 'off' && (
+                <div className="col-span-4">
+                  <Input id="asr-amount" label={how === 'perDay' ? 'Spent each day' : 'Spent in total'} type="number" step="0.01"
+                    value={rangeAmount} onChange={e => setRangeAmount(e.target.value)} />
+                </div>
+              )}
+              <div className={how !== 'off' ? 'col-span-5' : 'col-span-9'}>
+                <label htmlFor="asr-over" className="flex items-center gap-2 text-[11px] cursor-pointer pb-2" style={{ color: 'var(--c-text-2)' }}>
+                  <input id="asr-over" type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)}
+                    className="w-3.5 h-3.5 accent-indigo-500" />
+                  Replace days already recorded
+                </label>
+              </div>
+              <div className="col-span-3">
+                <Button onClick={saveRange} disabled={!rangePlan || !rangePlan.writing || logRange.isPending} className="w-full justify-center">
+                  Record
+                </Button>
+              </div>
+            </div>
+            {rangeError ? (
+              <p className="text-[11px]" style={{ color: 'var(--c-loss)' }}>
+                {(rangeError as any)?.response?.data?.error ?? 'Those dates do not work'}
+              </p>
+            ) : rangePlan && (
+              <p className="text-[11px] num" style={{ color: rangePlan.writing ? 'var(--c-text-2)' : '#fcd34d' }}>
+                {rangePlan.writing
+                  ? <>Records {rangePlan.writing} day{rangePlan.writing === 1 ? '' : 's'}, {fmtView(rangePlan.total)} in all.</>
+                  : <>Every one of these {rangePlan.days} days is already recorded.</>}
+                {rangePlan.writing > 0 && rangePlan.kept > 0 && <> {rangePlan.kept} already recorded {rangePlan.kept === 1 ? 'is' : 'are'} kept as they are.</>}
+                {rangePlan.replaced > 0 && <> {rangePlan.replaced} recorded {rangePlan.replaced === 1 ? 'day is' : 'days are'} replaced.</>}
+              </p>
+            )}
+            {rangeNote && <p className="text-[11px]" style={{ color: 'var(--c-profit)' }}>{rangeNote}</p>}
+          </div>
+        ) : (
         <div className="grid grid-cols-12 gap-3 items-end">
           <div className="col-span-5">
             <Select id="as-campaign" label="Campaign" value={selected}
@@ -150,7 +270,9 @@ export function AdSpendModal({
           </div>
         </div>
 
-        {existing && (
+        )}
+
+        {mode === 'day' && existing && (
           <p className="text-[11px]" style={{ color: '#fcd34d' }}>
             {formatDate(date)} already has <span className="num">{fmtView(existing.spend)}</span> recorded.
             Saving replaces it rather than adding to it.
@@ -188,7 +310,9 @@ export function AdSpendModal({
                       <Td mono color="var(--c-text-2)">{formatDate(r.date)}</Td>
                       <Td align="right" mono className="font-semibold">{fmtView(r.spend)}</Td>
                       <Td align="right" mono color="var(--c-text-3)">{r.clicks ?? '--'}</Td>
-                      <Td color="var(--c-text-3)">{r.source === 'manual' ? 'typed in' : r.source}</Td>
+                      <Td color="var(--c-text-3)">
+                        {r.source === 'manual' ? 'typed in' : r.source === 'meta-fill' ? 'meta, campaign off' : r.source}
+                      </Td>
                       <Td align="right">
                         <MiniBtn tone="danger" onClick={() => del.mutate(r.id)}>Remove</MiniBtn>
                       </Td>

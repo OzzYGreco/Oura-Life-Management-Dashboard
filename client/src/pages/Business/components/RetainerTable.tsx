@@ -5,6 +5,8 @@ import { formatDate } from '../../../lib/utils'
 import type { Retainer } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
+export type RetainerAction = 'edit' | 'pause' | 'resume' | 'cancel' | 'reinstate'
+
 const PER_MONTH: Record<string, number> = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 }
 
 function monthsBetween(from: string, to: Date): number {
@@ -15,10 +17,10 @@ function monthsBetween(from: string, to: Date): number {
 /**
  * The subscription book.
  *
- * Change price is the important button here. Nothing in the app could record one
- * before, so `business_retainer_changes` was empty and expansion and contraction
- * MRR were permanently zero. Cancel matters for a different reason: the old
- * generator had no end-date check, so a cancelled retainer billed forever.
+ * Edit is the important button here: it covers the price, with a choice of
+ * when the new price starts so this month's open invoice moves with it, and
+ * everything else a retainer has (terms, cadence, the next invoice date). Cancel
+ * takes a last day, voids what was billed after it, and Reinstate undoes it.
  */
 export function RetainerTable({
   retainers, fmtView, onOpenClient, onAction, onNew,
@@ -26,7 +28,7 @@ export function RetainerTable({
   retainers: Retainer[]
   fmtView: FmtView
   onOpenClient: (id: number) => void
-  onAction: (r: Retainer, action: 'price' | 'pause' | 'resume' | 'cancel') => void
+  onAction: (r: Retainer, action: RetainerAction) => void
   onNew: () => void
 }) {
   const now = new Date()
@@ -80,20 +82,21 @@ export function RetainerTable({
                   <Td align="right" mono color={isActive ? 'var(--c-text-1)' : 'var(--c-text-3)'}>
                     {isActive && r.nextInvoiceDate ? formatDate(r.nextInvoiceDate)
                       : r.endDate ? `ended ${formatDate(r.endDate)}`
-                      : r.status === 'paused' ? 'paused' : '--'}
+                      : r.status === 'paused' ? `paused${r.pausedAt ? ` ${formatDate(r.pausedAt)}` : ''}` : '--'}
                   </Td>
                   <Td align="right" mono color="var(--c-text-3)">
                     {isActive && totalMrr > 0 ? `${((monthly / totalMrr) * 100).toFixed(1)}%` : '--'}
                   </Td>
                   <Td>
-                    <StatusDot status={isActive ? 'paid' : r.status === 'paused' ? 'unpaid' : 'draft'} />
+                    <StatusDot status={r.status} />
                   </Td>
                   <Td align="right">
                     <div className="flex gap-1.5 justify-end">
-                      {r.status !== 'cancelled' && <MiniBtn onClick={() => onAction(r, 'price')}>Change price</MiniBtn>}
+                      <MiniBtn onClick={() => onAction(r, 'edit')}>Edit</MiniBtn>
                       {isActive && <MiniBtn onClick={() => onAction(r, 'pause')}>Pause</MiniBtn>}
                       {r.status === 'paused' && <MiniBtn tone="good" onClick={() => onAction(r, 'resume')}>Resume</MiniBtn>}
                       {r.status !== 'cancelled' && <MiniBtn tone="danger" onClick={() => onAction(r, 'cancel')}>Cancel</MiniBtn>}
+                      {r.status === 'cancelled' && <MiniBtn onClick={() => onAction(r, 'reinstate')} title="Undo the cancel">Reinstate</MiniBtn>}
                     </div>
                   </Td>
                 </Row>

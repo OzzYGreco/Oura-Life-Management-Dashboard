@@ -3,9 +3,11 @@ import { PageLoader } from '../../../components/ui/Spinner'
 import { DateFilter, type Preset, presetRange } from '../../../components/shared/DateFilter'
 import { InvoiceLedger } from '../components/InvoiceLedger'
 import { RetainerTable } from '../components/RetainerTable'
+import { PaymentsLedger } from '../components/PaymentsLedger'
 import { FactBoard, MiniBtn } from '../components/primitives'
-import { useLedger, useRetainers } from '../../../hooks/useBusiness'
+import { useLedger, useRetainers, useUnassignedPayments } from '../../../hooks/useBusiness'
 import type { LedgerRow, Retainer } from '../lib/types'
+import type { RetainerAction } from '../components/RetainerTable'
 import type { FmtView } from '../../../hooks/useFmtView'
 
 export function Invoices({
@@ -17,10 +19,10 @@ export function Invoices({
   onEdit: (row: LedgerRow) => void
   onSend: (row: LedgerRow) => void
   onNewInvoice: () => void
-  onRetainerAction: (r: Retainer, action: 'price' | 'pause' | 'resume' | 'cancel') => void
+  onRetainerAction: (r: Retainer, action: RetainerAction) => void
   onNewRetainer: () => void
 }) {
-  const [view, setView] = useState<'ledger' | 'retainers'>('ledger')
+  const [view, setView] = useState<'ledger' | 'payments' | 'retainers'>('ledger')
   const [preset, setPreset] = useState<Preset>('All')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -33,6 +35,8 @@ export function Invoices({
 
   const { data, isPending } = useLedger(range)
   const { data: retainers = [] } = useRetainers()
+  const { data: queue } = useUnassignedPayments()
+  const toAssign = queue?.payments.length ?? 0
 
   if (isPending || !data) return <PageLoader />
   const t = data.totals
@@ -42,7 +46,7 @@ export function Invoices({
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-1 p-1 rounded-xl w-fit"
           style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
-          {(['ledger', 'retainers'] as const).map(v => (
+          {(['ledger', 'payments', 'retainers'] as const).map(v => (
             <button
               key={v}
               type="button"
@@ -55,7 +59,9 @@ export function Invoices({
                 }
                 : { color: 'var(--c-text-2)', border: '1px solid transparent' }}
             >
-              {v === 'ledger' ? 'Invoices' : `Retainers (${retainers.filter(r => r.status === 'active').length})`}
+              {v === 'ledger' ? 'Invoices'
+                : v === 'payments' ? `Payments${toAssign ? ` (${toAssign} to assign)` : ''}`
+                : `Retainers (${retainers.filter(r => r.status === 'active').length})`}
             </button>
           ))}
         </div>
@@ -102,6 +108,8 @@ export function Invoices({
             onNewInvoice={onNewInvoice}
           />
         </>
+      ) : view === 'payments' ? (
+        <PaymentsLedger fmtView={fmtView} onOpenClient={onOpenClient} />
       ) : (
         <RetainerTable
           retainers={retainers} fmtView={fmtView}

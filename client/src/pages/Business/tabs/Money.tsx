@@ -35,7 +35,7 @@ export function Money({
   onNewCampaign: () => void
   onEditCampaign: (campaign: any) => void
   onSettings: () => void
-  onLogAdSpend: (campaignId?: number | null) => void
+  onLogAdSpend: (campaignId?: number | null, range?: { from: string; to: string } | null) => void
 }) {
   const [preset, setPreset] = useState<Preset>('All')
   const [customFrom, setCustomFrom] = useState('')

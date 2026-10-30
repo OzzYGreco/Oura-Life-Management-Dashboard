@@ -20,12 +20,20 @@ import type { StaleCampaign } from '../lib/types'
  * estimate is deliberately conservative: it counts only whole missing days and
  * leaves today out, because today is not over.
  */
+function shift(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + n)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+const nextDay = (date: string) => shift(date, 1)
+const yesterday = () => { const t = new Date(); return shift(`${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`, -1) }
+
 export function AdSpendStale({
   stale, fmtView, onLogAdSpend,
 }: {
   stale?: { campaigns: StaleCampaign[]; estimatedMissing: number }
   fmtView: FmtView
-  onLogAdSpend: (campaignId?: number | null) => void
+  onLogAdSpend: (campaignId?: number | null, range?: { from: string; to: string } | null) => void
 }) {
   const rows = stale?.campaigns ?? []
   if (!rows.length) return null
@@ -47,9 +55,16 @@ export function AdSpendStale({
             connection is back.
           </p>
         </div>
-        <MiniBtn tone="accent" onClick={() => onLogAdSpend(worst.campaignId)}>
-          Enter the missing days
-        </MiniBtn>
+        <span className="flex gap-1.5">
+          {/* Switching ads off looks exactly like a broken sync from here, so it
+              gets its own button: one click records every quiet day as zero. */}
+          <MiniBtn onClick={() => onLogAdSpend(worst.campaignId, { from: nextDay(worst.lastDay), to: yesterday() })}>
+            Ads were off
+          </MiniBtn>
+          <MiniBtn tone="accent" onClick={() => onLogAdSpend(worst.campaignId)}>
+            Enter the missing days
+          </MiniBtn>
+        </span>
       </div>
 
       <div className="mt-2.5 pt-2.5 space-y-1" style={{ borderTop: '1px solid rgba(245,158,11,0.18)' }}>

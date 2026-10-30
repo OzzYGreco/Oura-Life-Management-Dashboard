@@ -18,12 +18,14 @@ import { NewWorkModal } from './modals/NewWorkModal'
 import { BusinessSettingsModal } from './modals/SettingsModal'
 import { AdSpendModal } from './modals/AdSpendModal'
 import { PayInvoiceModal, RetainerActionModal, DrawModal } from './modals/MoneyModals'
+import { RetainerEditModal, DropClientModal } from './modals/LifecycleModals'
+import type { RetainerAction } from './components/RetainerTable'
 import {
   ClientModal, ProjectModal, InvoiceModal, RetainerModal,
   CostModal, TimeModal, NoteModal, CampaignModal,
 } from './modals/EntityModals'
 
-import type { LedgerRow, Retainer, Project } from './lib/types'
+import type { Retainer, Project } from './lib/types'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
@@ -69,19 +71,21 @@ export function BusinessPage() {
 
   // ── Modal state ────────────────────────────────────────────────────────────
   const [newWork, setNewWork] = useState(false)
-  const [payRow, setPayRow] = useState<LedgerRow | null>(null)
-  const [retainerAction, setRetainerAction] = useState<{ r: Retainer; a: 'price' | 'cancel' } | null>(null)
+  const [payRow, setPayRow] = useState<{ id: number; invoiceNumber: string; clientName?: string } | null>(null)
+  const [retainerAction, setRetainerAction] = useState<{ r: Retainer; a: 'cancel' | 'pause' | 'resume' } | null>(null)
+  const [editRetainer, setEditRetainer] = useState<Retainer | null>(null)
+  const [dropClient, setDropClient] = useState<{ id: number; name: string } | null>(null)
   const [drawOpen, setDrawOpen] = useState(false)
   const [clientModal, setClientModal] = useState<{ open: boolean; client?: any }>({ open: false })
-  const [projectModal, setProjectModal] = useState<{ open: boolean; clientId?: number | null }>({ open: false })
+  const [projectModal, setProjectModal] = useState<{ open: boolean; clientId?: number | null; project?: any }>({ open: false })
   const [invoiceModal, setInvoiceModal] = useState<{ open: boolean; clientId?: number | null; projectId?: number | null; invoiceId?: number | null }>({ open: false })
   const [retainerModal, setRetainerModal] = useState<{ open: boolean; clientId?: number | null; amount?: number }>({ open: false })
   const [costModal, setCostModal] = useState<{ open: boolean; clientId?: number | null; expense?: any }>({ open: false })
   const [timeModal, setTimeModal] = useState<{ open: boolean; projectId: number | null }>({ open: false, projectId: null })
-  const [noteModal, setNoteModal] = useState<{ open: boolean; clientId: number | null }>({ open: false, clientId: null })
+  const [noteModal, setNoteModal] = useState<{ open: boolean; clientId: number | null; note?: any }>({ open: false, clientId: null })
   const [campaignModal, setCampaignModal] = useState<{ open: boolean; campaign?: any }>({ open: false })
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [adSpend, setAdSpend] = useState<{ open: boolean; campaignId?: number | null }>({ open: false })
+  const [adSpend, setAdSpend] = useState<{ open: boolean; campaignId?: number | null; range?: { from: string; to: string } | null }>({ open: false })
 
   const openClient = (id: number) => { setOpenClientId(id); setTab('clients') }
 
@@ -91,8 +95,9 @@ export function BusinessPage() {
     setInvoiceModal({ open: true, projectId, clientId: p?.clientId ?? null })
   }
 
-  const handleRetainerAction = async (r: Retainer, action: 'price' | 'pause' | 'resume' | 'cancel') => {
-    if (action === 'pause' || action === 'resume') await lifecycle.mutateAsync({ id: r.id, action })
+  const handleRetainerAction = async (r: Retainer, action: RetainerAction) => {
+    if (action === 'edit') setEditRetainer(r)
+    else if (action === 'reinstate') await lifecycle.mutateAsync({ id: r.id, action })
     else setRetainerAction({ r, a: action })
   }
 
@@ -141,8 +146,12 @@ export function BusinessPage() {
           onAddCost={clientId => setCostModal({ open: true, clientId })}
           onAddNote={clientId => setNoteModal({ open: true, clientId })}
           onRetainerAction={handleRetainerAction}
-          onPay={invoiceId => setInvoiceModal({ open: true, invoiceId })}
+          onPay={setPayRow}
           onLogTime={projectId => setTimeModal({ open: true, projectId })}
+          onEditInvoice={invoiceId => setInvoiceModal({ open: true, invoiceId })}
+          onEditProject={project => setProjectModal({ open: true, project })}
+          onEditNote={note => setNoteModal({ open: true, clientId: note.clientId, note })}
+          onDrop={setDropClient}
         />
       ) : (
         <Clients
@@ -176,7 +185,7 @@ export function BusinessPage() {
           onNewCampaign={() => setCampaignModal({ open: true })}
           onEditCampaign={campaign => setCampaignModal({ open: true, campaign })}
           onSettings={() => setSettingsOpen(true)}
-          onLogAdSpend={campaignId => setAdSpend({ open: true, campaignId })}
+          onLogAdSpend={(campaignId, range) => setAdSpend({ open: true, campaignId, range })}
         />
       )}
 
@@ -196,14 +205,18 @@ export function BusinessPage() {
       />
       <DrawModal open={drawOpen} onClose={() => setDrawOpen(false)} fmtView={fmtView} />
       <ClientModal open={clientModal.open} client={clientModal.client} onClose={() => setClientModal({ open: false })} />
-      <ProjectModal open={projectModal.open} clientId={projectModal.clientId} onClose={() => setProjectModal({ open: false })} />
+      <ProjectModal open={projectModal.open} clientId={projectModal.clientId} project={projectModal.project}
+        onClose={() => setProjectModal({ open: false })} />
       <InvoiceModal
         open={invoiceModal.open}
         invoiceId={invoiceModal.invoiceId}
         clientId={invoiceModal.clientId}
         projectId={invoiceModal.projectId}
         onClose={() => setInvoiceModal({ open: false })}
+        onRecordPayment={setPayRow}
       />
+      <RetainerEditModal retainer={editRetainer} onClose={() => setEditRetainer(null)} fmtView={fmtView} />
+      <DropClientModal client={dropClient} onClose={() => setDropClient(null)} fmtView={fmtView} />
       <RetainerModal
         open={retainerModal.open}
         clientId={retainerModal.clientId}
@@ -214,12 +227,13 @@ export function BusinessPage() {
         onClose={() => setCostModal({ open: false })} />
       <TimeModal open={timeModal.open} projectId={timeModal.projectId}
         onClose={() => setTimeModal({ open: false, projectId: null })} />
-      <NoteModal open={noteModal.open} clientId={noteModal.clientId}
+      <NoteModal open={noteModal.open} clientId={noteModal.clientId} note={noteModal.note}
         onClose={() => setNoteModal({ open: false, clientId: null })} />
       <CampaignModal open={campaignModal.open} campaign={campaignModal.campaign} onClose={() => setCampaignModal({ open: false })} />
       <AdSpendModal
         open={adSpend.open}
         campaignId={adSpend.campaignId}
+        range={adSpend.range}
         onClose={() => setAdSpend({ open: false })}
         fmtView={fmtView}
       />

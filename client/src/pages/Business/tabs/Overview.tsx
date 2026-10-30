@@ -7,7 +7,7 @@ import { MoneyInChart } from '../components/MoneyInChart'
 import { NeedsYou } from '../components/NeedsYou'
 import { PaymentsToAssign } from '../components/PaymentsToAssign'
 import { MiniBtn, Pill, fmtHours } from '../components/primitives'
-import { useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice } from '../../../hooks/useBusiness'
+import { useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice, useVoidInvoice } from '../../../hooks/useBusiness'
 import type { OwnerPayOpts } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
 import { STAGES } from '../lib/types'
@@ -48,6 +48,7 @@ export function Overview({
   const payInvoice = usePayInvoice()
   const unpay = useUnpayInvoice()
   const send = useSendInvoice()
+  const voidInvoice = useVoidInvoice()
   const [undo, setUndo] = useState<{ id: number; label: string } | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
 
@@ -63,6 +64,10 @@ export function Overview({
           break
         case 'send':
           if (row.invoiceId) await send.mutateAsync(row.invoiceId)
+          break
+        case 'void':
+          // A draft for a retainer that has stopped: never sent, never owed.
+          if (row.invoiceId) await voidInvoice.mutateAsync({ id: row.invoiceId, reason: 'Draft for a stopped retainer' })
           break
         case 'invoice':
           if (row.projectId) onInvoiceProject(row.projectId)

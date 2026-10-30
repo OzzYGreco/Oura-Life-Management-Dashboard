@@ -6,16 +6,17 @@ import { Select } from '../../../components/ui/Select'
 import { Textarea } from '../../../components/ui/Textarea'
 import {
   useClients, useProjects, useServices,
-  useCreateClient, useUpdateClient,
-  useCreateProject, useUpdateProject,
+  useSaveClient, useRemoveClient,
+  useSaveProject,
   useInvoice, useCreateInvoice, useUpdateInvoice,
+  useVoidInvoice, useRestoreInvoice, useRemoveInvoice, useUnpayInvoice, useRemoveAllocation,
   useCreateRetainer, useLogTime,
-  useCreateMeetingNote, useCreateCampaign, useUpdateCampaign, useDeleteCampaign,
+  useSaveMeetingNote, useCreateCampaign, useUpdateCampaign, useDeleteCampaign,
   useCampaignSpend,
 } from '../../../hooks/useBusiness'
 import { useCreateExpense, useUpdateExpense } from '../../../hooks/useFinances'
 import { useChangeCostPrice } from '../../../hooks/useBusiness'
-import { today } from '../../../lib/utils'
+import { today, formatDate } from '../../../lib/utils'
 import type { Client, Project, Service } from '../lib/types'
 
 const STAGES = ['discovery', 'design', 'build', 'review', 'launched']
@@ -36,23 +37,33 @@ function Footer({ onCancel, onSave, saving, label = 'Save' }: {
 // ─── Client ───────────────────────────────────────────────────────────────────
 
 export function ClientModal({ open, client, onClose }: { open: boolean; client?: any; onClose: () => void }) {
-  const create = useCreateClient()
-  const update = useUpdateClient()
+  const save = useSaveClient()
+  const remove = useRemoveClient()
   const [f, setF] = useState<any>({})
+  const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
-    if (open) setF(client ?? { name: '', status: 'active' })
+    if (open) { setF(client ?? { name: '', status: 'active' }); setError(null); setConfirmDelete(false) }
   }, [open, client])
 
-  const save = async () => {
-    const body = {
-      name: f.name, company: f.company || null, email: f.email || null, phone: f.phone || null,
-      website: f.website || null, notes: f.notes || null, source: f.source || null,
-      status: f.status ?? 'active',
+  const churned = client?.status === 'churned'
+
+  const submit = async () => {
+    setError(null)
+    try {
+      await save.mutateAsync({
+        id: client?.id,
+        name: f.name, company: f.company || null, email: f.email || null, phone: f.phone || null,
+        website: f.website || null, notes: f.notes || null, source: f.source || null,
+        // A client who left is ended and reactivated through their own buttons,
+        // which also end or restart what they pay for.
+        ...(churned ? {} : { status: f.status ?? 'active' }),
+      })
+      onClose()
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? 'Could not save that')
     }
-    if (client?.id) await update.mutateAsync({ id: client.id, ...body })
-    else await create.mutateAsync(body)
-    onClose()
   }
 
   return (
@@ -64,14 +75,50 @@ export function ClientModal({ open, client, onClose }: { open: boolean; client?:
           <Input id="c-email" label="Email" value={f.email ?? ''} onChange={e => setF({ ...f, email: e.target.value })} />
           <Input id="c-phone" label="Phone" value={f.phone ?? ''} onChange={e => setF({ ...f, phone: e.target.value })} />
           <Input id="c-website" label="Website" value={f.website ?? ''} onChange={e => setF({ ...f, website: e.target.value })} />
-          <Select id="c-status" label="Status" value={f.status ?? 'active'} onChange={e => setF({ ...f, status: e.target.value })}
-            options={['active', 'lead', 'churned', 'inactive'].map(s => ({ value: s, label: s }))} />
+          {churned ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Status</span>
+              <span className="text-xs py-2" style={{ color: 'var(--c-text-2)' }}>
+                Left {client.churnedAt ? formatDate(client.churnedAt) : ''}. Reactivate from their page.
+              </span>
+            </div>
+          ) : (
+            <Select id="c-status" label="Status" value={f.status ?? 'active'} onChange={e => setF({ ...f, status: e.target.value })}
+              options={[
+                { value: 'active', label: 'active' },
+                { value: 'lead', label: 'lead' },
+                { value: 'inactive', label: 'inactive (no work right now)' },
+              ]} />
+          )}
         </div>
         <Textarea id="c-notes" label="What was agreed" rows={3} value={f.notes ?? ''}
           onChange={e => setF({ ...f, notes: e.target.value })}
           placeholder="Website for £299.98 and Local SEO for £149/mo" />
-        <Footer onCancel={onClose} onSave={save} saving={create.isPending || update.isPending}
-          label={client?.id ? 'Save' : 'Add client'} />
+        {!churned && client?.id && (
+          <p className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>
+            If they have stopped working with you, use "Client left" on their page. That ends their retainers and
+            invoices too, which this status alone does not.
+          </p>
+        )}
+        {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
+        <div className="flex justify-between gap-2 pt-1">
+          {client?.id ? (
+            confirmDelete ? (
+              <span className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--c-loss)' }}>
+                Delete {client.name}? Only for someone added by mistake.
+                <Button variant="danger" size="sm" onClick={async () => {
+                  try { await remove.mutateAsync(client.id); onClose() }
+                  catch (e: any) { setError(e?.response?.data?.error ?? 'Could not delete'); setConfirmDelete(false) }
+                }}>Delete</Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Keep</Button>
+              </span>
+            ) : <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>Delete</Button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button onClick={submit} disabled={save.isPending}>{save.isPending ? 'Saving...' : client?.id ? 'Save' : 'Add client'}</Button>
+          </div>
+        </div>
       </div>
     </Modal>
   )
@@ -84,12 +131,11 @@ export function ProjectModal({
 }: { open: boolean; project?: any; clientId?: number | null; onClose: () => void }) {
   const { data: clients = [] } = useClients()
   const { data: services = [] } = useServices()
-  const create = useCreateProject()
-  const update = useUpdateProject()
+  const saveProject = useSaveProject()
   const [f, setF] = useState<any>({})
 
   useEffect(() => {
-    if (open) setF(project ?? {
+    if (open) setF(project ? { ...project } : {
       name: '', clientId: clientId ?? null, status: 'active', stage: 'discovery', startDate: today(),
     })
   }, [open, project, clientId])
@@ -105,11 +151,11 @@ export function ProjectModal({
       serviceId: f.serviceId ? Number(f.serviceId) : null,
       startDate: f.startDate || null,
       dueDate: f.dueDate || null,
-      launchedDate: f.launchedDate || null,
+      // Launching is a date, not just a stage: it is what delivery time is measured to.
+      launchedDate: f.launchedDate || (f.stage === 'launched' ? today() : null),
       value: f.value != null && f.value !== '' ? Number(f.value) : null,
     }
-    if (project?.id) await update.mutateAsync({ id: project.id, ...body })
-    else await create.mutateAsync(body)
+    await saveProject.mutateAsync({ id: project?.id, ...body })
     onClose()
   }
 
@@ -133,7 +179,7 @@ export function ProjectModal({
           <Input id="p-start" label="Started" type="date" value={f.startDate ?? ''} onChange={e => setF({ ...f, startDate: e.target.value })} />
           <Input id="p-due" label="Due" type="date" value={f.dueDate ?? ''} onChange={e => setF({ ...f, dueDate: e.target.value })} />
         </div>
-        <Footer onCancel={onClose} onSave={save} saving={create.isPending || update.isPending}
+        <Footer onCancel={onClose} onSave={save} saving={saveProject.isPending}
           label={project?.id ? 'Save' : 'Create'} />
       </div>
     </Modal>
@@ -143,26 +189,37 @@ export function ProjectModal({
 // ─── Invoice ──────────────────────────────────────────────────────────────────
 
 export function InvoiceModal({
-  open, invoiceId, clientId, projectId, onClose,
+  open, invoiceId, clientId, projectId, onClose, onRecordPayment,
 }: {
   open: boolean
   invoiceId?: number | null
   clientId?: number | null
   projectId?: number | null
   onClose: () => void
+  /** Opens "Record a payment" for this invoice. */
+  onRecordPayment?: (invoice: { id: number; invoiceNumber: string }) => void
 }) {
   const { data: clients = [] } = useClients()
   const { data: projects = [] } = useProjects()
   const create = useCreateInvoice()
   const update = useUpdateInvoice()
+  const voidIt = useVoidInvoice()
+  const restore = useRestoreInvoice()
+  const remove = useRemoveInvoice()
+  const unpay = useUnpayInvoice()
+  const removeAlloc = useRemoveAllocation()
   // Editing starts from the stored invoice. Opening on a blank form and saving
   // it wrote amount 0, unpaid and no notes over a paid invoice.
   const { data: existing } = useInvoice(open ? invoiceId : null)
   const loading = !!invoiceId && !existing
   const [f, setF] = useState<any>({})
+  const [confirm, setConfirm] = useState<null | 'void' | 'unpay' | 'delete'>(null)
+  const [voidReason, setVoidReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
+    setConfirm(null); setVoidReason(''); setError(null)
     if (invoiceId) {
       if (!existing) return
       setF({
@@ -182,31 +239,61 @@ export function InvoiceModal({
       amount: '', status: 'unpaid',
       issueDate: today(), dueDate: '', feeAmount: '', notes: '',
     })
-  }, [open, invoiceId, existing, clientId, projectId])
+  }, [open, invoiceId, existing?.id, existing?.status, existing?.amount, clientId, projectId])
 
   const clientProjects = (projects as Project[]).filter(p => String(p.clientId) === String(f.clientId))
+  const isVoid = existing?.status === 'void'
+  const hasMoney = (existing?.allocations.length ?? 0) > 0
 
-  const save = async () => {
-    const body = {
+  const run = async (fn: () => Promise<unknown>, close = true) => {
+    setError(null)
+    try { await fn(); if (close) onClose() }
+    catch (e: any) { setError(e?.response?.data?.error ?? 'Could not save that') }
+  }
+
+  const save = () => run(async () => {
+    const body: any = {
       clientId: Number(f.clientId),
       projectId: f.projectId ? Number(f.projectId) : null,
       amount: Number(f.amount) || 0,
-      status: f.status,
       issueDate: f.issueDate || today(),
       dueDate: f.dueDate || undefined,
-      feeAmount: f.feeAmount ? Number(f.feeAmount) : undefined,
-      paidDate: f.status === 'paid' ? (f.paidDate || today()) : null,
       notes: f.notes || null,
     }
-    if (invoiceId) await update.mutateAsync({ id: invoiceId, ...body })
-    else await create.mutateAsync(body)
-    onClose()
-  }
+    if (invoiceId) {
+      // Paid-ness is money, recorded below; the status here is only draft or sent.
+      if (existing && existing.status !== 'paid' && (f.status === 'draft' || f.status === 'unpaid')) body.status = f.status
+      if (existing?.status === 'paid' && !existing.allocations.some(a => a.paymentId) && f.feeAmount !== '') {
+        body.status = 'paid'; body.feeAmount = Number(f.feeAmount) || 0
+        if (f.paidDate) body.paidDate = f.paidDate
+      }
+      await update.mutateAsync({ id: invoiceId, ...body })
+    } else {
+      await create.mutateAsync({
+        ...body, status: f.status,
+        feeAmount: f.feeAmount ? Number(f.feeAmount) : undefined,
+        paidDate: f.status === 'paid' ? (f.paidDate || today()) : null,
+      })
+    }
+  })
+
+  const knock = existing?.knockOn
+  const knockText = knock && knock.stripePayments
+    ? ` Its Stripe payment goes back to the queue${knock.alsoReopens.length ? `, and ${knock.alsoReopens.join(', ')} ${knock.alsoReopens.length === 1 ? 'goes' : 'go'} back to open too` : ''}.`
+    : ''
 
   return (
-    <Modal open={open} onClose={onClose} title={invoiceId ? 'Edit invoice' : 'New invoice'} size="md">
+    <Modal open={open} onClose={onClose} title={invoiceId ? `${existing?.invoiceNumber ?? 'Invoice'}${isVoid ? ' (void)' : ''}` : 'New invoice'} size="md">
       <div className="p-5 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+        {isVoid && (
+          <div className="text-[11px] px-3 py-2 rounded-lg"
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
+            Voided {existing?.voidedAt ? formatDate(existing.voidedAt) : ''}{existing?.voidReason ? `: ${existing.voidReason}` : ''}.
+            It is kept so the numbering has no gaps, and counts nowhere.
+          </div>
+        )}
+
+        <fieldset disabled={isVoid} className="grid grid-cols-2 gap-3" style={isVoid ? { opacity: 0.55 } : undefined}>
           <Select id="i-client" label="Client" value={String(f.clientId ?? '')}
             onChange={e => setF({ ...f, clientId: e.target.value, projectId: '' })} placeholder="Pick a client"
             options={(clients as Client[]).map(c => ({ value: String(c.id), label: c.name }))} />
@@ -215,24 +302,124 @@ export function InvoiceModal({
             options={clientProjects.map(p => ({ value: String(p.id), label: p.name }))} />
           <Input id="i-amount" label="Amount" type="number" step="0.01" value={f.amount ?? ''}
             onChange={e => setF({ ...f, amount: e.target.value })} />
-          <Select id="i-status" label="Status" value={f.status ?? 'unpaid'} onChange={e => setF({ ...f, status: e.target.value })}
-            options={['draft', 'unpaid', 'paid'].map(s => ({ value: s, label: s }))} />
+          {invoiceId && existing?.status === 'paid' ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Status</span>
+              <span className="text-xs py-2" style={{ color: 'var(--c-profit)' }}>Paid {existing.paidDate ? formatDate(existing.paidDate) : ''}</span>
+            </div>
+          ) : (
+            <Select id="i-status" label="Status" value={f.status === 'paid' && invoiceId ? 'unpaid' : f.status ?? 'unpaid'}
+              onChange={e => setF({ ...f, status: e.target.value })}
+              options={(invoiceId ? ['draft', 'unpaid'] : ['draft', 'unpaid', 'paid']).map(s => ({
+                value: s, label: s === 'unpaid' ? 'sent, waiting' : s === 'paid' ? 'already paid' : 'draft, not sent',
+              }))} />
+          )}
           <Input id="i-issue" label="Issued" type="date" value={f.issueDate ?? ''} onChange={e => setF({ ...f, issueDate: e.target.value })} />
           <Input id="i-due" label="Due" type="date" value={f.dueDate ?? ''} onChange={e => setF({ ...f, dueDate: e.target.value })} />
-          {f.status === 'paid' && (
+          {!invoiceId && f.status === 'paid' && (
             <>
-              <Input id="i-paid" label="Paid on" type="date" value={f.paidDate ?? today()} onChange={e => setF({ ...f, paidDate: e.target.value })} />
+              <Input id="i-paid" label="Paid on" type="date" value={f.paidDate || today()} onChange={e => setF({ ...f, paidDate: e.target.value })} />
               <Input id="i-fee" label="Processing fee" type="number" step="0.01" value={f.feeAmount ?? ''}
                 onChange={e => setF({ ...f, feeAmount: e.target.value })} />
             </>
           )}
+        </fieldset>
+        <Input id="i-notes" label="What it is for" value={f.notes ?? ''} disabled={isVoid} onChange={e => setF({ ...f, notes: e.target.value })} />
+        {!invoiceId && (
+          <p className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>Leave the due date blank for 7-day terms.</p>
+        )}
+
+        {/* ── The money on it ─────────────────────────────────────────── */}
+        {invoiceId && existing && !isVoid && (
+          <div>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Payments</span>
+              <span className="text-[11px] num" style={{ color: existing.owed > 0 ? '#f59e0b' : 'var(--c-profit)' }}>
+                {existing.owed > 0 ? `${existing.owed.toFixed(2)} still owed` : 'paid in full'}
+              </span>
+            </div>
+            <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
+              {existing.allocations.length === 0 ? (
+                <p className="px-3 py-2.5 text-[11px]" style={{ color: 'var(--c-text-3)' }}>Nothing received yet.</p>
+              ) : existing.allocations.map((a, i) => (
+                <div key={a.id} className="flex items-center gap-3 px-3 py-1.5 text-[11px]"
+                  style={{ borderTop: i ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg-input)' }}>
+                  <span className="num w-16" style={{ color: 'var(--c-text-3)' }}>{formatDate(a.date)}</span>
+                  <span className="flex-1 truncate" style={{ color: 'var(--c-text-2)' }}>
+                    {a.paymentId ? `Stripe${a.payerName ? `, ${a.payerName}` : ''}` : a.method === 'cash' ? 'Cash' : 'Bank transfer'}
+                    {a.fee ? ` · fee ${a.fee.toFixed(2)}` : ''}
+                  </span>
+                  <span className="num font-semibold" style={{ color: 'var(--c-text-1)' }}>{a.amount.toFixed(2)}</span>
+                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
+                    title={a.paymentId ? 'Detach the Stripe payment; it goes back to the queue to assign again' : 'Remove this payment'}
+                    onClick={() => run(() => removeAlloc.mutateAsync(a.id), false)}>
+                    {a.paymentId ? 'detach' : 'remove'}
+                  </button>
+                </div>
+              ))}
+            </div>
+            {existing.owed > 0 && onRecordPayment && (
+              <button type="button" className="text-[11px] mt-1.5 hover:underline" style={{ color: 'var(--c-accent)' }}
+                onClick={() => { onClose(); onRecordPayment({ id: existing.id, invoiceNumber: existing.invoiceNumber }) }}>
+                + Record a payment
+              </button>
+            )}
+          </div>
+        )}
+
+        {confirm && (
+          <div className="rounded-lg px-3 py-2.5 space-y-2"
+            style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)' }}>
+            <p className="text-[11px]" style={{ color: 'var(--c-text-2)' }}>
+              {confirm === 'void' && <>Void {existing?.invoiceNumber}? It stays in the ledger, crossed out, and stops counting anywhere.{hasMoney ? ' The money on it is taken off.' : ''}{knockText}</>}
+              {confirm === 'unpay' && <>Take every payment off {existing?.invoiceNumber}? It goes back to owed.{knockText}</>}
+              {confirm === 'delete' && <>Delete {existing?.invoiceNumber} completely? Only for one made by mistake; its number is freed.</>}
+            </p>
+            {confirm === 'void' && (
+              <Input id="i-void-reason" label="Why (optional)" value={voidReason} onChange={e => setVoidReason(e.target.value)}
+                placeholder="Client left / sent in error / replaced by INV-..." />
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>Keep it</Button>
+              <Button variant="danger" size="sm" disabled={voidIt.isPending || unpay.isPending || remove.isPending}
+                onClick={() => run(() =>
+                  confirm === 'void' ? voidIt.mutateAsync({ id: invoiceId!, reason: voidReason || null })
+                    : confirm === 'unpay' ? unpay.mutateAsync(invoiceId!)
+                    : remove.mutateAsync(invoiceId!))}>
+                {confirm === 'void' ? 'Void it' : confirm === 'unpay' ? 'Mark unpaid' : 'Delete'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
+
+        <div className="flex justify-between gap-2 pt-1">
+          <span className="flex gap-1.5 flex-wrap">
+            {invoiceId && existing && !confirm && (isVoid ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => run(() => restore.mutateAsync(invoiceId!))}>Restore</Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')}>Delete</Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setConfirm('void')}>Void</Button>
+                {hasMoney && <Button variant="ghost" size="sm" onClick={() => setConfirm('unpay')}>Mark unpaid</Button>}
+                {existing.status === 'draft' && !hasMoney && (
+                  <Button variant="ghost" size="sm" onClick={() => setConfirm('delete')}>Delete draft</Button>
+                )}
+              </>
+            ))}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>{isVoid ? 'Close' : 'Cancel'}</Button>
+            {!isVoid && (
+              <Button onClick={save} disabled={loading || create.isPending || update.isPending}>
+                {create.isPending || update.isPending ? 'Saving...' : invoiceId ? 'Save' : 'Create invoice'}
+              </Button>
+            )}
+          </div>
         </div>
-        <Input id="i-notes" label="What it is for" value={f.notes ?? ''} onChange={e => setF({ ...f, notes: e.target.value })} />
-        <p className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>
-          Leave the due date blank for 7-day terms.
-        </p>
-        <Footer onCancel={onClose} onSave={save} saving={loading || create.isPending || update.isPending}
-          label={invoiceId ? 'Save' : 'Create invoice'} />
       </div>
     </Modal>
   )
@@ -495,25 +682,26 @@ export function TimeModal({
 // ─── Meeting note ─────────────────────────────────────────────────────────────
 
 export function NoteModal({
-  open, clientId, onClose,
-}: { open: boolean; clientId: number | null; onClose: () => void }) {
-  const create = useCreateMeetingNote()
+  open, clientId, note, onClose,
+}: { open: boolean; clientId: number | null; note?: any; onClose: () => void }) {
+  const create = useSaveMeetingNote()
   const [f, setF] = useState<any>({})
 
   useEffect(() => {
-    if (open) setF({ title: '', content: '', meetingDate: today(), clientId })
-  }, [open, clientId])
+    if (open) setF(note ? { ...note } : { title: '', content: '', meetingDate: today(), clientId })
+  }, [open, clientId, note])
 
   const save = async () => {
     await create.mutateAsync({
+      id: note?.id,
       title: f.title, content: f.content || null,
-      meetingDate: f.meetingDate || null, clientId: clientId ?? null,
+      meetingDate: f.meetingDate || null, clientId: note?.clientId ?? clientId ?? null,
     })
     onClose()
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="New note" size="md">
+    <Modal open={open} onClose={onClose} title={note?.id ? 'Edit note' : 'New note'} size="md">
       <div className="p-5 space-y-3">
         <Input id="n-title" label="Title" value={f.title ?? ''} autoFocus onChange={e => setF({ ...f, title: e.target.value })} />
         <Input id="n-date" label="Date" type="date" value={f.meetingDate ?? ''} onChange={e => setF({ ...f, meetingDate: e.target.value })} />

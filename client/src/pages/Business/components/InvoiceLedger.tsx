@@ -4,12 +4,13 @@ import { Section } from '../../../components/ui/Section'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, StatusDot, EmptyRow, fmtMonthYear,
 } from './primitives'
-import { formatDate } from '../../../lib/utils'
+import { formatDate, today } from '../../../lib/utils'
+import { useBulkInvoices } from '../../../hooks/useBusiness'
 import type { LedgerRow, LedgerTotals } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
 type SortKey = 'issueDate' | 'clientName' | 'gross' | 'net' | 'dueDate' | 'status'
-const STATUSES = ['all', 'paid', 'unpaid', 'overdue', 'draft'] as const
+const STATUSES = ['all', 'paid', 'part-paid', 'unpaid', 'overdue', 'draft', 'void'] as const
 const KINDS = [
   { key: 'all', label: 'Any' },
   { key: 'retainer', label: 'Retainer' },
@@ -54,11 +55,17 @@ export function InvoiceLedger({
    * fighting a filter change that brings different months into view.
    */
   const [closed, setClosed] = useState<Set<string> | null>(null)
+  /** Ticked rows for the bulk bar. */
+  const [sel, setSel] = useState<Set<number>>(new Set())
+  const bulk = useBulkInvoices()
+  const [bulkNote, setBulkNote] = useState<string | null>(null)
+  const [confirmVoid, setConfirmVoid] = useState(false)
 
   const shown = useMemo(() => {
     const term = q.trim().toLowerCase()
+    // Void invoices stay out of "Any": they are kept for the numbering, not to be read.
     const filtered = rows.filter(r =>
-      (status === 'all' || r.status === status) &&
+      (status === 'all' ? r.status !== 'void' : r.status === status) &&
       (kind === 'all' || r.kind === kind) &&
       (!term
         || r.invoiceNumber.toLowerCase().includes(term)
@@ -103,11 +110,39 @@ export function InvoiceLedger({
   })
   const openCount = months.filter(([m]) => isOpen(m)).length
 
-  const sums = useMemo(() => ({
-    gross: shown.reduce((s, r) => s + r.gross, 0),
-    fee:   shown.reduce((s, r) => s + r.fee, 0),
-    net:   shown.filter(r => r.status === 'paid').reduce((s, r) => s + (r.net ?? 0), 0),
-  }), [shown])
+  const sums = useMemo(() => {
+    const live = shown.filter(r => r.status !== 'void')
+    return {
+      gross: live.reduce((s, r) => s + r.gross, 0),
+      fee:   live.reduce((s, r) => s + r.fee, 0),
+      net:   live.reduce((s, r) => s + (r.net ?? 0), 0),
+    }
+  }, [shown])
+
+  const picked = shown.filter(r => sel.has(r.id))
+  const toggleRow = (id: number) => setSel(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  })
+  const selectable = shown.filter(r => r.status !== 'void' && r.status !== 'paid')
+  const allPicked = selectable.length > 0 && selectable.every(r => sel.has(r.id))
+
+  const runBulk = async (action: 'pay' | 'send' | 'void') => {
+    setBulkNote(null)
+    try {
+      const res = await bulk.mutateAsync({
+        ids: picked.map(r => r.id), action, paidDate: today(),
+        reason: action === 'void' ? 'Voided in bulk' : undefined,
+      })
+      setBulkNote(`${res.done} invoice${res.done === 1 ? '' : 's'} ${action === 'pay' ? 'marked paid' : action === 'send' ? 'sent' : 'voided'}`)
+      setSel(new Set())
+      setConfirmVoid(false)
+    } catch (e: any) {
+      setBulkNote(e?.response?.data?.error ?? 'Could not do that')
+    }
+  }
 
   const head = (key: SortKey, label: string, align: 'left' | 'right' = 'right') => (
     <Th align={align} sorted={sort === key ? dir : null}
@@ -151,6 +186,9 @@ export function InvoiceLedger({
               </MiniBtn>
             ))}
           </div>
+          {status === 'all' && totals.voidCount > 0 && (
+            <span className="text-[10.5px]" style={{ color: 'var(--c-text-3)' }}>{totals.voidCount} void hidden</span>
+          )}
           {grouped && months.length > 1 && (
             <MiniBtn onClick={() => setClosed(openCount > 0 ? new Set(months.map(([m]) => m)) : new Set())}>
               {openCount > 0 ? 'Collapse all' : 'Expand all'}
@@ -160,9 +198,47 @@ export function InvoiceLedger({
         </>
       }
     >
+      {(picked.length > 0 || bulkNote) && (
+        <div className="mb-2 px-3 py-2 rounded-xl flex items-center gap-3 flex-wrap text-xs"
+          style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.22)', color: 'var(--c-text-2)' }}>
+          {picked.length > 0 ? (
+            <>
+              <span><b className="num">{picked.length}</b> selected · <span className="num">{fmtView(picked.reduce((s, r) => s + r.owed, 0))}</span> owed on them</span>
+              <span className="flex gap-1.5 ml-auto">
+                {picked.some(r => r.status === 'draft') && (
+                  <MiniBtn tone="accent" disabled={bulk.isPending} onClick={() => runBulk('send')}>Send drafts</MiniBtn>
+                )}
+                <MiniBtn tone="good" disabled={bulk.isPending} onClick={() => runBulk('pay')}>Mark paid today</MiniBtn>
+                {confirmVoid ? (
+                  <>
+                    <span style={{ color: 'var(--c-loss)' }}>Void {picked.length}? They stop counting anywhere.</span>
+                    <MiniBtn tone="danger" disabled={bulk.isPending} onClick={() => runBulk('void')}>Void them</MiniBtn>
+                    <MiniBtn onClick={() => setConfirmVoid(false)}>Keep</MiniBtn>
+                  </>
+                ) : (
+                  <MiniBtn tone="danger" onClick={() => setConfirmVoid(true)}>Void</MiniBtn>
+                )}
+                <MiniBtn onClick={() => { setSel(new Set()); setConfirmVoid(false) }}>Clear</MiniBtn>
+              </span>
+            </>
+          ) : (
+            <>
+              <span>{bulkNote}</span>
+              <MiniBtn onClick={() => setBulkNote(null)}>OK</MiniBtn>
+            </>
+          )}
+        </div>
+      )}
+
       <TablePanel>
         <table className="w-full">
           <THead>
+            <Th width="28px">
+              <input type="checkbox" aria-label="Select every open invoice shown" checked={allPicked}
+                disabled={!selectable.length}
+                onChange={() => setSel(allPicked ? new Set() : new Set(selectable.map(r => r.id)))}
+                className="w-3.5 h-3.5 accent-indigo-500 align-middle" />
+            </Th>
             <Th>#</Th>
             {head('clientName', 'Client', 'left')}
             <Th>What</Th>
@@ -177,13 +253,13 @@ export function InvoiceLedger({
           </THead>
           <tbody>
             {shown.length === 0 ? (
-              <EmptyRow colSpan={11}>
+              <EmptyRow colSpan={12}>
                 {rows.length ? 'Nothing matches those filters.' : 'No invoices yet.'}
               </EmptyRow>
             ) : grouped ? months.map(([month, list]) => (
               <Fragment key={month}>
                 <tr>
-                  <td colSpan={11} className="p-0"
+                  <td colSpan={12} className="p-0"
                     style={{ background: 'rgba(129,140,248,0.07)', borderTop: '1px solid rgba(129,140,248,0.16)' }}>
                     {/* The whole header is the toggle. A month that is shut still
                         shows its totals, so nothing is hidden, only the detail. */}
@@ -203,11 +279,11 @@ export function InvoiceLedger({
                       </span>
                       <span className="text-[11px] num" style={{ color: 'var(--c-text-2)' }}>
                         {list.length} invoice{list.length === 1 ? '' : 's'}
-                        {' · '}{fmtView(list.reduce((s, r) => s + r.gross, 0))} billed
-                        {' · '}{fmtView(list.filter(r => r.status === 'paid').reduce((s, r) => s + (r.net ?? 0), 0))} collected
+                        {' · '}{fmtView(list.filter(r => r.status !== 'void').reduce((s, r) => s + r.gross, 0))} billed
+                        {' · '}{fmtView(list.reduce((s, r) => s + (r.net ?? 0), 0))} collected
                         {(() => {
-                          const owed = list.filter(r => r.status !== 'paid' && r.status !== 'draft')
-                            .reduce((s, r) => s + r.gross, 0)
+                          const owed = list.filter(r => ['unpaid', 'overdue', 'part-paid'].includes(r.status))
+                            .reduce((s, r) => s + r.owed, 0)
                           return owed > 0
                             ? <span style={{ color: '#f59e0b' }}>{' · '}{fmtView(owed)} owed</span>
                             : null
@@ -217,18 +293,18 @@ export function InvoiceLedger({
                   </td>
                 </tr>
                 {isOpen(month) && list.map(r => (
-                  <LedgerTableRow key={r.id} r={r} fmtView={fmtView}
+                  <LedgerTableRow key={r.id} r={r} fmtView={fmtView} selected={sel.has(r.id)} onSelect={toggleRow}
                     onPay={onPay} onOpenClient={onOpenClient} onEdit={onEdit} onSend={onSend} />
                 ))}
               </Fragment>
             )) : shown.map(r => (
-              <LedgerTableRow key={r.id} r={r} fmtView={fmtView}
+              <LedgerTableRow key={r.id} r={r} fmtView={fmtView} selected={sel.has(r.id)} onSelect={toggleRow}
                 onPay={onPay} onOpenClient={onOpenClient} onEdit={onEdit} onSend={onSend} />
             ))}
           </tbody>
           {shown.length > 0 && (
             <TotalRow>
-              <Td colSpan={3}>
+              <Td colSpan={4}>
                 {shown.length} invoice{shown.length === 1 ? '' : 's'}
                 {totals.avgDaysToPay != null && (
                   <span className="font-normal ml-2" style={{ color: 'var(--c-text-3)' }}>
@@ -249,18 +325,27 @@ export function InvoiceLedger({
 }
 
 function LedgerTableRow({
-  r, fmtView, onPay, onOpenClient, onEdit, onSend,
+  r, fmtView, selected, onSelect, onPay, onOpenClient, onEdit, onSend,
 }: {
   r: LedgerRow
   fmtView: FmtView
+  selected: boolean
+  onSelect: (id: number) => void
   onPay: (r: LedgerRow) => void
   onOpenClient: (id: number) => void
   onEdit: (r: LedgerRow) => void
   onSend: (r: LedgerRow) => void
 }) {
   const paid = r.status === 'paid'
+  const isVoid = r.status === 'void'
   return (
-    <Row dim={r.status === 'draft'}>
+    <Row dim={r.status === 'draft' || isVoid}>
+      <Td>
+        {!paid && !isVoid && (
+          <input type="checkbox" aria-label={`Select ${r.invoiceNumber}`} checked={selected} onChange={() => onSelect(r.id)}
+            className="w-3.5 h-3.5 accent-indigo-500 align-middle" />
+        )}
+      </Td>
       <Td mono color="var(--c-text-3)">{r.invoiceNumber}</Td>
       <Td>
         <button type="button" onClick={() => onOpenClient(r.clientId)}
@@ -268,14 +353,26 @@ function LedgerTableRow({
           {r.clientName}
         </button>
       </Td>
-      <Td color="var(--c-text-2)">{r.what}</Td>
-      <Td align="right" mono className="font-semibold">{fmtView(r.gross)}</Td>
+      <Td color="var(--c-text-2)">
+        {r.what}
+        {isVoid && r.voidReason && (
+          <span className="block text-[10px]" style={{ color: 'var(--c-text-3)' }}>{r.voidReason}</span>
+        )}
+      </Td>
+      <Td align="right" mono className="font-semibold" style={isVoid ? { textDecoration: 'line-through' } : undefined}>
+        {fmtView(r.gross)}
+        {r.partPaid && (
+          <span className="block text-[10px] font-normal" style={{ color: '#38bdf8' }}>
+            {fmtView(r.applied)} paid, {fmtView(r.owed)} left
+          </span>
+        )}
+      </Td>
       <Td align="right" mono color="var(--c-text-3)">{r.fee ? fmtView(r.fee) : paid ? fmtView(0) : '--'}</Td>
-      <Td align="right" mono color={paid ? 'var(--c-profit)' : 'var(--c-text-3)'}>
+      <Td align="right" mono color={r.net != null ? 'var(--c-profit)' : 'var(--c-text-3)'}>
         {r.net != null ? fmtView(r.net) : '--'}
       </Td>
       <Td align="right" mono color="var(--c-text-3)">{formatDate(r.issueDate)}</Td>
-      <Td align="right" mono color={r.status === 'overdue' ? 'var(--c-loss)' : paid ? 'var(--c-text-3)' : '#f59e0b'}>
+      <Td align="right" mono color={r.status === 'overdue' ? 'var(--c-loss)' : paid || isVoid ? 'var(--c-text-3)' : '#f59e0b'}>
         {formatDate(r.dueDate)}
       </Td>
       <Td align="right" mono color="var(--c-text-3)">{r.paidDate ? formatDate(r.paidDate) : '--'}</Td>
@@ -283,8 +380,12 @@ function LedgerTableRow({
       <Td align="right">
         <div className="flex gap-1.5 justify-end">
           {r.status === 'draft' && <MiniBtn tone="accent" onClick={() => onSend(r)}>Send</MiniBtn>}
-          {!paid && <MiniBtn tone="good" onClick={() => onPay(r)}>Mark paid</MiniBtn>}
-          <MiniBtn onClick={() => onEdit(r)} title="Edit, or record a card fee">Edit</MiniBtn>
+          {!paid && !isVoid && (
+            <MiniBtn tone="good" onClick={() => onPay(r)}>{r.partPaid ? 'Add payment' : 'Mark paid'}</MiniBtn>
+          )}
+          <MiniBtn onClick={() => onEdit(r)} title="Edit, void, or change its payments">
+            {isVoid ? 'Open' : 'Edit'}
+          </MiniBtn>
         </div>
       </Td>
     </Row>

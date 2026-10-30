@@ -21,7 +21,8 @@ export function Clients({
 }) {
   const { data: rows = [], isPending } = useClientRows()
   const [q, setQ] = useState('')
-  const [status, setStatus] = useState<(typeof STATUSES)[number]>('all')
+  // Clients who left are history, not the working list.
+  const [status, setStatus] = useState<(typeof STATUSES)[number]>('active')
   const [sort, setSort] = useState<SortKey>('mrr')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
 
@@ -78,7 +79,7 @@ export function Clients({
             <span className="text-[9.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--c-text-3)' }}>Status</span>
             {STATUSES.map(s => (
               <MiniBtn key={s} tone={status === s ? 'accent' : 'default'} onClick={() => setStatus(s)}>
-                {s === 'all' ? 'Any' : s}
+                {s === 'all' ? 'Any' : s === 'churned' ? `left (${rows.filter(r => r.status === 'churned').length})` : s}
               </MiniBtn>
             ))}
           </div>
@@ -133,8 +134,11 @@ export function Clients({
 function ClientTableRow({ r, fmtView, onOpen }: { r: ClientRow; fmtView: FmtView; onOpen: () => void }) {
   const hasRevenue = r.lifetime > 0
   return (
-    <Row onClick={onOpen}>
-      <Td><span className="font-medium">{r.name}</span></Td>
+    <Row onClick={onOpen} dim={r.status === 'churned'}>
+      <Td>
+        <span className="font-medium">{r.name}</span>
+        {r.status === 'churned' && <span className="ml-1.5 text-[10px]" style={{ color: 'var(--c-text-3)' }}>left</span>}
+      </Td>
       <Td color="var(--c-text-2)">{r.company ?? '--'}</Td>
       <Td align="right" mono color="var(--c-text-3)">
         {r.since ? new Date(r.since).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }) : '--'}
