@@ -6,7 +6,7 @@ import {
   businessInvoices, businessMeetingNotes, businessTimeEntries,
   businessRetainers, businessRetainerChanges, businessServices,
   businessOwners, businessOwnerDraws,
-  financeIncome, marketingCampaigns, marketingSpendDaily, stripePayments,
+  financeIncome, financeExpenses, marketingCampaigns, marketingSpendDaily, stripePayments,
   businessPaymentAllocations,
 } from '../db/schema'
 import { eq, and, gte, lte, like, or, inArray, sql, desc, ne } from 'drizzle-orm'
@@ -229,6 +229,77 @@ router.delete('/clients/:id', async (req, res, next) => {
     })
     invalidate()
     res.status(204).send()
+  } catch (e) { next(e) }
+})
+
+/**
+ * Remove a client completely, with everything of theirs: invoices, payments
+ * recorded by hand, retainers, websites, notes. For a test client or one
+ * added by mistake. Their money leaves every figure, which the preview says.
+ *
+ * Stripe payments are real money that arrived, so they are not deleted: they
+ * go back to the queue to be assigned to someone else or marked not income.
+ * Costs attributed to them stay, as business costs.
+ */
+function clientFootprint(clientId: number) {
+  const invoices = db.select().from(businessInvoices).where(eq(businessInvoices.clientId, clientId)).all()
+  const invIds = invoices.map(i => i.id)
+  const allocs = invIds.length ? db.select().from(businessPaymentAllocations).where(inArray(businessPaymentAllocations.invoiceId, invIds)).all() : []
+  const paymentIds = [...new Set([
+    ...allocs.filter(a => a.paymentId).map(a => a.paymentId!),
+    ...db.select({ id: stripePayments.id }).from(stripePayments).where(eq(stripePayments.matchedClientId, clientId)).all().map(p => p.id),
+  ])]
+  const retainers = db.select().from(businessRetainers).where(eq(businessRetainers.clientId, clientId)).all()
+  const projects = db.select().from(businessProjects).where(eq(businessProjects.clientId, clientId)).all()
+  return {
+    invoices, invIds, paymentIds, retainers, projects,
+    summary: {
+      invoices: invoices.length,
+      collected: round2(allocs.reduce((t, a) => t + a.amount - a.refunded, 0)),
+      byHand: allocs.filter(a => !a.paymentId).length,
+      stripePayments: paymentIds.length,
+      retainers: retainers.length,
+      liveRetainers: retainers.filter(r => r.status === 'active').length,
+      websites: projects.length,
+    },
+  }
+}
+
+router.get('/clients/:id/delete-preview', async (req, res, next) => {
+  try { res.json(clientFootprint(id(req.params.id)).summary) } catch (e) { next(e) }
+})
+
+router.delete('/clients/:id/everything', async (req, res, next) => {
+  try {
+    const clientId = id(req.params.id)
+    const f = clientFootprint(clientId)
+    const projectIds = f.projects.map(p => p.id)
+    db.transaction(tx => {
+      // Stripe money back to the queue first, so nothing points at what goes.
+      for (const pid of f.paymentIds) releasePayment(tx, pid)
+      if (f.paymentIds.length) {
+        tx.update(stripePayments).set({ matchedClientId: null, matchedInvoiceId: null, coversInvoiceIds: null })
+          .where(inArray(stripePayments.id, f.paymentIds)).run()
+      }
+      if (f.invIds.length) {
+        tx.update(stripePayments).set({ matchedInvoiceId: null }).where(inArray(stripePayments.matchedInvoiceId, f.invIds)).run()
+        tx.delete(businessInvoices).where(inArray(businessInvoices.id, f.invIds)).run()
+      }
+      tx.delete(businessMeetingNotes).where(eq(businessMeetingNotes.clientId, clientId)).run()
+      if (projectIds.length) {
+        tx.delete(businessMeetingNotes).where(inArray(businessMeetingNotes.projectId, projectIds)).run()
+        tx.update(financeExpenses).set({ projectId: null }).where(inArray(financeExpenses.projectId, projectIds)).run()
+        tx.delete(businessProjects).where(inArray(businessProjects.id, projectIds)).run()
+      }
+      tx.update(financeExpenses).set({ clientId: null }).where(eq(financeExpenses.clientId, clientId)).run()
+      for (const r of f.retainers) {
+        tx.delete(businessRetainerChanges).where(eq(businessRetainerChanges.retainerId, r.id)).run()
+        tx.delete(businessRetainers).where(eq(businessRetainers.id, r.id)).run()
+      }
+      tx.delete(businessClients).where(eq(businessClients.id, clientId)).run()
+    })
+    invalidate()
+    res.json(f.summary)
   } catch (e) { next(e) }
 })
 
@@ -710,6 +781,41 @@ router.post('/services', async (req, res, next) => {
     }).returning().get()
     invalidate()
     res.status(201).json(row)
+  } catch (e) { next(e) }
+})
+
+/** Rename a service, or change its usual price. Bills already raised keep theirs. */
+router.put('/services/:id', async (req, res, next) => {
+  try {
+    const body = parse(z.object({ name: z.string().trim().min(1).optional(), defaultAmount: money.nullish() }), req.body)
+    const serviceId = id(req.params.id)
+    if (body.name) {
+      const taken = db.select().from(businessServices).all()
+        .find(x => x.id !== serviceId && x.active && x.name.trim().toLowerCase() === body.name!.toLowerCase())
+      if (taken) return res.status(409).json({ error: `There is already a service called ${taken.name}` })
+    }
+    const row = db.update(businessServices).set(body).where(eq(businessServices.id, serviceId)).returning().get()
+    if (!row) return res.status(404).json({ error: 'No such service' })
+    invalidate()
+    res.json(row)
+  } catch (e) { next(e) }
+})
+
+/**
+ * Stop offering a service. One that was never used is deleted; one with
+ * retainers, bills or websites behind it is retired instead: gone from New
+ * work, but its name stays on everything already sold, so history still reads.
+ */
+router.delete('/services/:id', async (req, res, next) => {
+  try {
+    const serviceId = id(req.params.id)
+    const used = db.select({ id: businessRetainers.id }).from(businessRetainers).where(eq(businessRetainers.serviceId, serviceId)).all().length
+      + db.select({ id: businessInvoices.id }).from(businessInvoices).where(eq(businessInvoices.serviceId, serviceId)).all().length
+      + db.select({ id: businessProjects.id }).from(businessProjects).where(eq(businessProjects.serviceId, serviceId)).all().length
+    if (used) db.update(businessServices).set({ active: 0 }).where(eq(businessServices.id, serviceId)).run()
+    else db.delete(businessServices).where(eq(businessServices.id, serviceId)).run()
+    invalidate()
+    res.json({ retired: used > 0 })
   } catch (e) { next(e) }
 })
 

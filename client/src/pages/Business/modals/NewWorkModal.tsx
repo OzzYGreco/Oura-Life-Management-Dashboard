@@ -3,7 +3,7 @@ import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
-import { useServices, useClients, useCreateDeal, useInvoices, useCreateService } from '../../../hooks/useBusiness'
+import { useServices, useClients, useCreateDeal, useInvoices, useCreateService, useUpdateService, useRemoveService } from '../../../hooks/useBusiness'
 import { today, formatDate } from '../../../lib/utils'
 import type { Service, Client, Invoice } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -52,6 +52,27 @@ export function NewWorkModal({
   const [adding, setAdding] = useState(false)
   const [svcDraft, setSvcDraft] = useState({ name: '', kind: 'recurring' as 'recurring' | 'one_off', amount: '', staged: false })
   const [svcError, setSvcError] = useState<string | null>(null)
+  // Renaming, repricing or removing one, in place.
+  const updateService = useUpdateService()
+  const removeService = useRemoveService()
+  const [editing, setEditing] = useState<{ id: number; name: string; amount: string } | null>(null)
+  const saveEdit = async () => {
+    if (!editing) return
+    setSvcError(null)
+    try {
+      await updateService.mutateAsync({ id: editing.id, name: editing.name.trim(), defaultAmount: Number(editing.amount) > 0 ? Number(editing.amount) : null })
+      setEditing(null)
+    } catch (e: any) { setSvcError(e?.response?.data?.error ?? 'Could not save that') }
+  }
+  const dropService = async (svc: Service) => {
+    if (!window.confirm(`Stop offering ${svc.name}? Anything already sold on it keeps its name and carries on as it is.`)) return
+    setSvcError(null)
+    try {
+      await removeService.mutateAsync(svc.id)
+      setPicked(p => { const next = { ...p }; delete next[svc.id]; return next })
+      setEditing(null)
+    } catch (e: any) { setSvcError(e?.response?.data?.error ?? 'Could not remove that') }
+  }
   const staging = services.find(s => s.kind === 'one_off' && s.milestones?.length)?.milestones ?? null
 
   const addService = async () => {
@@ -223,6 +244,25 @@ export function NewWorkModal({
           <div className="space-y-2">
             {services.map(svc => {
               const on = picked[svc.id] != null
+              if (editing?.id === svc.id) return (
+                <div key={svc.id} className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                  style={{ background: 'var(--c-bg-input)', border: '1px dashed rgba(129,140,248,0.4)' }}>
+                  <input aria-label="Service name" value={editing.name} autoFocus
+                    onChange={e => setEditing({ ...editing, name: e.target.value })}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveEdit() } if (e.key === 'Escape') setEditing(null) }}
+                    className="flex-1 min-w-0 rounded-md px-2 py-1 text-sm outline-none"
+                    style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }} />
+                  <span className="text-xs" style={{ color: 'var(--c-text-3)' }}>£</span>
+                  <input aria-label="Usual price" type="number" step="0.01" value={editing.amount}
+                    onChange={e => setEditing({ ...editing, amount: e.target.value })}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveEdit() } }}
+                    className="w-24 rounded-md px-2 py-1 text-sm num text-right outline-none"
+                    style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }} />
+                  <Button size="sm" onClick={saveEdit} disabled={updateService.isPending || !editing.name.trim()}>Save</Button>
+                  <Button size="sm" variant="ghost" onClick={() => dropService(svc)}>Remove</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+                </div>
+              )
               return (
                 <div key={svc.id}
                   className="flex items-center gap-3 px-3 py-2 rounded-lg"
@@ -255,12 +295,21 @@ export function NewWorkModal({
                     <span className="text-[11px] w-8" style={{ color: 'var(--c-text-3)' }}>
                       {svc.kind === 'recurring' ? '/mo' : ''}
                     </span>
+                    <button type="button" title={`Rename, reprice or remove ${svc.name}`}
+                      onClick={() => setEditing({ id: svc.id, name: svc.name, amount: svc.defaultAmount != null ? String(svc.defaultAmount) : '' })}
+                      className="text-[11px] hover:underline" style={{ color: 'var(--c-text-3)' }}>edit</button>
                   </div>
                 </div>
               )
             })}
           </div>
 
+          {svcError && !adding && <p className="text-xs mt-2" style={{ color: 'var(--c-loss)' }}>{svcError}</p>}
+          {editing && (
+            <p className="text-[11px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
+              A new name or price is used from now on. Bills already raised, and plans already running, keep theirs.
+            </p>
+          )}
           {adding ? (
             <div className="mt-2 rounded-lg p-3 space-y-2.5"
               style={{ background: 'var(--c-bg-input)', border: '1px dashed rgba(129,140,248,0.4)' }}>
