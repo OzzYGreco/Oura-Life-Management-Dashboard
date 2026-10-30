@@ -13,12 +13,12 @@
 import { db } from '../src/db'
 import {
   businessInvoices, businessClients, businessRetainers, businessOwnerDraws,
-  stripePayments, marketingSpendDaily, marketingCampaigns, financeExpenses,
+  stripePayments, businessPaymentAllocations, marketingSpendDaily, marketingCampaigns, financeExpenses,
 } from '../src/db/schema'
 import { sql } from 'drizzle-orm'
 import { businessMetrics, businessDashboardSummary, loadBusinessData, clientEconomics, invalidateBusinessData, adSpendStaleness } from '../src/lib/businessMetrics'
 
-const API = 'http://localhost:3001'
+const API = process.env.AUDIT_API ?? 'http://localhost:3001'
 const round2 = (n: number) => Math.round(n * 100) / 100
 const money = (n: number) => n.toFixed(2).padStart(11)
 
@@ -56,12 +56,16 @@ async function main() {
   // ── Money adds up ─────────────────────────────────────────────────────────
   section('1. Collected money reconciles')
 
-  const paid = d.invoices.filter(i => i.status === 'paid')
-  const sumGross = round2(paid.reduce((s, i) => s + i.amount, 0))
-  const sumFees = round2(d.invoices.reduce((s, i) => s + (i.feeAmount ?? 0), 0))
-  const sumRefunds = round2(d.invoices.reduce((s, i) => s + (i.refundedAmount ?? 0), 0))
+  // Money is the allocations: one row per sum applied to an invoice. Every
+  // invoice field about payment is a summary of them, so both are checked.
+  const allocations = await db.select().from(businessPaymentAllocations)
+  const live = new Set(d.invoices.map(i => i.id))
+  const counted = allocations.filter(a => live.has(a.invoiceId))
+  const sumGross = round2(counted.reduce((s, a) => s + a.amount, 0))
+  const sumFees = round2(counted.reduce((s, a) => s + a.fee, 0))
+  const sumRefunds = round2(counted.reduce((s, a) => s + a.refunded, 0))
 
-  check('gross volume equals the sum of paid invoices',
+  check('gross volume equals the sum of money received',
     near(m.pnl.grossVolume, sumGross), `metrics ${money(m.pnl.grossVolume)} vs rows ${money(sumGross)}`)
   check('fees equal the sum of invoice fees',
     near(m.pnl.fees, sumFees), `metrics ${money(m.pnl.fees)} vs rows ${money(sumFees)}`)
@@ -78,19 +82,54 @@ async function main() {
   check('no negative amounts, fees or refunds',
     !d.invoices.some(i => i.amount < 0 || (i.feeAmount ?? 0) < 0 || (i.refundedAmount ?? 0) < 0))
 
+  const appliedTo = new Map<number, number>()
+  for (const a of allocations) appliedTo.set(a.invoiceId, round2((appliedTo.get(a.invoiceId) ?? 0) + a.amount))
+  const overAllocated = d.invoices.filter(i => (appliedTo.get(i.id) ?? 0) > i.amount + 0.005)
+  check('no invoice has more money applied than it is for', overAllocated.length === 0,
+    overAllocated.map(i => `${i.invoiceNumber} ${appliedTo.get(i.id)} on ${i.amount}`).join(', '))
+  const paidShort = d.invoices.filter(i => i.status === 'paid' && (appliedTo.get(i.id) ?? 0) < i.amount - 0.005)
+  check('every paid invoice has its full amount received', paidShort.length === 0,
+    paidShort.map(i => `${i.invoiceNumber} ${appliedTo.get(i.id) ?? 0} of ${i.amount}`).join(', '))
+  const openFull = d.invoices.filter(i => i.status !== 'paid' && (appliedTo.get(i.id) ?? 0) >= i.amount - 0.005 && (appliedTo.get(i.id) ?? 0) > 0)
+  check('no invoice is fully paid but still marked open', openFull.length === 0,
+    openFull.map(i => i.invoiceNumber).join(', '))
+  const feeDrift = d.invoices.filter(i => {
+    const f = round2(allocations.filter(a => a.invoiceId === i.id).reduce((s, a) => s + a.fee, 0))
+    return Math.abs(f - (i.feeAmount ?? 0)) > 0.005
+  })
+  check('every invoice fee is the sum of the fees on its payments', feeDrift.length === 0,
+    feeDrift.map(i => i.invoiceNumber).join(', '))
+  const voidIds = new Set(d.allInvoices.filter(i => i.status === 'void').map(i => i.id))
+  const onVoid = allocations.filter(a => voidIds.has(a.invoiceId))
+  check('no money sits on a void invoice', onVoid.length === 0,
+    `${onVoid.length} payment record(s) on void invoices`)
+
   // ── Stripe reconciles ─────────────────────────────────────────────────────
   section('2. Stripe reconciles')
 
-  const matched = await db.select().from(stripePayments).where(sql`matched_invoice_id is not null`)
-  const stripeFees = round2(matched.reduce((s, p) => s + p.fee, 0))
-  check('invoice fees equal the fees of matched Stripe payments',
-    near(sumFees, stripeFees), `invoices ${money(sumFees)} vs stripe ${money(stripeFees)}`)
-
-  const dupes = await db.all<{ id: number; n: number }>(sql`
-    select matched_invoice_id as id, count(*) as n from stripe_payments
-    where matched_invoice_id is not null group by matched_invoice_id having count(*) > 1`)
-  check('no invoice is claimed by two payments', dupes.length === 0,
-    dupes.map(r => `invoice ${r.id} x${r.n}`).join(', '))
+  // Every Stripe payment that settled something carries its whole fee onto
+  // the invoices it settled, split but never lost or doubled.
+  const payments = await db.select().from(stripePayments)
+  const feeGaps = payments.filter(p => {
+    const mine = allocations.filter(a => a.paymentId === p.id)
+    return mine.length && Math.abs(round2(mine.reduce((s, a) => s + a.fee, 0)) - p.fee) > 0.005
+  })
+  check('each Stripe payment\'s fee lands on its invoices exactly once', feeGaps.length === 0,
+    feeGaps.map(p => p.stripeId).join(', '))
+  const overSpent = payments.filter(p =>
+    round2(allocations.filter(a => a.paymentId === p.id).reduce((s, a) => s + a.amount, 0)) > p.amountGross + 0.005)
+  check('no Stripe payment is applied for more than it was', overSpent.length === 0,
+    overSpent.map(p => p.stripeId).join(', '))
+  // A warning, not a failure: old invoices recorded net of the card fee leave
+  // pennies of a payment unplaced until "Match Stripe" closes them.
+  const unplaced = payments.filter(p => {
+    const mine = allocations.filter(a => a.paymentId === p.id)
+    return mine.length && p.amountGross - mine.reduce((s, a) => s + a.amount, 0) > 0.005
+  })
+  if (unplaced.length) {
+    console.log(`  note  ${unplaced.length} Stripe payment(s) took ${money(round2(unplaced.reduce((s, p) =>
+      s + p.amountGross - allocations.filter(a => a.paymentId === p.id).reduce((t, a) => t + a.amount, 0), 0)))} more than their invoices say (Payments, "Not fully placed")`)
+  }
 
   // A decision the user made by hand has to survive the next sync, and has to
   // leave the queue. Both once keyed off matched_invoice_id, so assigning a
@@ -121,8 +160,9 @@ async function main() {
   // built from paid invoices. Raising an invoice from the payment is the fix,
   // and this is here so a silent gap cannot open up again.
   const offBooks = await db.all<{ n: number; gross: number }>(sql`
-    select count(*) as n, coalesce(sum(amount_gross), 0) as gross from stripe_payments
-    where matched_client_id is not null and matched_invoice_id is null and ignored = 0`)
+    select count(*) as n, coalesce(sum(amount_gross), 0) as gross from stripe_payments p
+    where matched_at is not null and ignored = 0
+      and not exists (select 1 from business_payment_allocations a where a.payment_id = p.id)`)
   // Stripe collecting a subscription that Oura has no retainer for is money
   // arriving every month and counting toward nothing: MRR, churn and every
   // forward-looking figure are built from retainers. A live GBP 149/mo client
@@ -135,10 +175,12 @@ async function main() {
                  coalesce(plan_amount, amount_gross) as plan
           from stripe_payments s
           where subscription_id is not null and ignored = 0 and matched_client_id is not null
+            -- Still being charged: within one and a half cycles of today.
+            and julianday('now') - julianday(paid_date) <= coalesce(plan_interval_days, 30) * 1.5
             and paid_date = (select max(paid_date) from stripe_payments s2
                              where s2.subscription_id = s.subscription_id and s2.ignored = 0)) p
     join business_clients c on c.id = p.matched_client_id
-    where not exists (
+    where c.status != 'churned' and not exists (
       select 1 from business_retainers r
       where r.client_id = p.matched_client_id and r.status = 'active'
         and abs(r.amount - p.plan) < 0.01)`)
@@ -178,9 +220,9 @@ async function main() {
     earlyAuto.length === 0,
     earlyAuto.map(i => `${i.invoiceNumber} issued ${i.issueDate} paid ${i.paidDate}`).join('; '))
 
-  const paidNoMethod = d.invoices.filter(i => i.status === 'paid' && !i.paymentMethod)
-  check('every paid invoice records how it was paid', paidNoMethod.length === 0,
-    `${paidNoMethod.length} without a method`)
+  const noMethod = allocations.filter(a => !['stripe', 'bank', 'cash'].includes(a.method))
+  check('every payment record says how it was paid', noMethod.length === 0,
+    `${noMethod.length} without a method`)
 
   // ── MRR ───────────────────────────────────────────────────────────────────
   section('3. MRR')
@@ -317,8 +359,8 @@ async function main() {
   section('9. Accounts receivable')
 
   const open = d.invoices.filter(i => ['unpaid', 'overdue'].includes(i.status))
-  check('outstanding equals the sum of unpaid invoices',
-    near(m.ar.total, round2(open.reduce((s, i) => s + i.amount, 0))))
+  check('outstanding equals what is left on unpaid invoices',
+    near(m.ar.total, round2(open.reduce((s, i) => s + i.amount - (appliedTo.get(i.id) ?? 0), 0))))
   check('ageing buckets sum to the total',
     near(round2(m.ar.current + m.ar.d1_30 + m.ar.d31_60 + m.ar.d61_90 + m.ar.d90plus), m.ar.total))
   check('overdue count never exceeds the open count', m.ar.overdueCount <= m.ar.count)
@@ -342,6 +384,20 @@ async function main() {
       return new Set(ids).size === ids.length
     })(),
     'two clients share a Stripe customer, which would misattribute every future payment')
+  // A client who left is ended everywhere, not just labelled.
+  const churnedIds = new Set(d.clients.filter(c => c.status === 'churned').map(c => c.id))
+  const liveOnChurned = d.retainers.filter(r => churnedIds.has(r.clientId) && r.status === 'active')
+  check('no active retainer belongs to a client who left', liveOnChurned.length === 0,
+    liveOnChurned.map(r => `retainer ${r.id}`).join(', '))
+  const billedAfterEnd = d.invoices.filter(i => {
+    const r = i.retainerId ? d.retainers.find(x => x.id === i.retainerId) : null
+    return r?.endDate && ['unpaid', 'draft'].includes(i.status) && (i.periodStart ?? i.issueDate) >= r.endDate
+  })
+  check('no open invoice bills a retainer period after it ended', billedAfterEnd.length === 0,
+    billedAfterEnd.map(i => i.invoiceNumber).join(', '))
+  const futureEnd = d.retainers.filter(r => r.status === 'cancelled' && r.endDate && r.endDate > new Date().toISOString().slice(0, 10))
+  check('no retainer is cancelled with an end date in the future', futureEnd.length === 0,
+    futureEnd.map(r => `retainer ${r.id}`).join(', '))
   check('every invoice has a due date not before its issue date',
     !d.invoices.some(i => i.dueDate < i.issueDate),
     d.invoices.filter(i => i.dueDate < i.issueDate).map(i => i.invoiceNumber).join(', '))
@@ -355,7 +411,7 @@ async function main() {
     check('API MRR equals the engine', near(apiMetrics.mrr.current, m.mrr.current))
 
     const ledger = await get('/api/business/invoices/ledger')
-    const ledgerBilled = round2(ledger.rows.reduce((s: number, r: any) => s + r.gross, 0))
+    const ledgerBilled = round2(ledger.rows.filter((r: any) => r.status !== 'void').reduce((s: number, r: any) => s + r.gross, 0))
     const allBilled = round2(d.invoices.reduce((s, i) => s + i.amount, 0))
     check('the ledger bills what the invoices say',
       near(ledgerBilled, allBilled), `ledger ${money(ledgerBilled)} vs rows ${money(allBilled)}`)

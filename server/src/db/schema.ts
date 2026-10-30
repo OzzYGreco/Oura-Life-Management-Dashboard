@@ -239,6 +239,7 @@ export const businessClients = sqliteTable('business_clients', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   /** Learned the first time a payment is matched; certain for every one after. */
   stripeCustomerId: text('stripe_customer_id'),
+  churnReason: text('churn_reason'),
 })
 
 export const businessProjects = sqliteTable('business_projects', {
@@ -303,6 +304,30 @@ export const businessInvoices = sqliteTable('business_invoices', {
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
   /** 'stripe' | 'bank'. Null means nobody has said how it was paid. */
   paymentMethod:  text('payment_method'),
+  /** Void keeps the number and the history. `voidedFrom` is what restore returns to. */
+  voidedAt:    text('voided_at'),
+  voidReason:  text('void_reason'),
+  voidedFrom:  text('voided_from'),
+  /** Set when the invoice exists only because this payment arrived with nothing to settle. */
+  raisedFromPaymentId: integer('raised_from_payment_id'),
+})
+
+/**
+ * One sum of money applied to one invoice. An invoice's paid status, paid date
+ * and fee are a summary of these rows, kept in step by `recomputeInvoice`.
+ */
+export const businessPaymentAllocations = sqliteTable('business_payment_allocations', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  invoiceId: integer('invoice_id').notNull().references(() => businessInvoices.id, { onDelete: 'cascade' }),
+  /** The Stripe payment this came from. Null for a bank transfer or cash. */
+  paymentId: integer('payment_id').references(() => stripePayments.id, { onDelete: 'cascade' }),
+  method:    text('method').notNull().default('bank'),   // 'stripe' | 'bank' | 'cash'
+  amount:    real('amount').notNull(),
+  fee:       real('fee').notNull().default(0),
+  refunded:  real('refunded').notNull().default(0),
+  date:      text('date').notNull(),
+  note:      text('note'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 })
 
 export const businessRetainers = sqliteTable('business_retainers', {
@@ -322,6 +347,7 @@ export const businessRetainers = sqliteTable('business_retainers', {
   autoInvoice:       integer('auto_invoice').notNull().default(1),
   lastGeneratedDate: text('last_generated_date'),
   nextInvoiceDate:   text('next_invoice_date'),
+  pausedAt:          text('paused_at'),
   notes:             text('notes'),
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:         text('updated_at').notNull().default(sql`(datetime('now'))`),
@@ -407,6 +433,8 @@ export const stripePayments = sqliteTable('stripe_payments', {
   planAmount:        real('plan_amount'),
   planIntervalDays:  integer('plan_interval_days'),
   planDescription:   text('plan_description'),
+  /** Moved by hand. Sync may suggest a match for it again but never applies one. */
+  releasedAt:        text('released_at'),
   syncedAt:          text('synced_at'),
   createdAt:         text('created_at').notNull().default(sql`(datetime('now'))`),
 })

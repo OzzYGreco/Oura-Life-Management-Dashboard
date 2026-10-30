@@ -22,6 +22,7 @@ import {
   businessRetainerChanges, businessServices, businessTimeEntries,
   businessOwners, businessOwnerDraws,
   financeExpenses, marketingCampaigns, marketingSpendDaily, stripePayments,
+  businessPaymentAllocations,
 } from '../db/schema'
 import { localToday } from './date'
 
@@ -34,10 +35,34 @@ type Retainer = typeof businessRetainers.$inferSelect
 type Expense  = typeof financeExpenses.$inferSelect
 
 /** Everything the metrics endpoint needs, loaded once and passed around. */
+/**
+ * Money that arrived, one row per allocation, carrying what the invoice it paid
+ * was for. Every cash figure reads this rather than the invoice's paid flag, so
+ * an invoice paid in two instalments counts in the two months the money came.
+ */
+export interface Receipt {
+  invoiceId: number
+  clientId:  number
+  projectId: number | null
+  retainerId: number | null
+  date:     string
+  gross:    number
+  fee:      number
+  refunded: number
+  paymentId: number | null
+  method:   string
+}
+
 export interface BusinessData {
   clients:   (typeof businessClients.$inferSelect)[]
   projects:  (typeof businessProjects.$inferSelect)[]
+  /** Every invoice that counts. Void ones are left out here, once, so no figure can include them. */
   invoices:  Invoice[]
+  /** Including void, for the screens that list them. Never for a figure. */
+  allInvoices: Invoice[]
+  receipts:  Receipt[]
+  /** Money applied to each invoice so far. */
+  applied:   Map<number, number>
   retainers: Retainer[]
   changes:   (typeof businessRetainerChanges.$inferSelect)[]
   services:  (typeof businessServices.$inferSelect)[]
@@ -64,7 +89,7 @@ export function invalidateBusinessData(): void { cache = null }
 export async function loadBusinessData(): Promise<BusinessData> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.data
 
-  const [clients, projects, invoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments] =
+  const [clients, projects, allInvoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments, allocations] =
     await Promise.all([
       db.select().from(businessClients),
       db.select().from(businessProjects),
@@ -79,9 +104,25 @@ export async function loadBusinessData(): Promise<BusinessData> {
       db.select().from(businessOwnerDraws),
       db.select().from(marketingSpendDaily),
       db.select().from(stripePayments),
+      db.select().from(businessPaymentAllocations),
     ])
 
-  const data = { clients, projects, invoices, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments }
+  const invoices = allInvoices.filter(i => i.status !== 'void')
+  const byId = new Map(invoices.map(i => [i.id, i]))
+  const receipts: Receipt[] = []
+  const applied = new Map<number, number>()
+  for (const a of allocations) {
+    const inv = byId.get(a.invoiceId)
+    if (!inv) continue
+    applied.set(inv.id, (applied.get(inv.id) ?? 0) + a.amount)
+    receipts.push({
+      invoiceId: inv.id, clientId: inv.clientId, projectId: inv.projectId, retainerId: inv.retainerId,
+      date: a.date, gross: a.amount, fee: a.fee, refunded: a.refunded,
+      paymentId: a.paymentId, method: a.method,
+    })
+  }
+
+  const data = { clients, projects, invoices, allInvoices, receipts, applied, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments }
   cache = { data, at: Date.now() }
   return data
 }
@@ -113,13 +154,16 @@ function inRange(date: string | null, r: Range): boolean {
   return true
 }
 
-/** The date a payment is recognised on - paidDate where known, else issueDate. */
-const cashDate = (i: Invoice) => i.paidDate ?? i.issueDate
-
 // ─── Invoice money ────────────────────────────────────────────────────────────
 
 export const grossOf = (i: Invoice) => i.amount
 export const netOf   = (i: Invoice) => i.amount - (i.feeAmount ?? 0) - (i.refundedAmount ?? 0)
+const receiptNet = (r: Receipt) => r.gross - r.fee - r.refunded
+
+/** What an invoice still has owing on it, after every instalment. */
+export function owedOn(d: BusinessData, i: Invoice): number {
+  return round2(Math.max(i.amount - (d.applied.get(i.id) ?? 0), 0))
+}
 
 // ─── MRR ──────────────────────────────────────────────────────────────────────
 
@@ -142,7 +186,9 @@ export function toMonthly(amount: number, frequency: string): number {
 export function retainerMrrOn(r: Retainer, date: string, changes: typeof businessRetainerChanges.$inferSelect[]): number {
   if (r.startDate > date) return 0
   if (r.endDate && r.endDate <= date) return 0
-  if (r.status === 'paused') return 0
+  // Paused from the day it was paused. One paused before that date was
+  // recorded has no known start, so it reads as paused throughout, as before.
+  if (r.status === 'paused' && (!r.pausedAt || r.pausedAt <= date)) return 0
   // A cancelled retainer with no end date would otherwise bill forever.
   if (r.status === 'cancelled' && (!r.cancelledAt || r.cancelledAt <= date)) return 0
 
@@ -239,6 +285,10 @@ export function mrrMovement(d: BusinessData, months = 12, to = localToday()) {
       if (c.effectiveDate < start || c.effectiveDate > end) continue
       const r = d.retainers.find(x => x.id === c.retainerId)
       if (!r) continue
+      // A change on the day it started is the starting price, already in `new`.
+      if (c.effectiveDate <= r.startDate) continue
+      // Nor does a change move MRR on a retainer that had already stopped.
+      if (retainerMrrOn(r, c.effectiveDate, d.changes) === 0) continue
       const delta = toMonthly(c.newAmount, r.frequency) - toMonthly(c.oldAmount, r.frequency)
       if (delta > 0) expansion += delta
       else contraction += -delta
@@ -295,31 +345,31 @@ export function churn(d: BusinessData, months = 12, to = localToday()) {
 // ─── Volume ───────────────────────────────────────────────────────────────────
 
 export function volume(d: BusinessData, r: Range, months = 12, to = localToday()) {
-  const paid = d.invoices.filter(i => i.status === 'paid')
-  const inR  = paid.filter(i => inRange(cashDate(i), r))
+  // Cash is what arrived, when it arrived: one receipt per instalment.
+  const inR  = d.receipts.filter(x => inRange(x.date, r))
 
-  const gross   = inR.reduce((s, i) => s + grossOf(i), 0)
-  const fees    = inR.reduce((s, i) => s + (i.feeAmount ?? 0), 0)
-  const refunds = inR.reduce((s, i) => s + (i.refundedAmount ?? 0), 0)
+  const gross   = inR.reduce((s, x) => s + x.gross, 0)
+  const fees    = inR.reduce((s, x) => s + x.fee, 0)
+  const refunds = inR.reduce((s, x) => s + x.refunded, 0)
 
   // Outstanding and draft are deliberately NOT range-scoped: "what is owed"
   // is a fact about right now, not about the period being viewed. Everything
   // else in this function follows `r`.
   const openInvoices = d.invoices.filter(i => ['unpaid', 'overdue', 'draft'].includes(i.status))
-  const outstanding  = openInvoices.filter(i => i.status !== 'draft').reduce((s, i) => s + grossOf(i), 0)
+  const outstanding  = openInvoices.filter(i => i.status !== 'draft').reduce((s, i) => s + owedOn(d, i), 0)
 
   const keys = monthSpan(months, to)
   const byMonth = keys.map(key => {
-    const rows = paid.filter(i => monthKey(cashDate(i)) === key)
-    const retainerRows = rows.filter(i => i.retainerId)
-    const oneOffRows   = rows.filter(i => !i.retainerId)
+    const rows = d.receipts.filter(x => monthKey(x.date) === key)
+    const retainerRows = rows.filter(x => x.retainerId)
+    const oneOffRows   = rows.filter(x => !x.retainerId)
     return {
       month:    key,
-      gross:    round2(rows.reduce((s, i) => s + grossOf(i), 0)),
-      net:      round2(rows.reduce((s, i) => s + netOf(i), 0)),
-      retainer: round2(retainerRows.reduce((s, i) => s + netOf(i), 0)),
-      oneOff:   round2(oneOffRows.reduce((s, i) => s + netOf(i), 0)),
-      count:    rows.length,
+      gross:    round2(rows.reduce((s, x) => s + x.gross, 0)),
+      net:      round2(rows.reduce((s, x) => s + receiptNet(x), 0)),
+      retainer: round2(retainerRows.reduce((s, x) => s + receiptNet(x), 0)),
+      oneOff:   round2(oneOffRows.reduce((s, x) => s + receiptNet(x), 0)),
+      count:    new Set(rows.map(x => x.invoiceId)).size,
     }
   })
 
@@ -330,7 +380,7 @@ export function volume(d: BusinessData, r: Range, months = 12, to = localToday()
     net:         round2(gross - fees - refunds),
     outstanding: round2(outstanding),
     draft:       round2(openInvoices.filter(i => i.status === 'draft').reduce((s, i) => s + grossOf(i), 0)),
-    invoiceCount: inR.length,
+    invoiceCount: new Set(inR.map(x => x.invoiceId)).size,
     byMonth,
   }
 }
@@ -553,7 +603,7 @@ export function arAging(d: BusinessData, today = localToday()) {
   const bucket = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 }
   for (const i of open) {
     const overdueBy = days(i.dueDate)
-    const amt = grossOf(i)
+    const amt = owedOn(d, i)
     if (overdueBy <= 0)      bucket.current += amt
     else if (overdueBy <= 30) bucket.d1_30 += amt
     else if (overdueBy <= 60) bucket.d31_60 += amt
@@ -567,7 +617,7 @@ export function arAging(d: BusinessData, today = localToday()) {
     d31_60:   round2(bucket.d31_60),
     d61_90:   round2(bucket.d61_90),
     d90plus:  round2(bucket.d90plus),
-    total:    round2(open.reduce((s, i) => s + grossOf(i), 0)),
+    total:    round2(open.reduce((s, i) => s + owedOn(d, i), 0)),
     count:    open.length,
     overdueCount: open.filter(i => days(i.dueDate) > 0).length,
   }
@@ -579,8 +629,9 @@ export function arAging(d: BusinessData, today = localToday()) {
 export function clientEconomics(d: BusinessData, clientId: number, on = localToday()) {
   const invoices = d.invoices.filter(i => i.clientId === clientId)
   const paid     = invoices.filter(i => i.status === 'paid')
-  const revenue  = paid.reduce((s, i) => s + netOf(i), 0)
-  const grossRev = paid.reduce((s, i) => s + grossOf(i), 0)
+  const received = d.receipts.filter(x => x.clientId === clientId)
+  const revenue  = received.reduce((s, x) => s + receiptNet(x), 0)
+  const grossRev = received.reduce((s, x) => s + x.gross, 0)
   const costs    = d.expenses.filter(e => isBusinessExpense(e) && e.clientId === clientId).reduce((s, e) => s + e.amount, 0)
   const retainers = d.retainers.filter(r => r.clientId === clientId)
   const activeRet = retainers.filter(r => r.status === 'active' && (!r.endDate || r.endDate > on))
@@ -590,7 +641,7 @@ export function clientEconomics(d: BusinessData, clientId: number, on = localTod
   const since    = client?.wonDate ?? paid.map(i => i.issueDate).sort()[0] ?? null
   const tenureMo = since ? round2((Date.parse(on) - Date.parse(since)) / (86_400_000 * 30.44)) : 0
 
-  const outstanding = invoices.filter(i => ['unpaid', 'overdue'].includes(i.status)).reduce((s, i) => s + grossOf(i), 0)
+  const outstanding = invoices.filter(i => ['unpaid', 'overdue'].includes(i.status)).reduce((s, i) => s + owedOn(d, i), 0)
 
   // Agreed project value this client has never been invoiced for.
   const unbilled = unbilledProjects(d)
@@ -615,7 +666,7 @@ export function clientEconomics(d: BusinessData, clientId: number, on = localTod
     lastInvoiceDate: invoices.map(i => i.issueDate).sort().at(-1) ?? null,
     /** Net revenue per month for a sparkline - last 12 months. */
     spark: monthSpan(12, on).map(k =>
-      round2(paid.filter(i => monthKey(cashDate(i)) === k).reduce((s, i) => s + netOf(i), 0))),
+      round2(received.filter(x => monthKey(x.date) === k).reduce((s, x) => s + receiptNet(x), 0))),
   }
 }
 
@@ -667,7 +718,7 @@ export function deliveryStats(d: BusinessData) {
   const launchedHours  = launched.map(p => hoursByProject(p.id)).filter(h => h > 0)
 
   const collectedByProject = (id: number) =>
-    d.invoices.filter(i => i.status === 'paid' && i.projectId === id).reduce((s, i) => s + netOf(i), 0)
+    d.receipts.filter(x => x.projectId === id).reduce((s, x) => s + receiptNet(x), 0)
 
   const totalHours = d.time.reduce((s, t) => s + t.hours, 0)
 
@@ -676,9 +727,9 @@ export function deliveryStats(d: BusinessData) {
   // that were never invoiced) understates it.
   const billedProjects   = new Set(d.projects.filter(p => hoursByProject(p.id) > 0).map(p => p.id))
   const ratedHours       = d.time.filter(t => billedProjects.has(t.projectId)).reduce((s, t) => s + t.hours, 0)
-  const ratedCollected   = d.invoices
-    .filter(i => i.status === 'paid' && i.projectId && billedProjects.has(i.projectId))
-    .reduce((s, i) => s + netOf(i), 0)
+  const ratedCollected   = d.receipts
+    .filter(x => x.projectId && billedProjects.has(x.projectId))
+    .reduce((s, x) => s + receiptNet(x), 0)
 
   const onTime = launched.filter(p => p.dueDate && p.launchedDate && p.launchedDate <= p.dueDate).length
   const withDue = launched.filter(p => p.dueDate && p.launchedDate).length
@@ -716,7 +767,9 @@ export function cohorts(d: BusinessData, months = 12, to = localToday()) {
       if (k2 < key) return null
       const end = monthEnd(k2)
       if (end > to) return null
-      const alive = cohort.filter(r => r.startDate <= end && (!r.endDate || r.endDate > end) && r.status !== 'cancelled').length
+      // By end date, not by status: cancelling today must not erase the months it was live.
+      const stop = (r: Retainer) => r.endDate ?? (r.status === 'cancelled' ? r.cancelledAt : null)
+      const alive = cohort.filter(r => { const e = stop(r); return r.startDate <= end && (!e || e > end) }).length
       return round2((alive / cohort.length) * 100)
     }).filter((_, idx) => keys[idx] >= key)
     return { cohort: key, size: cohort.length, retention }
@@ -732,6 +785,8 @@ export function cohorts(d: BusinessData, months = 12, to = localToday()) {
  */
 export function unbilledProjects(d: BusinessData) {
   return d.projects
+    // A cancelled job is not owed anything, however much of it was never billed.
+    .filter(p => p.status !== 'cancelled')
     .map(p => {
       const invoiced = d.invoices
         .filter(i => i.projectId === p.id && i.status !== 'draft')
@@ -804,13 +859,13 @@ export function actionQueue(d: BusinessData, today = localToday()) {
     .filter(i => ['unpaid', 'overdue'].includes(i.status) && i.dueDate < today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .map(i => ({
-      id: i.id, invoiceNumber: i.invoiceNumber, clientId: i.clientId, amount: grossOf(i),
+      id: i.id, invoiceNumber: i.invoiceNumber, clientId: i.clientId, amount: owedOn(d, i),
       dueDate: i.dueDate, daysOverdue: Math.floor((Date.parse(today) - Date.parse(i.dueDate)) / 86_400_000),
     }))
 
   const dueSoon = d.invoices
     .filter(i => ['unpaid', 'overdue'].includes(i.status) && i.dueDate >= today && i.dueDate <= in7)
-    .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, clientId: i.clientId, amount: grossOf(i), dueDate: i.dueDate }))
+    .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, clientId: i.clientId, amount: owedOn(d, i), dueDate: i.dueDate }))
 
   const draftInvoices = d.invoices
     .filter(i => i.status === 'draft')
@@ -1018,7 +1073,7 @@ export async function businessDashboardSummary(today = localToday()) {
     activeProjects: d.projects.filter(p2 => p2.status === 'active').length,
     nextDue: nextDue && {
       invoiceNumber: nextDue.invoiceNumber,
-      amount:        grossOf(nextDue),
+      amount:        owedOn(d, nextDue),
       dueDate:       nextDue.dueDate,
       clientName:    d.clients.find(c => c.id === nextDue.clientId)?.name ?? null,
     },
@@ -1027,7 +1082,7 @@ export async function businessDashboardSummary(today = localToday()) {
 
 // ─── Home screen ──────────────────────────────────────────────────────────────
 
-export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign'
+export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void'
 
 export interface NeedRow {
   key: string
@@ -1073,11 +1128,15 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
 
   for (const i of d.invoices) {
     if (i.status === 'draft') {
+      // A draft for a retainer that has stopped is not waiting to be sent, it
+      // is waiting to be cancelled.
+      const r = i.retainerId ? d.retainers.find(x => x.id === i.retainerId) : null
+      const stopped = !!r && r.status !== 'active'
       rows.push({
-        key: `draft-${i.id}`, action: 'send', invoiceId: i.id,
+        key: `draft-${i.id}`, action: stopped ? 'void' : 'send', invoiceId: i.id,
         clientId: i.clientId, clientName: clientName(i.clientId),
         what: describe(i), amount: grossOf(i),
-        detail: 'not sent yet', rank: 300,
+        detail: stopped ? `retainer ${r!.status}` : 'not sent yet', rank: 300,
       })
       continue
     }
@@ -1088,7 +1147,7 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
       rows.push({
         key: `overdue-${i.id}`, action: 'paid', invoiceId: i.id,
         clientId: i.clientId, clientName: clientName(i.clientId),
-        what: describe(i), amount: grossOf(i),
+        what: describe(i), amount: owedOn(d, i),
         detail: `${overdueBy} day${overdueBy === 1 ? '' : 's'} overdue`,
         rank: 100 - Math.min(overdueBy, 99),
       })
@@ -1096,7 +1155,7 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
       rows.push({
         key: `due-${i.id}`, action: 'paid', invoiceId: i.id,
         clientId: i.clientId, clientName: clientName(i.clientId),
-        what: describe(i), amount: grossOf(i),
+        what: describe(i), amount: owedOn(d, i),
         detail: overdueBy === 0 ? 'due today' : `due in ${-overdueBy} days`,
         rank: 200 + -overdueBy,
       })
@@ -1155,13 +1214,20 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
   // subscription with no retainer is invisible to all of them. It happened with
   // a GBP 149/mo client who paid on time and sat outside MRR entirely, and the
   // only reason it was caught was the payment queue behaving oddly.
-  const seenSubs = new Set<string>()
+  // Newest charge per subscription: an old one says nothing about now.
+  const latestBySub = new Map<string, (typeof d.payments)[number]>()
   for (const p of d.payments) {
-    if (!p.subscriptionId || p.ignored || seenSubs.has(p.subscriptionId)) continue
-    seenSubs.add(p.subscriptionId)
-
+    if (!p.subscriptionId || p.ignored || !p.matchedAt) continue
+    const prev = latestBySub.get(p.subscriptionId)
+    if (!prev || p.paidDate > prev.paidDate) latestBySub.set(p.subscriptionId, p)
+  }
+  for (const p of latestBySub.values()) {
     const clientId = p.matchedClientId
     if (!clientId) continue                       // still in the payment queue, which says this already
+    // Only a subscription still being charged, for a client still with us.
+    const interval = p.planIntervalDays ?? 30
+    if (days(p.paidDate, today) > interval * 1.5) continue
+    if (d.clients.find(c => c.id === clientId)?.status === 'churned') continue
 
     const plan = p.planAmount ?? p.amountGross
     const covered = d.retainers.some(r =>
@@ -1171,7 +1237,7 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
     if (covered) continue
 
     rows.push({
-      key: `sub-${p.subscriptionId}`, action: 'setup',
+      key: `sub-${p.subscriptionId!}`, action: 'setup',
       clientId, clientName: clientName(clientId),
       what: 'paying monthly in Stripe, no retainer here',
       amount: plan,

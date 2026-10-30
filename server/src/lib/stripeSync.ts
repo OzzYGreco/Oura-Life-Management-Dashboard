@@ -26,9 +26,10 @@
  *   STRIPE_SECRET_KEY=rk_live_...
  */
 import { db } from '../db'
-import { stripePayments, businessInvoices, businessClients } from '../db/schema'
+import { stripePayments, businessInvoices, businessClients, businessPaymentAllocations } from '../db/schema'
 import { eq, and, isNull, sql } from 'drizzle-orm'
 import { localToday } from './date'
+import { applyPayment, defaultSplits, learnCustomerTx, allocationsFor, round2 as r2, type Tx } from './payments'
 
 const API = 'https://api.stripe.com/v1'
 
@@ -295,8 +296,55 @@ export async function fetchCharges(sinceUnix: number): Promise<FetchedCharge[]> 
 export interface MatchResult {
   clientId: number | null
   invoiceId: number | null
+  /** Set when one payment plainly settled several invoices together. */
+  invoiceIds?: number[]
   confidence: Confidence
   reason: string
+}
+
+/**
+ * Of a client's open invoices, the one set of 2 to 4 that adds up to the payment.
+ *
+ * This is the Rivera case: a website billed as a deposit, a presentation and a
+ * launch, with the last two paid in one go. No single invoice matches, so before
+ * this the payment sat in the queue and was easy to settle the wrong way.
+ *
+ * Kept narrow on purpose. Only invoices that have been SENT count, since a
+ * client cannot be paying a draft they have never seen; the set has to include
+ * their oldest open invoice, because people pay what they owe in order; and it
+ * has to be the only set that fits, or it is a guess.
+ */
+export function subsetFor(
+  gross: number,
+  open: { id: number; issueDate: string; remaining: number }[],
+): number[] | null {
+  const pool = [...open].sort((a, b) => a.issueDate.localeCompare(b.issueDate) || a.id - b.id)
+  if (pool.length < 2) return null
+  const hits = subsetsFor(gross, pool, 2)
+  if (hits.length !== 1) return null
+  return hits[0].includes(pool[0].id) ? hits[0] : null
+}
+
+/**
+ * Every set of 2 to 4 invoices whose remaining amounts add up to the payment to
+ * the penny, fewest invoices first. The picker offers these as one-click
+ * choices; the auto-matcher above uses it only when there is exactly one.
+ */
+export function subsetsFor(
+  gross: number,
+  open: { id: number; issueDate: string; remaining: number }[],
+  limit = 4,
+): number[][] {
+  const pool = [...open].sort((a, b) => a.issueDate.localeCompare(b.issueDate) || a.id - b.id).slice(0, 12)
+  const hits: number[][] = []
+  const walk = (start: number, picked: typeof pool, sum: number) => {
+    if (hits.length >= limit) return
+    if (picked.length >= 2 && Math.abs(sum - gross) < 0.006) hits.push(picked.map(x => x.id))
+    if (picked.length === 4) return
+    for (let i = start; i < pool.length; i++) walk(i + 1, [...picked, pool[i]], sum + pool[i].remaining)
+  }
+  walk(0, [], 0)
+  return hits.sort((a, b) => a.length - b.length)
 }
 
 /** Strip everything that varies between how a name is typed and how it is stored. */
@@ -348,14 +396,18 @@ export function matchCharge(
    *  marked paid still needs matching, because that is how the real fee gets
    *  onto history instead of staying at zero. */
   invoices: (typeof businessInvoices.$inferSelect)[],
-  /** Invoices a payment is already attached to. One payment, one invoice. */
+  /** Invoices Stripe money already covers in full. */
   taken: Set<number> = new Set(),
+  /** What each invoice still owes after Stripe money already on it. */
+  owed: Map<number, number> = new Map(),
 ): MatchResult {
   const none: MatchResult = { clientId: null, invoiceId: null, confidence: 'none', reason: 'Nothing to go on' }
 
-  const available = invoices.filter(i => !taken.has(i.id))
+  // A void invoice is never something a payment settles.
+  const available = invoices.filter(i => !taken.has(i.id) && i.status !== 'void')
   const isOpen = (i: typeof businessInvoices.$inferSelect) => i.status === 'unpaid' || i.status === 'draft'
-  const sameAmount = (i: typeof businessInvoices.$inferSelect) => Math.abs(i.amount - charge.gross) < 0.01
+  const left = (i: typeof businessInvoices.$inferSelect) => owed.get(i.id) ?? i.amount
+  const sameAmount = (i: typeof businessInvoices.$inferSelect) => Math.abs(left(i) - charge.gross) < 0.006
 
   /**
    * Of this client's invoices, the one this payment plainly settled.
@@ -371,7 +423,7 @@ export function matchCharge(
    */
   const FUTURE_GRACE_DAYS = 10
 
-  const invoiceFor = (clientId: number): { id: number | null; why: string; solid: boolean } => {
+  const invoiceFor = (clientId: number): { id: number | null; ids?: number[]; why: string; solid: boolean } => {
     const theirs = available.filter(i => i.clientId === clientId)
     if (!theirs.length) return { id: null, why: 'no invoice of theirs left to match', solid: false }
 
@@ -402,6 +454,16 @@ export function matchCharge(
       return { id: best.id, why: `matches an invoice from ${Math.round(gap)} days away`, solid: false }
     }
 
+    // Several sent invoices that add up to it, settled together.
+    const sent = plausible.filter(i => i.status === 'unpaid')
+      .map(i => ({ id: i.id, issueDate: i.issueDate, remaining: left(i) }))
+      .filter(i => i.remaining > 0.005)
+    const set = subsetFor(charge.gross, sent)
+    if (set) {
+      const numbers = set.map(id => theirs.find(i => i.id === id)!.invoiceNumber).join(' + ')
+      return { id: set[0], ids: set, why: `together settles ${numbers}`, solid: true }
+    }
+
     const open = plausible.filter(isOpen)
     if (open.length === 1) return { id: open[0].id, why: 'their only open invoice, but the amount differs', solid: false }
     return { id: null, why: 'nothing of theirs matches this amount', solid: false }
@@ -412,6 +474,14 @@ export function matchCharge(
   // 1. Our own id, stamped when the app created the payment link.
   if (charge.ourInvoiceId) {
     const inv = invoices.find(i => i.id === charge.ourInvoiceId)
+    // A payment link for an invoice that has since been voided, e.g. from a
+    // client who left, is money to look at, not to apply.
+    if (inv?.status === 'void') {
+      return {
+        clientId: inv.clientId, invoiceId: null, confidence: 'low',
+        reason: `Paid through the link for ${inv.invoiceNumber}, which is void`,
+      }
+    }
     return {
       clientId: inv?.clientId ?? null,
       invoiceId: charge.ourInvoiceId,
@@ -429,6 +499,7 @@ export function matchCharge(
       return {
         clientId: client.id,
         invoiceId: inv.id,
+        invoiceIds: inv.ids,
         confidence: inv.solid ? 'exact' : 'low',
         reason: `Known Stripe customer, ${inv.why}`,
       }
@@ -444,6 +515,7 @@ export function matchCharge(
       return {
         clientId: client.id,
         invoiceId: inv.id,
+        invoiceIds: inv.ids,
         confidence: inv.solid ? 'high' : 'low',
         reason: `Email matches ${client.name}, ${inv.why}`,
       }
@@ -457,8 +529,10 @@ export function matchCharge(
     return {
       clientId: client.id,
       invoiceId: inv.id,
+      invoiceIds: inv.ids,
       // A name plus an exact amount on one of their own invoices is enough.
-      confidence: inv.solid ? 'high' : 'low',
+      // A set of invoices on a name alone is not: names overlap too easily.
+      confidence: inv.solid && !inv.ids ? 'high' : 'low',
       reason: `Payer name matches ${client.name}, ${inv.why}`,
     }
   }
@@ -495,63 +569,38 @@ export function matchCharge(
 // ─── Sync ─────────────────────────────────────────────────────────────────────
 
 /**
- * Write the fee and the paid date onto the invoice or invoices this payment
- * settled.
- *
- * Where one payment covered several, the fee is split in proportion to their
- * amounts, with the last one absorbing the rounding so the parts always sum to
- * exactly what Stripe charged.
+ * A subscription charge is Stripe billing the plan's price for the period, so
+ * when it settles one invoice it IS what that period cost. The invoice may have
+ * been raised before a price change reached the retainer (raised at the old
+ * price, collected at the new one), and keeping it books the wrong money. Only
+ * for subscriptions, and only on an invoice with no other money on it: a
+ * one-off paying less than its invoice may be a part payment, and rewriting the
+ * amount there would erase what is still owed.
  */
-export async function applyPaymentToInvoice(paymentId: number): Promise<void> {
-  const [p] = await db.select().from(stripePayments).where(eq(stripePayments.id, paymentId))
-  if (!p) return
+export function restateForSubscription(tx: Tx, paymentId: number, invoiceIds: number[]): void {
+  const p = tx.select().from(stripePayments).where(eq(stripePayments.id, paymentId)).get()
+  if (!p?.subscriptionId || invoiceIds.length !== 1) return
+  const inv = tx.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceIds[0])).get()
+  if (!inv || r2(inv.amount) === r2(p.amountGross)) return
+  if (allocationsFor(tx, inv.id).some(a => a.paymentId)) return
+  tx.update(businessInvoices).set({ amount: p.amountGross, subtotal: p.amountGross })
+    .where(eq(businessInvoices.id, inv.id)).run()
+}
 
-  const ids: number[] = p.coversInvoiceIds
-    ? JSON.parse(p.coversInvoiceIds)
-    : p.matchedInvoiceId ? [p.matchedInvoiceId] : []
-  if (!ids.length) return
-
-  const invoices = (await db.select().from(businessInvoices))
-    .filter(i => ids.includes(i.id))
-  if (!invoices.length) return
-
-  // A subscription charge is Stripe billing the plan's price for the period, so
-  // when it settles one invoice it IS what that period cost. The invoice may
-  // have been raised before a price change reached the retainer (raised at the
-  // old price, collected at the new one), and keeping it books the wrong money.
-  // Only for subscriptions: a one-off paying less than its invoice may be a
-  // part payment, and rewriting the amount there would erase what is still owed.
-  const restate = p.subscriptionId && invoices.length === 1
-    && round2(invoices[0].amount) !== round2(p.amountGross)
-  if (restate) {
-    await db.update(businessInvoices)
-      .set({ amount: p.amountGross, subtotal: p.amountGross })
-      .where(eq(businessInvoices.id, invoices[0].id))
-    invoices[0].amount = p.amountGross
+/** Invoices Stripe money already covers in full, and what the rest still owe. */
+export function stripeCoverage(tx: Tx = db) {
+  const invoices = tx.select({ id: businessInvoices.id, amount: businessInvoices.amount }).from(businessInvoices).all()
+  const allocs = tx.select().from(businessPaymentAllocations).where(sql`${businessPaymentAllocations.paymentId} is not null`).all()
+  const paid = new Map<number, number>()
+  for (const a of allocs) paid.set(a.invoiceId, (paid.get(a.invoiceId) ?? 0) + a.amount)
+  const owed = new Map<number, number>()
+  const taken = new Set<number>()
+  for (const i of invoices) {
+    const left = r2(Math.max(i.amount - (paid.get(i.id) ?? 0), 0))
+    owed.set(i.id, left)
+    if (left <= 0.005 && paid.has(i.id)) taken.add(i.id)
   }
-
-  const total = invoices.reduce((s2, i) => s2 + i.amount, 0)
-  let allocatedFee = 0
-  let allocatedRefund = 0
-
-  for (let idx = 0; idx < invoices.length; idx++) {
-    const inv = invoices[idx]
-    const isLast = idx === invoices.length - 1
-    const share = total > 0 ? inv.amount / total : 1 / invoices.length
-    // The last share absorbs the rounding, so the parts sum to the fee exactly.
-    const fee = isLast ? round2(p.fee - allocatedFee) : round2(p.fee * share)
-    const refund = isLast ? round2(p.refunded - allocatedRefund) : round2(p.refunded * share)
-    allocatedFee = round2(allocatedFee + fee)
-    allocatedRefund = round2(allocatedRefund + refund)
-
-    await db.update(businessInvoices)
-      .set({
-        status: 'paid', paidDate: p.paidDate,
-        feeAmount: fee, refundedAmount: refund,
-        paymentMethod: 'stripe',
-      })
-      .where(eq(businessInvoices.id, inv.id))
-  }
+  return { owed, taken }
 }
 
 export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncResult> {
@@ -569,14 +618,11 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
   let autoApplied = 0
   let queued = 0
 
-  // Invoices a payment already points at. Rebuilt per charge below as matches
-  // are made, so two payments can never claim the same invoice.
-  const takenRows = await db.select({ id: stripePayments.matchedInvoiceId })
-    .from(stripePayments).where(sql`${stripePayments.matchedInvoiceId} is not null`)
-  const taken = new Set<number>(takenRows.map(r => r.id!).filter(Boolean))
-
   for (const c of charges) {
     const allInvoices = await db.select().from(businessInvoices)
+    // Rebuilt per charge, from what money is actually on each invoice, so two
+    // payments can never claim the same invoice and a part-paid one stays open.
+    const { owed, taken } = stripeCoverage()
 
     const [existing] = await db.select().from(stripePayments)
       .where(eq(stripePayments.stripeId, c.stripeId))
@@ -590,7 +636,6 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
     // client, confidence and reason all reverted, and the payment reappeared in
     // the queue as though the user had never touched it. Only the money fields
     // are refreshed below, because Stripe can still restate a fee or a refund.
-    if (existing?.matchedInvoiceId) taken.add(existing.matchedInvoiceId)
     if (existing?.matchedAt || existing?.ignored) {
       await db.update(stripePayments)
         .set({
@@ -607,8 +652,10 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
       continue
     }
 
-    const m = matchCharge(c, clients, allInvoices, taken)
-    const auto = m.confidence === 'exact' || m.confidence === 'high'
+    const m = matchCharge(c, clients, allInvoices, taken, owed)
+    // A payment moved by hand is only ever suggested again, never re-applied:
+    // otherwise the next sync would undo the move.
+    const auto = (m.confidence === 'exact' || m.confidence === 'high') && !existing?.releasedAt
 
     const values = {
       stripeId: c.stripeId,
@@ -625,11 +672,12 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
       payerEmail: c.payerEmail,
       description: c.description,
       status: c.status,
-      matchedClientId: auto ? m.clientId : null,
-      matchedInvoiceId: auto && m.invoiceId ? m.invoiceId : null,
+      // A suggestion only. applyPayment writes the decision if it is applied.
+      matchedClientId: m.clientId,
+      matchedInvoiceId: null,
       confidence: m.confidence,
       matchReason: m.reason,
-      matchedAt: auto && m.invoiceId ? now : null,
+      matchedAt: null,
       subscriptionId:   c.plan?.subscriptionId ?? null,
       billingReason:    c.plan?.billingReason ?? null,
       planAmount:       c.plan?.amount ?? null,
@@ -644,15 +692,26 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
 
     if (!existing) created++
 
+    let applied = false
     if (auto && m.invoiceId) {
-      taken.add(m.invoiceId)
-      await applyPaymentToInvoice(row.id)
-      // Remember the customer, so this client is never ambiguous again.
-      if (m.clientId && c.customerId) await learnCustomer(m.clientId, c.customerId)
-      autoApplied++
-    } else {
-      queued++
+      const ids = m.invoiceIds ?? [m.invoiceId]
+      try {
+        db.transaction(tx => {
+          restateForSubscription(tx, row.id, ids)
+          applyPayment(tx, row.id, defaultSplits(tx, c.gross, ids), {
+            reason: m.reason, confidence: m.confidence, clientId: m.clientId,
+          })
+          // Remember the customer, so this client is never ambiguous again.
+          if (m.clientId && c.customerId) learnCustomerTx(tx, m.clientId, c.customerId)
+        })
+        applied = true
+      } catch (e: any) {
+        // Anything the allocation rules refuse is left for a person to decide.
+        console.warn(`[stripe] left ${c.stripeId} in the queue: ${e?.message ?? e}`)
+      }
     }
+    if (applied) autoApplied++
+    else queued++
   }
 
   const parts = [`${charges.length} payment(s) read`, `${autoApplied} applied`, `${queued} to assign`]
@@ -668,11 +727,7 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
 
 /** Tie a Stripe customer to a client, so future payments are certain. */
 export async function learnCustomer(clientId: number, stripeCustomerId: string): Promise<void> {
-  const [client] = await db.select().from(businessClients).where(eq(businessClients.id, clientId))
-  if (!client || client.stripeCustomerId === stripeCustomerId) return
-  await db.update(businessClients)
-    .set({ stripeCustomerId })
-    .where(eq(businessClients.id, clientId))
+  learnCustomerTx(db, clientId, stripeCustomerId)
 }
 
 /** Payments still waiting on a decision, newest first. */

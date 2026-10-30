@@ -13,10 +13,18 @@
  */
 import Database from 'better-sqlite3'
 import path from 'path'
+import { drizzle } from 'drizzle-orm/better-sqlite3'
+import * as schema from '../src/db/schema'
+import {
+  recordManualPayment, removeAllocation, voidInvoice, restoreInvoice, releasePayment, applyPayment, defaultSplits,
+  type Tx,
+} from '../src/lib/payments'
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'dashboard.db')
+const DB_PATH = process.env.OURA_DB_PATH ? path.resolve(process.env.OURA_DB_PATH) : path.join(__dirname, '..', 'data', 'dashboard.db')
 const db = new Database(DB_PATH)
 db.pragma('foreign_keys = ON')
+/** The app's own money code, run on THIS connection so the savepoint rolls it back too. */
+const app = drizzle(db, { schema }) as unknown as Tx
 
 let passed = 0, failed = 0
 const failures: string[] = []
@@ -285,6 +293,78 @@ function main() {
     const rows = q('select spend from marketing_spend_daily where campaign_id=? and date=?', c.id, '2026-09-14')
     check('the second entry corrects the first rather than adding to it', rows.length === 1 && rows[0].spend === 25,
       `${rows.length} rows, values ${rows.map(r => r.spend).join(',')}`)
+  })
+
+  // ── 16. Instalments ─────────────────────────────────────────────────────
+  const receivedIn = (month: string) => round2(one<{ v: number }>(
+    "select coalesce(sum(amount),0) v from business_payment_allocations where substr(date,1,7)=?", month).v)
+  const simInvoice = (amount: number, status = 'unpaid') => {
+    const client = one<{ id: number }>('select id from business_clients limit 1')
+    const info = run(`insert into business_invoices (client_id, invoice_number, amount, subtotal, status, issue_date, due_date)
+      values (?,?,?,?,?,?,?)`, client.id, `SIM-${Math.random().toString(36).slice(2, 8)}`, amount, amount, status, '2026-01-05', '2026-01-12')
+    return Number(info.lastInsertRowid)
+  }
+
+  scenario('An invoice paid in two instalments, in two months', () => {
+    const id = simInvoice(300)
+    const janBefore = receivedIn('2026-01'), febBefore = receivedIn('2026-02')
+    recordManualPayment(app, id, { amount: 100, date: '2026-01-20', method: 'bank' })
+    let inv = one<any>('select status, paid_date from business_invoices where id=?', id)
+    check('a part payment leaves the invoice open', inv.status === 'unpaid', inv.status)
+    check('the first instalment counts in its own month', receivedIn('2026-01') === round2(janBefore + 100))
+    recordManualPayment(app, id, { date: '2026-02-03', method: 'bank' })
+    inv = one<any>('select status, paid_date from business_invoices where id=?', id)
+    check('the second instalment pays it off', inv.status === 'paid', inv.status)
+    check('it is paid on the day the last money arrived', inv.paid_date === '2026-02-03', inv.paid_date)
+    check('the second instalment counts in its own month', receivedIn('2026-02') === round2(febBefore + 200))
+    let threw = false
+    try { recordManualPayment(app, id, { amount: 1, date: '2026-02-04' }) } catch { threw = true }
+    check('money beyond what is owed is refused, not booked', threw)
+  })
+
+  scenario('Removing an instalment re-opens the invoice', () => {
+    const id = simInvoice(120)
+    const a = recordManualPayment(app, id, { amount: 120, date: '2026-01-20' })
+    check('paid in full first', one<any>('select status from business_invoices where id=?', id).status === 'paid')
+    removeAllocation(app, a.id)
+    const inv = one<any>('select status, paid_date, fee_amount from business_invoices where id=?', id)
+    check('back to owed, with no paid date', inv.status === 'unpaid' && inv.paid_date == null, JSON.stringify(inv))
+  })
+
+  // ── 17. Void ────────────────────────────────────────────────────────────
+  scenario('Voiding an invoice a Stripe payment settled', () => {
+    const p = one<any>(`select p.id, p.amount_gross, a.invoice_id from stripe_payments p
+      join business_payment_allocations a on a.payment_id = p.id
+      where (select count(*) from business_payment_allocations x where x.payment_id = p.id) = 1 limit 1`)
+    voidInvoice(app, p.invoice_id, 'simulation', '2026-10-30')
+    const inv = one<any>('select status from business_invoices where id=?', p.invoice_id)
+    const pay = one<any>('select matched_at, released_at from stripe_payments where id=?', p.id)
+    check('the invoice is void', inv.status === 'void')
+    check('its payment goes back to the queue', pay.matched_at == null && pay.released_at != null, JSON.stringify(pay))
+    check('no money stays on the void invoice',
+      one<{ n: number }>('select count(*) n from business_payment_allocations where invoice_id=?', p.invoice_id).n === 0)
+    restoreInvoice(app, p.invoice_id)
+    check('restore brings it back as owed, never as paid with nothing behind it',
+      one<any>('select status from business_invoices where id=?', p.invoice_id).status !== 'paid')
+  })
+
+  // ── 18. One payment, two invoices ───────────────────────────────────────
+  scenario('Moving one Stripe payment onto two invoices', () => {
+    const p = one<any>(`select p.id, p.amount_gross g, p.fee, p.matched_client_id c from stripe_payments p
+      where p.fee > 0 and exists (select 1 from business_payment_allocations a where a.payment_id = p.id) limit 1`)
+    const half = round2(p.g / 2)
+    const a = simInvoice(half), b = simInvoice(round2(p.g - half))
+    releasePayment(app, p.id, [a, b])
+    applyPayment(app, p.id, defaultSplits(app, p.g, [a, b]), { reason: 'Assigned by hand, covering 2 invoices', clientId: p.c })
+    const rows = q<{ fee: number; amount: number }>('select fee, amount from business_payment_allocations where payment_id=?', p.id)
+    check('the payment now sits on both invoices', rows.length === 2)
+    check('the fee splits to the penny', round2(rows.reduce((s, r) => s + r.fee, 0)) === round2(p.fee),
+      `${rows.map(r => r.fee).join(' + ')} vs ${p.fee}`)
+    check('both invoices are paid',
+      q<any>('select status from business_invoices where id in (?,?)', a, b).every(r => r.status === 'paid'))
+    let threw = false
+    try { applyPayment(app, p.id, [{ invoiceId: a, amount: 1 }], { reason: 'again' }) } catch { threw = true }
+    check('a payment cannot be applied twice without being released first', threw)
   })
 
   // ── Summary ─────────────────────────────────────────────────────────────

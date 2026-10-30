@@ -12,6 +12,8 @@ import { generateRetainerInvoices } from '../src/lib/retainerBilling'
 import { db } from '../src/db'
 import { businessInvoices, businessRetainers } from '../src/db/schema'
 import { eq, sql } from 'drizzle-orm'
+import { localToday } from '../src/lib/date'
+import { addDays } from '../src/lib/recurrence'
 
 let passed = 0, failed = 0
 const check = (label: string, ok: boolean, detail = '') => {
@@ -43,10 +45,12 @@ async function main() {
   for (let i = 0; i < 5; i++) await generateRetainerInvoices({ force: true })
   check('five more runs still create nothing', (await count()) === startCount)
 
-  // 2. Make one retainer due and check exactly one invoice appears.
-  const [r] = await db.select().from(businessRetainers).where(sql`status='active'`).limit(1)
+  // 2. Make one monthly retainer due and check exactly one invoice appears.
+  //    Twenty days ago is exactly one monthly period due, whatever today is.
+  const due = addDays(localToday(), -20)
+  const [r] = await db.select().from(businessRetainers).where(sql`status='active' and frequency='monthly'`).limit(1)
   await db.update(businessRetainers)
-    .set({ nextInvoiceDate: '2026-09-01', lastGeneratedDate: '2026-08-01' })
+    .set({ nextInvoiceDate: due, lastGeneratedDate: addDays(due, -30) })
     .where(eq(businessRetainers.id, r.id))
 
   const before = await count()
@@ -57,7 +61,7 @@ async function main() {
 
   const [fresh] = await db.select().from(businessRetainers).where(eq(businessRetainers.id, r.id))
   check('the high-water mark moved past the period just billed',
-    !!fresh.nextInvoiceDate && fresh.nextInvoiceDate > '2026-09-01',
+    !!fresh.nextInvoiceDate && fresh.nextInvoiceDate > due,
     `next is now ${fresh.nextInvoiceDate}`)
 
   // 3. The critical one: running again must not re-issue it.
@@ -65,6 +69,19 @@ async function main() {
   for (let i = 0; i < 5; i++) await generateRetainerInvoices({ force: true })
   check('running five more times does NOT re-issue that month', (await count()) === repeat,
     `${await count()} vs ${repeat}, which would mean double billing`)
+
+  // 3b. Winding the next date back onto a period already billed, which the
+  //     retainer edit form allows, must not bill it again; nor may a voided one.
+  await db.update(businessRetainers).set({ nextInvoiceDate: due }).where(eq(businessRetainers.id, r.id))
+  const rewound = await count()
+  await generateRetainerInvoices({ force: true })
+  check('moving the next date back onto a billed period does not bill it twice', (await count()) === rewound,
+    `${await count()} vs ${rewound}`)
+  await db.update(businessInvoices).set({ status: 'void' })
+    .where(sql`${businessInvoices.retainerId} = ${r.id} and ${businessInvoices.periodStart} = ${due}`)
+  await db.update(businessRetainers).set({ nextInvoiceDate: due }).where(eq(businessRetainers.id, r.id))
+  await generateRetainerInvoices({ force: true })
+  check('a voided period stays voided, it is not re-issued', (await count()) === rewound)
 
   // 4. A cancelled retainer must never bill again.
   await db.update(businessRetainers)

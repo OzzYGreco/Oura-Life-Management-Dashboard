@@ -23,8 +23,9 @@
  */
 import { db } from '../db'
 import { marketingCampaigns, marketingSpendDaily } from '../db/schema'
-import { eq, sql } from 'drizzle-orm'
+import { eq, sql, and, ne } from 'drizzle-orm'
 import { localToday } from './date'
+import { addDays } from './recurrence'
 
 const META_API_VERSION = 'v21.0'
 
@@ -110,7 +111,70 @@ export async function fetchMetaSpend(since: string, until: string): Promise<Dail
     url = body.paging?.next ?? ''
   }
 
+  // Stopping at the page cap with more to come would read the missing days as
+  // zero spend, which is the one failure this module exists to prevent.
+  if (url) throw new Error('Meta: more results than expected; nothing was written so no day reads as zero by mistake')
+
   return rows
+}
+
+/**
+ * What Meta says each campaign is doing right now: ACTIVE, PAUSED, ARCHIVED…
+ *
+ * This is what tells "ads switched off" apart from "sync broken". Meta sends no
+ * row at all for a day with no delivery, so silence alone could be either.
+ */
+export async function fetchMetaCampaignStatus(ids: string[]): Promise<Map<string, string>> {
+  const token = process.env.META_ACCESS_TOKEN
+  if (!token) throw new Error('META_ACCESS_TOKEN is not set')
+  const out = new Map<string, string>()
+  if (!ids.length) return out
+  const params = new URLSearchParams({ ids: ids.join(','), fields: 'effective_status', access_token: token })
+  const res = await fetch(`https://graph.facebook.com/${META_API_VERSION}/?${params}`)
+  const body: any = await res.json()
+  if (!res.ok || body.error) {
+    throw new Error(body?.error?.message ? `Meta: ${body.error.message}` : `Meta returned ${res.status}`)
+  }
+  for (const id of ids) if (body[id]?.effective_status) out.set(id, String(body[id].effective_status))
+  return out
+}
+
+/**
+ * Write £0 for the days a campaign Meta confirms is not running had no spend.
+ *
+ * Without this, switching ads off looked exactly like the sync dying: no rows
+ * arrived, the staleness warning fired, and the only way to quiet it was to type
+ * a zero for every day by hand. Filled only when Meta itself says the campaign
+ * is off, only from the campaign's first real Meta row onwards (so the estimate
+ * for the era before recording is untouched), never over a row that exists, and
+ * never for today, which is not over.
+ */
+export async function fillQuietDays(since: string, until: string): Promise<number> {
+  const linked = (await db.select().from(marketingCampaigns))
+    .filter(c => c.externalSource === 'meta' && c.externalId)
+  if (!linked.length) return 0
+  const status = await fetchMetaCampaignStatus(linked.map(c => c.externalId!))
+
+  let filled = 0
+  for (const c of linked) {
+    const s = status.get(c.externalId!)
+    if (!s || s === 'ACTIVE') continue
+    const [first] = await db.select({ d: sql<string>`min(${marketingSpendDaily.date})` }).from(marketingSpendDaily)
+      .where(and(eq(marketingSpendDaily.campaignId, c.id), eq(marketingSpendDaily.source, 'meta')))
+    if (!first?.d) continue
+
+    let day = [since, first.d, c.startDate].sort().at(-1)!
+    const last = c.endDate && c.endDate < until ? c.endDate : until
+    while (day <= last) {
+      const r = await db.insert(marketingSpendDaily)
+        .values({ campaignId: c.id, date: day, spend: 0, source: 'meta-fill', syncedAt: new Date().toISOString() })
+        .onConflictDoNothing()
+        .run()
+      filled += r.changes
+      day = addDays(day, 1)
+    }
+  }
+  return filled
 }
 
 /**
@@ -167,6 +231,8 @@ export async function applySpendRows(rows: DailySpendRow[], platform: string): P
           source: platform,
           syncedAt: now,
         },
+        // A figure typed in by hand is a deliberate correction; sync leaves it.
+        setWhere: ne(marketingSpendDaily.source, 'manual'),
       })
 
     days++
@@ -219,7 +285,10 @@ export async function syncAdSpend(lookbackDays = 14): Promise<SyncResult[]> {
       // Meta restates recent days as conversions settle, so a trailing window is
       // re-pulled every time rather than only yesterday.
       const rows = await fetchMetaSpend(daysAgo(lookbackDays), localToday())
-      results.push(await applySpendRows(rows, 'meta'))
+      const result = await applySpendRows(rows, 'meta')
+      const filled = await fillQuietDays(daysAgo(lookbackDays), addDays(localToday(), -1))
+      if (filled) result.message += ` ${filled} day(s) with ads off recorded as zero.`
+      results.push(result)
     } catch (e: any) {
       results.push({
         platform: 'meta', ok: false, days: 0, campaignsTouched: 0,

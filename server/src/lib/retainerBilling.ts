@@ -15,7 +15,7 @@
  */
 import { db } from '../db'
 import { businessRetainers, businessInvoices } from '../db/schema'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, isNotNull } from 'drizzle-orm'
 import { advance, addDays } from './recurrence'
 import { createInvoiceNumberAllocator } from './invoiceNumbers'
 import { localToday } from './date'
@@ -50,6 +50,15 @@ export async function generateRetainerInvoices(
   const generated: GeneratedInvoice[] = []
   const alloc = await createInvoiceNumberAllocator()
 
+  // Periods that already have an invoice, void ones included. Moving a
+  // retainer's next date back, resuming it or reinstating it must never bill a
+  // period twice, and a period voided on purpose must stay voided.
+  const billed = new Set(
+    (await db.select({ r: businessInvoices.retainerId, p: businessInvoices.periodStart })
+      .from(businessInvoices)
+      .where(and(isNotNull(businessInvoices.retainerId), isNotNull(businessInvoices.periodStart))))
+      .map(x => `${x.r}:${x.p}`))
+
   for (const r of due) {
     let cursor = r.nextInvoiceDate ?? advance(r.lastGeneratedDate ?? r.startDate, r.frequency)
     let last   = r.lastGeneratedDate
@@ -58,6 +67,11 @@ export async function generateRetainerInvoices(
     // A cancelled or ended retainer bills up to its end date and no further.
     while (cursor <= today && (!r.endDate || cursor <= r.endDate) && safety < 600) {
       safety++
+      if (billed.has(`${r.id}:${cursor}`)) {
+        last   = cursor
+        cursor = advance(cursor, r.frequency)
+        continue
+      }
       const invoiceNumber = alloc.next()
       const periodEnd = advance(cursor, r.frequency)
       const dueDate = addDays(cursor, r.netTermDays ?? 0)
@@ -76,6 +90,7 @@ export async function generateRetainerInvoices(
         currency:      r.currency,
         periodStart:   cursor,
         periodEnd,
+        sentDate:      cursor,
       }).returning()
 
       generated.push({
