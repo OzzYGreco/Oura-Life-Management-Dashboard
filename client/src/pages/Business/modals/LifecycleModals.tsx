@@ -252,6 +252,47 @@ export function RetainerEditModal({
   )
 }
 
+/** Unpaid invoices, each with a two-way switch: still owed, or not. */
+function OwedRows({
+  rows, off, offLabel, onToggle, fmtView,
+}: {
+  rows: { id: number; invoiceNumber: string; owed: number; dueDate: string }[]
+  off: (id: number) => boolean
+  offLabel: string
+  onToggle: (id: number, off: boolean) => void
+  fmtView: FmtView
+}) {
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
+      {rows.map((i, idx) => {
+        const isOff = off(i.id)
+        return (
+          <div key={i.id} className="flex items-center gap-3 px-3 py-2 text-xs"
+            style={{ borderTop: idx ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg-input)' }}>
+            <span className="num w-16" style={{ color: 'var(--c-text-3)' }}>{i.invoiceNumber}</span>
+            <span className="num w-20 text-right font-semibold"
+              style={{ color: isOff ? 'var(--c-text-3)' : 'var(--c-text-1)', textDecoration: isOff ? 'line-through' : undefined }}>
+              {fmtView(i.owed)}
+            </span>
+            <span className="num flex-1" style={{ color: 'var(--c-text-3)' }}>due {formatDate(i.dueDate)}</span>
+            <span className="flex gap-1">
+              {([false, true] as const).map(k => (
+                <button key={String(k)} type="button" onClick={() => onToggle(i.id, k)}
+                  className="px-2 py-0.5 rounded text-[10.5px] font-semibold"
+                  style={k === isOff
+                    ? { background: 'var(--c-accent)', color: '#fff' }
+                    : { border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
+                  {k ? offLabel : 'Still owed'}
+                </button>
+              ))}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Client left ─────────────────────────────────────────────────────────────
 
 /**
@@ -272,25 +313,34 @@ export function DropClientModal({
   const [endDate, setEndDate] = useState(today())
   const [reason, setReason] = useState('')
   const [writeOff, setWriteOff] = useState<Set<number>>(new Set())
+  /** Invoices from after the last day that stand anyway, e.g. if the client comes back. */
+  const [keepOwed, setKeepOwed] = useState<Set<number>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const drop = useDropClient()
 
   useEffect(() => {
     if (!client) return
-    setEndDate(today()); setReason(''); setWriteOff(new Set()); setError(null)
+    setEndDate(today()); setReason(''); setWriteOff(new Set()); setKeepOwed(new Set()); setError(null)
   }, [client?.id])
 
   const settledDate = useSettled(endDate)
   const { data: plan, error: planError } = useDropPreview(client?.id ?? null, settledDate || null)
 
-  const owedTotal = useMemo(() => (plan?.stillOwed ?? []).filter(i => !writeOff.has(i.id)).reduce((s, i) => s + i.owed, 0), [plan, writeOff])
+  const owedTotal = useMemo(() =>
+    (plan?.stillOwed ?? []).filter(i => !writeOff.has(i.id)).reduce((s, i) => s + i.owed, 0)
+    + (plan?.voided ?? []).filter(i => keepOwed.has(i.id)).reduce((s, i) => s + i.owed, 0),
+  [plan, writeOff, keepOwed])
 
   if (!client) return null
 
   const submit = async () => {
     setError(null)
     try {
-      await drop.mutateAsync({ id: client.id, endDate, reason: reason || undefined, writeOffInvoiceIds: [...writeOff] })
+      await drop.mutateAsync({
+        id: client.id, endDate, reason: reason || undefined,
+        writeOffInvoiceIds: [...writeOff],
+        keepOwedInvoiceIds: [...keepOwed].filter(id => plan?.voided.some(v => v.id === id && v.canKeep)),
+      })
       onClose()
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Could not save that')
@@ -322,15 +372,43 @@ export function DropClientModal({
                   Ends {plan.retainers.map(r => `${r.name} (${fmtView(r.amount)}/${r.frequency === 'monthly' ? 'mo' : r.frequency})`).join(', ')}.
                   {plan.mrrLost > 0 && <> MRR drops by <span className="num">{fmtView(plan.mrrLost)}/mo</span>, counted as churn on{' '}
                     <span className="num">{formatDate(plan.endDate)}</span>.</>}
+                  {plan.endsEarlier?.length ? <> Already cancelled until{' '}
+                    <span className="num">{formatDate(plan.endsEarlier[0].from)}</span>; that moves back to{' '}
+                    <span className="num">{formatDate(plan.endDate)}</span> so the churn counts on the day they left.</> : null}
                 </>
               ) : 'They have no retainer running, so MRR does not change.'}
             </Note>
 
-            {plan.voided.length > 0 && (
+            {plan.voided.some(i => !i.canKeep) && (
               <Note tone="warn">
-                Voids {plan.voided.length === 1 ? 'an invoice' : `${plan.voided.length} invoices`} for after they left or never sent:{' '}
-                {plan.voided.map(i => `${i.invoiceNumber} (${fmtView(i.amount)})`).join(', ')}.
+                Voids {plan.voided.filter(i => !i.canKeep).map(i => `${i.invoiceNumber} (${fmtView(i.amount)})`).join(', ')}:
+                {' '}never sent, so never owed.
               </Note>
+            )}
+
+            {plan.voided.some(i => i.canKeep) && (
+              <div>
+                <Label>Billed for after they left</Label>
+                <OwedRows
+                  rows={plan.voided.filter(i => i.canKeep)}
+                  off={id => !keepOwed.has(id)}
+                  offLabel="Void"
+                  onToggle={(id, off) => setKeepOwed(prev => {
+                    const next = new Set(prev)
+                    if (off) next.delete(id)
+                    else next.add(id)
+                    return next
+                  })}
+                  fmtView={fmtView}
+                />
+                <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
+                  {plan.stillOwed.length === 0 && owedTotal > 0 && (
+                    <><span className="num">{fmtView(owedTotal)}</span> stays in Outstanding. </>
+                  )}
+                  Voided by default, since they cover time after the last day. Keep one as still owed if the bill stands
+                  anyway, for example because they will pay it if they come back. Churn still counts from the last day.
+                </p>
+              </div>
             )}
 
             {plan.projects.length > 0 && (
@@ -340,38 +418,18 @@ export function DropClientModal({
             {plan.stillOwed.length > 0 && (
               <div>
                 <Label>Unpaid from while they were a client</Label>
-                <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
-                  {plan.stillOwed.map((i, idx) => {
-                    const off = writeOff.has(i.id)
-                    return (
-                      <div key={i.id} className="flex items-center gap-3 px-3 py-2 text-xs"
-                        style={{ borderTop: idx ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg-input)' }}>
-                        <span className="num w-16" style={{ color: 'var(--c-text-3)' }}>{i.invoiceNumber}</span>
-                        <span className="num w-20 text-right font-semibold" style={{ color: off ? 'var(--c-text-3)' : 'var(--c-text-1)', textDecoration: off ? 'line-through' : undefined }}>
-                          {fmtView(i.owed)}
-                        </span>
-                        <span className="num flex-1" style={{ color: 'var(--c-text-3)' }}>due {formatDate(i.dueDate)}</span>
-                        <span className="flex gap-1">
-                          {(['owed', 'off'] as const).map(k => (
-                            <button key={k} type="button"
-                              onClick={() => setWriteOff(prev => {
-                                const next = new Set(prev)
-                                if (k === 'off') next.add(i.id)
-                                else next.delete(i.id)
-                                return next
-                              })}
-                              className="px-2 py-0.5 rounded text-[10.5px] font-semibold"
-                              style={(k === 'off') === off
-                                ? { background: 'var(--c-accent)', color: '#fff' }
-                                : { border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
-                              {k === 'owed' ? 'Still owed' : 'Write off'}
-                            </button>
-                          ))}
-                        </span>
-                      </div>
-                    )
+                <OwedRows
+                  rows={plan.stillOwed}
+                  off={id => writeOff.has(id)}
+                  offLabel="Write off"
+                  onToggle={(id, off) => setWriteOff(prev => {
+                    const next = new Set(prev)
+                    if (off) next.add(id)
+                    else next.delete(id)
+                    return next
                   })}
-                </div>
+                  fmtView={fmtView}
+                />
                 <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
                   {owedTotal > 0
                     ? <><span className="num">{fmtView(owedTotal)}</span> stays in Outstanding until it is paid or written off later.</>

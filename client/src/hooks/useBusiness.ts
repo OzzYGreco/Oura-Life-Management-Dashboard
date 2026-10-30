@@ -292,7 +292,11 @@ export interface DropPlan {
   endDate: string
   retainers: { id: number; name: string; amount: number; frequency: string; status: string; endsOn: string; mrr: number }[]
   mrrLost: number
-  voided: { id: number; invoiceNumber: string; amount: number; issueDate: string; status: string }[]
+  endsEarlier?: { id: number; from: string | null; to: string }[]
+  voided: {
+    id: number; invoiceNumber: string; amount: number; owed: number; issueDate: string; dueDate: string
+    status: string; canKeep: boolean; keepOwed: boolean
+  }[]
   stillOwed: { id: number; invoiceNumber: string; amount: number; owed: number; issueDate: string; dueDate: string; writeOff: boolean }[]
   projects: { id: number; name: string; stage: string }[]
 }
@@ -307,7 +311,9 @@ export function useDropPreview(clientId: number | null, endDate: string | null) 
 }
 
 export function useDropClient() {
-  return useBusinessMutation(({ id, ...body }: { id: number; endDate: string; reason?: string; writeOffInvoiceIds: number[] }) =>
+  return useBusinessMutation(({ id, ...body }: {
+    id: number; endDate: string; reason?: string; writeOffInvoiceIds: number[]; keepOwedInvoiceIds: number[]
+  }) =>
     api.post(`/api/business/clients/${id}/drop`, body).then(r => r.data as DropPlan))
 }
 

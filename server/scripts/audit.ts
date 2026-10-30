@@ -391,7 +391,10 @@ async function main() {
     liveOnChurned.map(r => `retainer ${r.id}`).join(', '))
   const billedAfterEnd = d.invoices.filter(i => {
     const r = i.retainerId ? d.retainers.find(x => x.id === i.retainerId) : null
+    // A client who left can be kept owing for periods after their last day, on
+    // purpose, when the bills stand regardless. Only the drop flow does that.
     return r?.endDate && ['unpaid', 'draft'].includes(i.status) && (i.periodStart ?? i.issueDate) >= r.endDate
+      && !churnedIds.has(i.clientId)
   })
   check('no open invoice bills a retainer period after it ended', billedAfterEnd.length === 0,
     billedAfterEnd.map(i => i.invoiceNumber).join(', '))
