@@ -84,7 +84,10 @@ export async function generateRetainerInvoices(
         status:        'unpaid',
         issueDate:     cursor,
         dueDate,
-        notes:         r.notes ?? r.name,
+        // The retainer's name is what the invoice is for. Its notes are the
+        // user's own ("Local SEO for £99/mo"), and printing them on invoices
+        // meant a retainer moved to Hosting kept billing as Local SEO.
+        notes:         r.name,
         retainerId:    r.id,
         serviceId:     r.serviceId,
         currency:      r.currency,

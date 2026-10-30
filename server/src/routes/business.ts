@@ -823,6 +823,13 @@ router.put('/retainers/:id/price', async (req, res, next) => {
       effectiveDate: dateStr.optional(),
       correction:    z.boolean().optional(),
       reason:        z.string().nullish(),
+      /**
+       * A move to another service at the same time (Local SEO down to Hosting).
+       * The invoices this re-prices take the new service too, so October reads
+       * "Hosting £20" rather than "Local SEO £20".
+       */
+      serviceId:     z.number().int().nullish(),
+      name:          z.string().min(1).optional(),
       dryRun:        z.boolean().optional(),
     }), req.body)
 
@@ -864,6 +871,10 @@ router.put('/retainers/:id/price', async (req, res, next) => {
       repriced: reprice.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, from: i.amount, to: body.newAmount, periodStart: i.periodStart })),
       untouchedPaid: invoices.filter(i => i.status === 'paid' && (i.periodStart ?? i.issueDate) >= effectiveDate)
         .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount })),
+      /** Invoices for periods before the change, which keep their price and service. */
+      earlier: invoices.filter(i => i.status !== 'void' && (i.periodStart ?? i.issueDate) < effectiveDate)
+        .map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, periodStart: i.periodStart })),
+      nextInvoiceDate: current.nextInvoiceDate,
     }
     if (body.dryRun) return res.json(plan)
 
@@ -884,8 +895,11 @@ router.put('/retainers/:id/price', async (req, res, next) => {
       tx.update(businessRetainers).set({ amount: body.newAmount, updatedAt: new Date().toISOString() })
         .where(eq(businessRetainers.id, retainerId)).run()
       for (const i of reprice) {
-        tx.update(businessInvoices).set({ amount: body.newAmount, subtotal: body.newAmount })
-          .where(eq(businessInvoices.id, i.id)).run()
+        tx.update(businessInvoices).set({
+          amount: body.newAmount, subtotal: body.newAmount,
+          ...(body.serviceId !== undefined ? { serviceId: body.serviceId } : {}),
+          ...(body.name ? { notes: body.name } : {}),
+        }).where(eq(businessInvoices.id, i.id)).run()
         // A part-paid invoice may now be fully covered, or no longer.
         if (allocationsFor(tx, i.id).length) recomputeInvoice(tx, i.id)
       }
