@@ -11,10 +11,13 @@ const LABEL: Record<NeedAction, string> = {
   setup:   'Set up',
   assign:  'Assign',
   void:    'Void',
+  open:    'Open',
+  repay:   'Paid back',
 }
 
 const TONE: Record<NeedAction, 'good' | 'accent' | 'default' | 'danger'> = {
   paid: 'good', send: 'accent', invoice: 'accent', setup: 'accent', assign: 'default', void: 'danger',
+  open: 'accent', repay: 'good',
 }
 
 /** What the secondary button says, by kind of row: it does the real thing. */
@@ -25,7 +28,12 @@ const DISMISS: Record<NeedAction, string> = {
   setup:   'Not needed',
   assign:  'Overhead',
   void:    '',
+  open:    '',
+  repay:   '',
 }
+
+/** The other answers to money owed, besides "it is paid" and "write it off". */
+export type DismissHow = 'writeoff' | 'hold' | 'settle'
 
 const GROUPS = [
   { key: 'chase', title: 'Chase', hint: 'money owed to you' },
@@ -48,10 +56,11 @@ export function NeedsYou({
   rows: NeedRow[]
   fmtView: FmtView
   onAct: (row: NeedRow) => void
-  onDismiss: (row: NeedRow) => void
+  onDismiss: (row: NeedRow, how?: DismissHow) => void
   busyKey?: string | null
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [menu, setMenu] = useState<string | null>(null)
   const LIMIT = 5
 
   return (
@@ -102,9 +111,30 @@ export function NeedsYou({
                         <MiniBtn tone={TONE[r.action]} onClick={() => onAct(r)} disabled={busyKey === r.key}>
                           {busyKey === r.key ? '...' : LABEL[r.action]}
                         </MiniBtn>
-                        {DISMISS[r.action] && (
-                          <MiniBtn onClick={() => onDismiss(r)} disabled={busyKey === r.key}
-                            title={r.action === 'paid' ? 'They will not pay: void it as written off' : 'This does not need doing'}>
+                        {r.action === 'paid' ? (
+                          <span className="relative">
+                            <MiniBtn onClick={() => setMenu(m => (m === r.key ? null : r.key))} disabled={busyKey === r.key}
+                              title="Not paid yet: wait, accept less, or write it off">Not yet</MiniBtn>
+                            {menu === r.key && (
+                              <span className="absolute right-0 top-full mt-1 z-20 w-56 rounded-lg py-1 shadow-xl"
+                                style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)' }}
+                                onMouseLeave={() => setMenu(null)}>
+                                {([
+                                  { how: 'hold', label: 'Wait two weeks', hint: 'agreed to wait, or disputing it' },
+                                  ...(r.partPaid ? [{ how: 'settle', label: 'Accept what they paid', hint: 'the rest was a discount' }] : []),
+                                  { how: 'writeoff', label: 'Write it off', hint: 'they will not pay' },
+                                ] as { how: DismissHow; label: string; hint: string }[]).map(o => (
+                                  <button key={o.how} type="button" onClick={() => { setMenu(null); onDismiss(r, o.how) }}
+                                    className="block w-full text-left px-3 py-1.5 hover:bg-white/5">
+                                    <span className="block text-[12px]" style={{ color: o.how === 'writeoff' ? 'var(--c-loss)' : 'var(--c-text-1)' }}>{o.label}</span>
+                                    <span className="block text-[10.5px]" style={{ color: 'var(--c-text-3)' }}>{o.hint}</span>
+                                  </button>
+                                ))}
+                              </span>
+                            )}
+                          </span>
+                        ) : DISMISS[r.action] && (
+                          <MiniBtn onClick={() => onDismiss(r)} disabled={busyKey === r.key} title="This does not need doing">
                             {DISMISS[r.action]}
                           </MiniBtn>
                         )}

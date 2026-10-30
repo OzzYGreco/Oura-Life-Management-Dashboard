@@ -390,7 +390,14 @@ function LedgerTableRow({
         {day(r.dueDate)}
       </Td>
       <Td align="right" mono color="var(--c-text-3)">{day(r.paidDate)}</Td>
-      <Td><StatusDot status={r.status} /></Td>
+      <Td>
+        <StatusDot status={r.status} />
+        {r.heldUntil && (
+          <span className="block text-[10px]" style={{ color: 'var(--c-text-3)' }} title={r.holdReason ?? undefined}>
+            on hold to {day(r.heldUntil)}
+          </span>
+        )}
+      </Td>
       <Td align="right">
         <div className="flex gap-1.5 justify-end">
           {r.status === 'draft' && <MiniBtn tone="accent" onClick={() => onSend(r)}>Send</MiniBtn>}

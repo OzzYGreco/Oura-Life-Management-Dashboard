@@ -82,6 +82,14 @@ export function Money({
 
       <WhatWeCanTake op={m.ownerPay} fmtView={fmtView} periodLabel={periodLabel}
         onRecordDraw={onRecordDraw} onDeleteDraw={onDeleteDraw} onSettings={onSettings} />
+      {(m.ownerPay.owedBack?.length ?? 0) > 0 && (
+        <p className="-mt-4 rounded-lg px-3 py-2 text-[11.5px]"
+          style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: 'var(--c-text-2)' }}>
+          Owed back to partners for costs they paid personally:{' '}
+          {m.ownerPay.owedBack!.map(o => `${o.name.split(' ')[0]} ${fmtView(o.amount)}`).join(', ')}.
+          {' '}It is a repayment, not a draw, and is cleared from "Needs you" once paid.
+        </p>
+      )}
 
       <WhereItGoes m={m} expenses={expenses as any[]} campaigns={campaigns as any[]}
         fmtView={fmtView} periodLabel={periodLabel} range={range} />
@@ -90,7 +98,7 @@ export function Money({
       <div className="space-y-2.5">
         <Fold id="costs" title="Costs"
           summary={`${fmtView(m.costs.total)} ${periodLabel} · ${(expenses as any[]).filter((e: any) => e.isRecurring && !e.recurringParentId).length} repeating · type in a row to add one`}>
-          <CostsSheet expenses={expenses as any[]} clients={clients as { id: number; name: string }[]}
+          <CostsSheet expenses={expenses as any[]} clients={clients as { id: number; name: string }[]} owners={m.ownerPay.owners}
             fmtView={fmtView} onOpenFull={onEditCost} />
         </Fold>
 

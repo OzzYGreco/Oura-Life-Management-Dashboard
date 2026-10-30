@@ -19,6 +19,7 @@ import { eq, and, isNotNull } from 'drizzle-orm'
 import { advance, addDays } from './recurrence'
 import { createInvoiceNumberAllocator } from './invoiceNumbers'
 import { localToday } from './date'
+import { settleDatedEvents } from './lifecycle'
 
 /** Guards against a burst of requests each triggering a scan. */
 let lastRunAt = 0
@@ -42,6 +43,10 @@ export async function generateRetainerInvoices(
 
   const today = opts.today ?? localToday()
 
+  // Notice that has run out, pauses that end and last days that have come,
+  // before anything is billed: a pause ending today bills today.
+  db.transaction(tx => settleDatedEvents(tx, today))
+
   const due = await db
     .select()
     .from(businessRetainers)
@@ -64,8 +69,9 @@ export async function generateRetainerInvoices(
     let last   = r.lastGeneratedDate
     let safety = 0
 
-    // A cancelled or ended retainer bills up to its end date and no further.
-    while (cursor <= today && (!r.endDate || cursor <= r.endDate) && safety < 600) {
+    // A retainer with a last day bills the periods that start before it. The
+    // period starting ON the last day is time they are no longer a client.
+    while (cursor <= today && (!r.endDate || cursor < r.endDate) && safety < 600) {
       safety++
       if (billed.has(`${r.id}:${cursor}`)) {
         last   = cursor

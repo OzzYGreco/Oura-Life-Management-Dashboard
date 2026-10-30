@@ -364,6 +364,7 @@ export function DropClientModal({
 
   const settledDate = useSettled(endDate)
   const { data: plan, error: planError } = useDropPreview(client?.id ?? null, settledDate || null)
+  const notice = endDate > today()
 
   const owedTotal = useMemo(() =>
     (plan?.stillOwed ?? []).filter(i => !writeOff.has(i.id)).reduce((s, i) => s + i.owed, 0)
@@ -387,16 +388,18 @@ export function DropClientModal({
   }
 
   return (
-    <Modal open onClose={onClose} size="md" title={`${client.name} left`}>
+    <Modal open onClose={onClose} size="md" title={notice ? `${client.name} is leaving` : `${client.name} left`}>
       <div className="p-5 space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <Input id="drop-end" label="Last day as a client" type="date" value={endDate} max={today()}
+          <Input id="drop-end" label="Last day as a client" type="date" value={endDate}
             onChange={e => setEndDate(e.target.value)} />
           <Input id="drop-reason" label="Why (optional)" value={reason} onChange={e => setReason(e.target.value)}
             placeholder="Closed the business" />
         </div>
         <p className="text-[10.5px] -mt-1" style={{ color: 'var(--c-text-3)' }}>
-          Backdate it if they actually stopped earlier: MRR history then shows them leaving in the right month.
+          {notice
+            ? 'A day ahead is notice: they stay a client, and keep being billed, until then. On the day they are ended on their own.'
+            : 'Backdate it if they actually stopped earlier: MRR history then shows them leaving in the right month. Pick a day ahead if they have given notice.'}
         </p>
 
         {planError ? (
@@ -405,11 +408,19 @@ export function DropClientModal({
           <Note>Working out what this changes...</Note>
         ) : (
           <div className="space-y-2.5">
+            {plan.notice && (
+              <Note>
+                {plan.stillToBill?.length
+                  ? <>Still billed before they go: {plan.stillToBill.map(b => `${b.name} on ${formatDate(b.periodStart)} (${fmtView(b.amount)})`).join(', ')}.</>
+                  : 'Nothing more is billed before they go.'}
+                {' '}Changed their mind? "They are staying" on their page takes the notice back.
+              </Note>
+            )}
             <Note tone={plan.retainers.length ? 'bad' : 'info'}>
               {plan.retainers.length ? (
                 <>
                   Ends {plan.retainers.map(r => `${r.name} (${fmtView(r.amount)}/${r.frequency === 'monthly' ? 'mo' : r.frequency})`).join(', ')}.
-                  {plan.mrrLost > 0 && <> MRR drops by <span className="num">{fmtView(plan.mrrLost)}/mo</span>, counted as churn on{' '}
+                  {plan.mrrLost > 0 && <> MRR {plan.notice ? 'will drop' : 'drops'} by <span className="num">{fmtView(plan.mrrLost)}/mo</span>, counted as churn on{' '}
                     <span className="num">{formatDate(plan.endDate)}</span>.</>}
                   {plan.endsEarlier?.length ? <> Already cancelled until{' '}
                     <span className="num">{formatDate(plan.endsEarlier[0].from)}</span>; that moves back to{' '}
@@ -484,7 +495,7 @@ export function DropClientModal({
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="danger" onClick={submit} disabled={!plan || drop.isPending}>
-            {drop.isPending ? 'Saving...' : `End ${client.name.split(' ')[0]}`}
+            {drop.isPending ? 'Saving...' : notice ? `Record their notice` : `End ${client.name.split(' ')[0]}`}
           </Button>
         </div>
       </div>
@@ -509,12 +520,17 @@ export function ComebackModal({
   const reactivate = useReactivateClient()
   const [invoices, setInvoices] = useState<Set<number>>(new Set())
   const [retainers, setRetainers] = useState<Set<number>>(new Set())
+  // They may come back on new terms, and from a set day.
+  const [prices, setPrices] = useState<Record<number, string>>({})
+  const [startDate, setStartDate] = useState(today())
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!data) return
     setInvoices(new Set(data.invoices.map(i => i.id)))
     setRetainers(new Set())
+    setPrices(Object.fromEntries(data.retainers.map(r => [r.id, String(r.amount)])))
+    setStartDate(today())
     setError(null)
   }, [data])
 
@@ -531,7 +547,10 @@ export function ComebackModal({
   const submit = async () => {
     setError(null)
     try {
-      await reactivate.mutateAsync({ id: client.id, restoreInvoiceIds: [...invoices], reinstateRetainerIds: [...retainers] })
+      await reactivate.mutateAsync({
+        id: client.id, restoreInvoiceIds: [...invoices], reinstateRetainerIds: [...retainers], startDate,
+        prices: Object.fromEntries([...retainers].filter(id => Number(prices[id]) > 0).map(id => [String(id), Number(prices[id])])),
+      })
       onClose()
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Could not save that')
@@ -579,9 +598,18 @@ export function ComebackModal({
                     <>{r.name}{r.endDate ? ` · ended ${formatDate(r.endDate)}` : ''}</>,
                     `${fmtView(r.amount)}/${r.frequency === 'monthly' ? 'mo' : r.frequency}`, r.id, idx))}
                 </div>
+                {retainers.size > 0 && (
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <Input id="cb-start" label="Billing starts" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                    {data.retainers.filter(r => retainers.has(r.id)).map(r => (
+                      <Input key={r.id} id={`cb-price-${r.id}`} label={`${r.name}, new price`} type="number" step="0.01"
+                        value={prices[r.id] ?? ''} onChange={e => setPrices({ ...prices, [r.id]: e.target.value })} />
+                    ))}
+                  </div>
+                )}
                 <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
-                  A retainer picked back up bills from today, never for the months they were away, and counts as
-                  returning MRR. Leave it unticked to set up a new price instead.
+                  A retainer picked back up bills from the start day, never for the months they were away, and counts as
+                  returning MRR. Change the price if they came back on different terms.
                 </p>
               </div>
             )}

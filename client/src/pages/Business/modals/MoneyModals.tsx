@@ -160,11 +160,13 @@ export function RetainerActionModal({
   const [date, setDate] = useState(today())
   const [reason, setReason] = useState('')
   const [voidOpen, setVoidOpen] = useState(true)
+  // A pause with a restart date ends itself. Blank means until resumed by hand.
+  const [resumeOn, setResumeOn] = useState('')
   const [error, setError] = useState<string | null>(null)
   const { data: preview } = useCancelPreview(action === 'cancel' ? retainer?.id ?? null : null, action === 'cancel' ? date : null)
 
   useEffect(() => {
-    if (retainer) { setDate(today()); setReason(''); setVoidOpen(true); setError(null) }
+    if (retainer) { setDate(today()); setReason(''); setVoidOpen(true); setResumeOn(''); setError(null) }
   }, [retainer, action])
 
   if (!retainer || !action) return null
@@ -173,7 +175,7 @@ export function RetainerActionModal({
     setError(null)
     try {
       if (action === 'cancel') await lifecycle.mutateAsync({ id: retainer.id, action, endDate: date, reason: reason || undefined })
-      else if (action === 'pause') await lifecycle.mutateAsync({ id: retainer.id, action, voidOpen })
+      else if (action === 'pause') await lifecycle.mutateAsync({ id: retainer.id, action, voidOpen, resumeOn: resumeOn || null })
       else await lifecycle.mutateAsync({ id: retainer.id, action, date })
       onClose()
     } catch (e: any) {
@@ -194,10 +196,14 @@ export function RetainerActionModal({
 
         {action === 'cancel' && (
           <>
-            <Input id="ret-end" label="Last day" type="date" value={date} max={today()} onChange={e => setDate(e.target.value)} />
+            <Input id="ret-end" label="Last day" type="date" value={date} onChange={e => setDate(e.target.value)} />
             <div className="text-[11px] px-3 py-2 rounded-lg"
               style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.22)', color: '#fcd34d' }}>
-              Billing stops and MRR drops by <span className="num">{fmtView(retainer.amount)}/mo</span> from this day.
+              {date > today()
+                ? <>Notice, or a fixed term: it keeps billing until this day, then ends by itself and MRR drops by{' '}
+                  <span className="num">{fmtView(retainer.amount)}/mo</span>.
+                  {preview?.stillToBill?.length ? <> Still billed: {preview.stillToBill.map(b => formatDate(b.periodStart)).join(', ')}.</> : ' Nothing more is billed.'}</>
+                : <>Billing stops and MRR drops by <span className="num">{fmtView(retainer.amount)}/mo</span> from this day.</>}
               {preview?.voided.length
                 ? <> Voids {preview.voided.map(i => `${i.invoiceNumber} (${fmtView(i.amount)})`).join(', ')}, billed for after it.</>
                 : ' No open invoice is billed for after it.'}
@@ -210,7 +216,12 @@ export function RetainerActionModal({
         {action === 'pause' && (
           <>
             <p className="text-[11px]" style={{ color: 'var(--c-text-2)' }}>
-              Billing stops from today and the retainer stops counting in MRR until it is resumed.
+              Billing stops from today and the retainer stops counting in MRR until it restarts.
+            </p>
+            <Input id="ret-resume-on" label="Restarts on (optional)" type="date" value={resumeOn} min={today()}
+              onChange={e => setResumeOn(e.target.value)} />
+            <p className="text-[10.5px] -mt-2" style={{ color: 'var(--c-text-3)' }}>
+              {resumeOn ? `Starts billing again by itself on ${formatDate(resumeOn)}.` : 'Leave blank to resume it by hand.'}
             </p>
             <label htmlFor="ret-voidopen" className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
               <input id="ret-voidopen" type="checkbox" checked={voidOpen} onChange={e => setVoidOpen(e.target.checked)}

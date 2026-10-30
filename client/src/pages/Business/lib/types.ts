@@ -24,6 +24,8 @@ export interface Client {
   wonDate: string | null
   churnedAt: string | null
   churnReason?: string | null
+  /** Has given notice: still a client until this day. */
+  leavingOn?: string | null
 }
 
 /** A client row with its economics already computed server-side. */
@@ -82,6 +84,9 @@ export interface ActiveProject {
 }
 
 export interface Invoice {
+  /** On hold: kept out of chasing until this date. */
+  chaseAfter?: string | null
+  holdReason?: string | null
   id: number
   clientId: number
   projectId: number | null
@@ -150,11 +155,17 @@ export interface LedgerRow {
   notes: string | null
   voidReason: string | null
   sentDate: string | null
+  /** On hold: not chased until this date. */
+  heldUntil?: string | null
+  holdReason?: string | null
 }
 
 export interface LedgerTotals {
   count: number
   voidCount: number
+  writtenOff?: number
+  writtenOffCount?: number
+  onHold?: number
   billed: number
   collected: number
   fees: number
@@ -182,6 +193,8 @@ export interface Retainer {
   nextInvoiceDate: string | null
   lastGeneratedDate: string | null
   pausedAt: string | null
+  /** A pause that restarts itself on this day. */
+  resumeOn?: string | null
   notes: string | null
 }
 
@@ -258,6 +271,9 @@ export interface OwnerPay {
   buffer: number
   distributable: number
   safeToDraw: number
+  /** Costs a partner paid personally, not yet paid back. */
+  owedBack?: { ownerId: number; name: string; amount: number; items: { id: number; description: string; amount: number; date: string }[] }[]
+  owedBackTotal?: number
   drawnPeriod: number
   drawnAllTime: number
   retained: number
@@ -272,7 +288,7 @@ export interface OwnerPay {
   byMonth: { month: string; drawn: number }[]
 }
 
-export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void'
+export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void' | 'open' | 'repay'
 
 export interface NeedRow {
   key: string
@@ -287,6 +303,7 @@ export interface NeedRow {
   invoiceId?: number
   projectId?: number
   expenseId?: number
+  partPaid?: boolean
 }
 
 export interface MrrMovementRow {

@@ -11,6 +11,8 @@ import { formatDate, today } from '../../../lib/utils'
 import type { FmtView } from '../../../hooks/useFmtView'
 import type { Retainer, Service } from '../lib/types'
 
+const round2 = (n: number) => Math.round(n * 100) / 100
+
 /** Debounce a value so a preview does not fire on every keystroke. */
 function useSettled<T>(value: T, ms = 300): T {
   const [v, setV] = useState(value)
@@ -207,11 +209,13 @@ export function RecordPaymentModal({
   const [fee, setFee] = useState('')
   const [method, setMethod] = useState<'bank' | 'cash' | 'stripe'>('bank')
   const [restFor, setRestFor] = useState('')
+  // Money over what they owe: their next months paid ahead, or something else.
+  const [forElse, setForElse] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    setClientId(client?.id ?? null); setQ(''); setAmount(''); setDate(today()); setFee(''); setMethod('bank'); setRestFor(''); setError(null)
+    setClientId(client?.id ?? null); setQ(''); setAmount(''); setDate(today()); setFee(''); setMethod('bank'); setRestFor(''); setForElse(false); setError(null)
   }, [open, client?.id])
 
   const chosen = rows.find(r => r.id === clientId) ?? null
@@ -227,10 +231,14 @@ export function RecordPaymentModal({
       .sort((a, b) => b.outstanding - a.outstanding || a.name.localeCompare(b.name))
   }, [rows, q])
 
+  const monthly = (chosen?.mrr ?? 0) > 0
+  const ahead = monthly && !forElse
   const body = useSettled<ClientPaymentBody | null>(clientId && Number(amount) > 0
-    ? { amount: Number(amount), date, fee: Number(fee) || 0, method } : null)
+    ? { amount: Number(amount), date, fee: Number(fee) || 0, method, ahead } : null)
   const { data: plan } = useClientPaymentPreview(clientId, body)
   const extra = plan?.leftOver ?? 0
+  const aheadRows = plan?.ahead ?? []
+  const over = round2(aheadRows.reduce((s, a) => s + a.pays, 0) + extra)
 
   if (!open) return null
 
@@ -238,7 +246,7 @@ export function RecordPaymentModal({
     if (!clientId) return
     setError(null)
     try {
-      await record.mutateAsync({ clientId, amount: Number(amount), date, fee: Number(fee) || 0, method, restFor: restFor || undefined })
+      await record.mutateAsync({ clientId, amount: Number(amount), date, fee: Number(fee) || 0, method, ahead, restFor: !ahead ? restFor || undefined : undefined })
       onClose()
     } catch (e: any) {
       setError(e?.response?.data?.error ?? 'Could not save that')
@@ -293,18 +301,51 @@ export function RecordPaymentModal({
                 onChange={e => setFee(e.target.value)} />
             </div>
 
-            {extra > 0.005 && (
+            {monthly && (over > 0.005 || forElse) && (
+              <div>
+                <p className="text-[11.5px] mb-1.5" style={{ color: 'var(--c-text-2)' }}>
+                  {owes > 0 ? <>That is <b className="num">{fmtView(over)}</b> more than they owe. It is:</> : 'They owe nothing right now. This is:'}
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[{ v: false, label: 'Their next months, paid ahead' }, { v: true, label: 'For something else' }].map(o => (
+                    <button key={String(o.v)} type="button" onClick={() => setForElse(o.v)}
+                      className="rounded-lg px-3 py-2 text-[12px] text-left transition-colors"
+                      style={{
+                        background: forElse === o.v ? 'rgba(99,102,241,0.14)' : 'var(--c-bg-input)',
+                        border: `1px solid ${forElse === o.v ? 'rgba(129,140,248,0.5)' : 'var(--c-border)'}`,
+                        color: forElse === o.v ? 'var(--c-text-1)' : 'var(--c-text-2)',
+                      }}>{o.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {extra > 0.005 && !ahead && (
               <Input id="rp-rest" label={owes > 0 ? `What was the extra ${fmtView(extra)} for?` : 'What was it for?'}
                 value={restFor} onChange={e => setRestFor(e.target.value)} placeholder="Website work, a domain, a one-off job" />
             )}
 
-            {plan && (plan.splits.length > 0 || extra > 0.005) && (
+            {plan?.duplicate && (
+              <p className="rounded-lg px-3 py-2 text-[11.5px]"
+                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b' }}>
+                You already recorded {fmtView(plan.duplicate.amount)} from them on {formatDate(plan.duplicate.date)}.
+                If this is the same payment, cancel rather than record it twice.
+              </p>
+            )}
+
+            {plan && (plan.splits.length > 0 || aheadRows.length > 0 || extra > 0.005) && (
               <div className="rounded-lg px-3 py-2.5 text-[11.5px] space-y-1"
                 style={{ background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.2)', color: 'var(--c-text-2)' }}>
                 {plan.splits.map(sp => (
                   <div key={sp.invoiceId} className="flex justify-between gap-3">
                     <span>{sp.invoiceNumber} {sp.settles ? 'paid in full' : `part paid, ${fmtView(sp.owed - sp.amount)} still owed`}</span>
                     <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(sp.amount)}</span>
+                  </div>
+                ))}
+                {aheadRows.map(a => (
+                  <div key={`${a.retainerId}-${a.periodStart}`} className="flex justify-between gap-3">
+                    <span>{a.name} from {formatDate(a.periodStart)}, paid ahead{a.pays < a.amount - 0.005 ? `, ${fmtView(a.amount - a.pays)} left to pay` : ''}</span>
+                    <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(a.pays)}</span>
                   </div>
                 ))}
                 {extra > 0.005 && (

@@ -14,6 +14,7 @@ import { localToday } from '../lib/date'
 import { advance, addDays } from '../lib/recurrence'
 import { createInvoiceNumberAllocator, nextInvoiceNumber } from '../lib/invoiceNumbers'
 import { generateRetainerInvoices, invalidateRetainerBilling } from '../lib/retainerBilling'
+import { invoicesBefore, planAhead, issueAhead, moveMoney, openInvoicesOf } from '../lib/lifecycle'
 import {
   syncAdSpend, recomputeCampaignSpend, configuredPlatforms, metaConfigured,
 } from '../lib/adSpendSync'
@@ -260,9 +261,8 @@ router.post('/clients/:id/drop', async (req, res, next) => {
       dryRun: z.boolean().optional(),
     }), req.body)
     const endDate = body.endDate ?? today
-    if (endDate > today) {
-      return res.status(400).json({ error: 'The last day cannot be in the future. Set it on the day, or end their retainer with the date instead.' })
-    }
+    // A last day ahead is notice: they stay a client, and are billed, until it.
+    const notice = endDate > today
 
     const d = await loadBusinessData()
     const client = d.clients.find(c => c.id === clientId)
@@ -283,7 +283,7 @@ router.post('/clients/:id/drop', async (req, res, next) => {
     // Voided without asking: anything for after they left, and every draft,
     // since a draft was never sent and is not owed.
     const afterEnd = open.filter(i => {
-      if (i.status === 'draft' && !d.applied.get(i.id)) return true
+      if (!notice && i.status === 'draft' && !d.applied.get(i.id)) return true
       const r = retainerOf(i)
       const from = i.periodStart ?? i.issueDate
       return r ? from >= stopOf(r) : i.issueDate > endDate
@@ -315,15 +315,25 @@ router.post('/clients/:id/drop', async (req, res, next) => {
         id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, owed: owedOn(d, i),
         issueDate: i.issueDate, dueDate: i.dueDate, writeOff: writeOff.has(i.id),
       })),
-      projects: d.projects.filter(p => p.clientId === clientId && p.status === 'active' && p.stage !== 'launched')
+      // Work in progress is finished during notice, so it is left alone.
+      projects: notice ? [] : d.projects.filter(p => p.clientId === clientId && p.status === 'active' && p.stage !== 'launched')
         .map(p => ({ id: p.id, name: p.name, stage: p.stage })),
+      notice,
+      /** Notice: the bills still to come before the last day. */
+      stillToBill: notice
+        ? retainers.filter(r => r.status === 'active').flatMap(r => invoicesBefore(r, endDate).map(x => ({ ...x, name: r.name })))
+        : [],
     }
     if (body.dryRun) return res.json(plan)
 
     db.transaction(tx => {
       for (const r of retainers) {
-        tx.update(businessRetainers).set({
-          status: 'cancelled', endDate: stopOf(r), cancelledAt: r.cancelledAt ?? today, autoInvoice: 0,
+        const stop = stopOf(r)
+        // Still live until a day ahead: the end is scheduled, and closes itself.
+        tx.update(businessRetainers).set(stop > today && r.status === 'active' ? {
+          endDate: stop, cancelReason: body.reason ?? r.cancelReason ?? 'Client gave notice', updatedAt: new Date().toISOString(),
+        } : {
+          status: 'cancelled', endDate: stop, cancelledAt: r.cancelledAt ?? today, autoInvoice: 0,
           cancelReason: body.reason ?? r.cancelReason ?? 'Client left', updatedAt: new Date().toISOString(),
         }).where(eq(businessRetainers.id, r.id)).run()
         // A price change dated after they left never happened.
@@ -336,7 +346,9 @@ router.post('/clients/:id/drop', async (req, res, next) => {
         tx.update(businessProjects).set({ status: 'cancelled', updatedAt: new Date().toISOString() })
           .where(eq(businessProjects.id, p.id)).run()
       }
-      tx.update(businessClients).set({ status: 'churned', churnedAt: endDate, churnReason: body.reason ?? null })
+      tx.update(businessClients).set(notice
+        ? { leavingOn: endDate, churnReason: body.reason ?? null }
+        : { status: 'churned', churnedAt: endDate, churnReason: body.reason ?? null, leavingOn: null })
         .where(eq(businessClients.id, clientId)).run()
     })
     invalidate()
@@ -394,6 +406,12 @@ router.post('/clients/:id/payments', async (req, res, next) => {
       invoiceIds: z.array(z.number().int()).optional(),
       /** What money beyond their bills was for. It is raised as a paid invoice. */
       restFor:    z.string().nullish(),
+      /**
+       * Money beyond their bills pays their retainer ahead: next month's
+       * invoice is issued now and paid, and that month is not billed again.
+       * On by default for a client with a live retainer and no `restFor`.
+       */
+      ahead:      z.boolean().optional(),
       dryRun:     z.boolean().optional(),
     }), req.body)
     const d = await loadBusinessData()
@@ -412,13 +430,37 @@ router.post('/clients/:id/payments', async (req, res, next) => {
       splits.push({ invoiceId: x.inv.id, invoiceNumber: x.inv.invoiceNumber, amount: amt, owed: x.owed, settles: amt >= x.owed - 0.005 })
       left = round2(left - amt)
     }
-    const plan = { splits, leftOver: left, owedTotal: round2(open.reduce((s2, x) => s2 + x.owed, 0)) }
-    if (body.dryRun) return res.json(plan)
     const date = body.date ?? localToday()
+    const retainers = d.retainers.filter(r => r.clientId === clientId && r.status === 'active')
+    const useAhead = left > 0.005 && retainers.length > 0 && (body.ahead ?? !body.restFor)
+    const ahead = useAhead ? planAhead(retainers, left) : { periods: [], left }
+    left = ahead.left
+
+    // The same money entered twice: a payment of this size for this client
+    // within three days, already recorded by hand.
+    const near = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) <= 3 * 86_400_000
+    const theirs = new Set(d.allInvoices.filter(i => i.clientId === clientId).map(i => i.id))
+    const sameDay = d.receipts.filter(x => !x.paymentId && theirs.has(x.invoiceId) && near(x.date, date))
+    const byDay = new Map<string, number>()
+    for (const x of sameDay) byDay.set(x.date, round2((byDay.get(x.date) ?? 0) + x.gross))
+    const dup = [...byDay.entries()].find(([, v]) => Math.abs(v - body.amount) < 0.01)
+
+    const plan = {
+      splits, leftOver: left, owedTotal: round2(open.reduce((s2, x) => s2 + x.owed, 0)),
+      ahead: ahead.periods,
+      duplicate: dup ? { date: dup[0], amount: dup[1] } : null,
+    }
+    if (body.dryRun) return res.json(plan)
     // Money beyond what is owed (or when nothing is) is not refused: it becomes
     // a paid invoice for what it was for, so it reaches every total in one step.
-    const restNumber = left > 0.005 ? await nextInvoiceNumber() : null
+    const alloc = await createInvoiceNumberAllocator()
+    const aheadNumbers = ahead.periods.map(() => alloc.next())
+    const restNumber = left > 0.005 ? alloc.next() : null
     db.transaction(tx => {
+      ahead.periods.forEach((p, i) => {
+        const inv = issueAhead(tx, p.retainerId, p.periodStart, aheadNumbers[i], localToday())
+        splits.push({ invoiceId: inv.id, invoiceNumber: aheadNumbers[i], amount: p.pays, owed: p.amount, settles: p.pays >= p.amount - 0.005 })
+      })
       if (restNumber) {
         reactivateIfChurned(tx, clientId)
         const inv = tx.insert(businessInvoices).values({
@@ -450,9 +492,20 @@ router.post('/clients/:id/reactivate', async (req, res, next) => {
     const body = parse(z.object({
       restoreInvoiceIds:    z.array(z.number().int()).optional(),
       reinstateRetainerIds: z.array(z.number().int()).optional(),
+      /** When the picked-up retainers start billing again. Defaults to today. */
+      startDate:            dateStr.optional(),
+      /** A new price per picked-up retainer, by its id: they came back on different terms. */
+      prices:               z.record(z.string(), money).optional(),
     }), req.body ?? {})
     const today = localToday()
+    const start = body.startDate ?? today
     const row = db.transaction(tx => {
+      // Notice taken back: their scheduled ends are lifted.
+      const c = tx.select().from(businessClients).where(eq(businessClients.id, clientId)).get()
+      if (c?.leavingOn) {
+        tx.update(businessRetainers).set({ endDate: null, cancelReason: null, updatedAt: new Date().toISOString() })
+          .where(and(eq(businessRetainers.clientId, clientId), eq(businessRetainers.status, 'active'))).run()
+      }
       for (const invoiceId of body.restoreInvoiceIds ?? []) {
         const inv = tx.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)).get()
         if (inv?.clientId === clientId) restoreInvoice(tx, invoiceId)
@@ -465,15 +518,15 @@ router.post('/clients/:id/reactivate', async (req, res, next) => {
         const r = tx.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId)).get()
         if (!r || r.clientId !== clientId || r.status !== 'cancelled') continue
         tx.insert(businessRetainers).values({
-          clientId, serviceId: r.serviceId, name: r.name, amount: r.amount, currency: r.currency,
-          frequency: r.frequency, startDate: today, status: 'active',
+          clientId, serviceId: r.serviceId, name: r.name, amount: body.prices?.[String(r.id)] ?? r.amount, currency: r.currency,
+          frequency: r.frequency, startDate: start, status: 'active',
           netTermDays: r.netTermDays, autoInvoice: 1, notes: r.notes,
-          // Bills from today, never for the gap they were away for.
-          lastGeneratedDate: null, nextInvoiceDate: today,
+          // Bills from the day they restart, never for the gap they were away for.
+          lastGeneratedDate: null, nextInvoiceDate: start,
         }).run()
       }
       return tx.update(businessClients)
-        .set({ status: 'active', churnedAt: null, churnReason: null })
+        .set({ status: 'active', churnedAt: null, churnReason: null, leavingOn: null })
         .where(eq(businessClients.id, clientId)).returning().get()
     })
     invalidate()
@@ -486,6 +539,70 @@ function reactivateIfChurned(tx: Tx, clientId: number): void {
   tx.update(businessClients).set({ status: 'active', churnedAt: null, churnReason: null })
     .where(and(eq(businessClients.id, clientId), eq(businessClients.status, 'churned'))).run()
 }
+
+// ─── Export ───────────────────────────────────────────────────────────────────
+
+/**
+ * The books as CSV, for the accountant or a spreadsheet: invoices, money
+ * received, or costs (ad spend included, a row per campaign per month).
+ */
+router.get('/export', async (req, res, next) => {
+  try {
+    const q = parse(z.object({
+      kind: z.enum(['invoices', 'payments', 'costs']),
+      from: dateStr.optional(), to: dateStr.optional(),
+    }), req.query)
+    const d = await loadBusinessData()
+    const inR = (date: string) => (!q.from || date >= q.from) && (!q.to || date <= q.to)
+    const client = (cid: number | null) => d.clients.find(c => c.id === cid)
+    const inv = (iid: number) => d.allInvoices.find(i => i.id === iid)
+    let head: string[] = []
+    let rows: (string | number | null)[][] = []
+
+    if (q.kind === 'invoices') {
+      head = ['Number', 'Client', 'Company', 'Issued', 'Due', 'For', 'Amount', 'Paid', 'Owed', 'Status', 'Paid on', 'Note']
+      rows = d.allInvoices.filter(i => inR(i.issueDate)).sort((a, b) => a.issueDate.localeCompare(b.issueDate)).map(i => {
+        const c = client(i.clientId)
+        const paid = round2(d.applied.get(i.id) ?? 0)
+        return [i.invoiceNumber, c?.name ?? '', c?.company ?? '', i.issueDate, i.dueDate,
+          i.notes ?? i.milestoneLabel ?? '', i.amount, paid, i.status === 'void' ? 0 : owedOn(d, i),
+          i.status, i.paidDate ?? '', i.voidReason ?? '']
+      })
+    } else if (q.kind === 'payments') {
+      head = ['Date', 'Client', 'Invoice', 'Method', 'Gross', 'Fee', 'Refunded', 'Net']
+      rows = d.receipts.filter(x => inR(x.date)).sort((a, b) => a.date.localeCompare(b.date)).map(x => [
+        x.date, client(x.clientId)?.name ?? '', inv(x.invoiceId)?.invoiceNumber ?? '', x.method,
+        x.gross, x.fee, x.refunded, round2(x.gross - x.fee - x.refunded)])
+    } else {
+      head = ['Date', 'What', 'Category', 'Client', 'Amount', 'Paid by']
+      const owner = (oid: number | null) => d.owners.find(o => o.id === oid)?.name ?? ''
+      rows = d.expenses.filter(e => e.category === 'Business' && inR(e.date)).map(e => [
+        e.date, e.description, e.vendor ?? 'Cost', client(e.clientId)?.name ?? '', e.amount,
+        e.paidByOwnerId ? `${owner(e.paidByOwnerId)}${e.reimbursedAt ? ` (paid back ${e.reimbursedAt})` : ' (not paid back)'}` : 'Business'])
+      const ads = new Map<string, number>()
+      for (const a of d.adSpendDaily) {
+        const camp = d.campaigns.find(c => c.id === a.campaignId)
+        if (!camp || camp.fundingSource !== 'business' || !inR(a.date)) continue
+        const k = `${a.date.slice(0, 7)}|${camp.name}`
+        ads.set(k, round2((ads.get(k) ?? 0) + a.spend))
+      }
+      for (const [k, v] of ads) {
+        const [month, name] = k.split('|')
+        rows.push([`${month}-01`, `${name} (ad spend for ${month})`, 'Advertising', '', v, 'Business'])
+      }
+      rows.sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    }
+
+    const cell = (v: string | number | null) => {
+      const t = v == null ? '' : String(v)
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t
+    }
+    const csv = [head, ...rows].map(r => r.map(cell).join(',')).join('\n')
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="zavabuild-${q.kind}-${q.from ?? 'start'}-to-${q.to ?? localToday()}.csv"`)
+    res.send(csv)
+  } catch (e) { next(e) }
+})
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
@@ -751,9 +868,21 @@ router.post('/projects', async (req, res, next) => {
 router.put('/projects/:id', async (req, res, next) => {
   try {
     const body = parse(projectSchema.partial(), req.body)
-    const row = (await db.update(businessProjects)
-      .set({ ...body, updatedAt: new Date().toISOString() })
-      .where(eq(businessProjects.id, id(req.params.id))).returning())[0]
+    const projectId = id(req.params.id)
+    const row = db.transaction(tx => {
+      const out = tx.update(businessProjects)
+        .set({ ...body, updatedAt: new Date().toISOString() })
+        .where(eq(businessProjects.id, projectId)).returning().get()
+      // A website stopped part way: milestones never sent are not owed, so they
+      // go. Ones already sent stay owed, since that work was done; they can be
+      // written off from the invoice if not.
+      if (body.status === 'cancelled') {
+        const drafts = tx.select().from(businessInvoices).where(and(
+          eq(businessInvoices.projectId, projectId), eq(businessInvoices.status, 'draft'))).all()
+        for (const i of drafts) if (!allocationsFor(tx, i.id).length) voidInvoice(tx, i.id, 'Website cancelled before this stage', localToday())
+      }
+      return out
+    })
     invalidate()
     res.json(row)
   } catch (e) { next(e) }
@@ -1069,9 +1198,10 @@ router.post('/retainers/:id/change', async (req, res, next) => {
  */
 router.post('/retainers/:id/pause', async (req, res, next) => {
   try {
-    const body = parse(z.object({ voidOpen: z.boolean().optional() }), req.body ?? {})
+    const body = parse(z.object({ voidOpen: z.boolean().optional(), resumeOn: dateStr.nullish() }), req.body ?? {})
     const today = localToday()
     const retainerId = id(req.params.id)
+    if (body.resumeOn && body.resumeOn <= today) return res.status(400).json({ error: 'The restart date has to be after today' })
     const row = db.transaction(tx => {
       if (body.voidOpen) {
         const open = tx.select().from(businessInvoices).where(and(
@@ -1079,7 +1209,7 @@ router.post('/retainers/:id/pause', async (req, res, next) => {
         for (const i of open) if (!allocationsFor(tx, i.id).length) voidInvoice(tx, i.id, 'Retainer paused', today)
       }
       return tx.update(businessRetainers)
-        .set({ status: 'paused', pausedAt: today, updatedAt: new Date().toISOString() })
+        .set({ status: 'paused', pausedAt: today, resumeOn: body.resumeOn ?? null, updatedAt: new Date().toISOString() })
         .where(eq(businessRetainers.id, retainerId)).returning().get()
     })
     invalidate()
@@ -1099,6 +1229,7 @@ router.post('/retainers/:id/resume', async (req, res, next) => {
       .set({
         status: 'active',
         pausedAt: null,
+        resumeOn: null,
         lastGeneratedDate: from,
         nextInvoiceDate: from,
         updatedAt: new Date().toISOString(),
@@ -1113,34 +1244,46 @@ router.post('/retainers/:id/resume', async (req, res, next) => {
  * Stop a retainer. The last day may be in the past, which is the usual case:
  * someone says in October that they stopped in September. Every open invoice
  * for a period from that day on is voided, since it bills time they were not a
- * client; a future day is refused, because MRR would drop now with no churn
- * recorded for it.
+ * client.
+ *
+ * A future day is notice, or a fixed-term contract: the retainer stays live and
+ * keeps billing the periods that start before that day, then closes itself on
+ * it. MRR drops on the day, not today.
  */
 router.post('/retainers/:id/cancel', async (req, res, next) => {
   try {
     const body = parse(z.object({ endDate: dateStr.optional(), reason: z.string().nullish(), dryRun: z.boolean().optional() }), req.body)
     const today = localToday()
     const endDate = body.endDate ?? today
-    if (endDate > today) return res.status(400).json({ error: 'The last day cannot be in the future' })
+    const scheduled = endDate > today
     const retainerId = id(req.params.id)
+    const [current] = await db.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId))
+    if (!current) return res.status(404).json({ error: 'No such retainer' })
 
     const open = await db.select().from(businessInvoices).where(and(
       eq(businessInvoices.retainerId, retainerId), inArray(businessInvoices.status, ['unpaid', 'draft'])))
     const voids = open.filter(i => (i.periodStart ?? i.issueDate) >= endDate)
-    const plan = { endDate, voided: voids.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, periodStart: i.periodStart })) }
+    const plan = {
+      endDate, scheduled,
+      voided: voids.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, periodStart: i.periodStart })),
+      /** Notice: the bills still to come before the last day. */
+      stillToBill: scheduled && current.status === 'active' ? invoicesBefore(current, endDate) : [],
+    }
     if (body.dryRun) return res.json(plan)
 
     db.transaction(tx => {
       for (const i of voids) voidInvoice(tx, i.id, 'Retainer ended before this period', today)
       tx.delete(businessRetainerChanges).where(and(
         eq(businessRetainerChanges.retainerId, retainerId), gte(businessRetainerChanges.effectiveDate, endDate))).run()
-      tx.update(businessRetainers).set({
-        status: 'cancelled', endDate,
-        cancelReason: body.reason ?? null,
-        cancelledAt: today,
-        autoInvoice: 0,
-        updatedAt: new Date().toISOString(),
-      }).where(eq(businessRetainers.id, retainerId)).run()
+      tx.update(businessRetainers).set(scheduled && current.status === 'active'
+        ? { endDate, cancelReason: body.reason ?? null, updatedAt: new Date().toISOString() }
+        : {
+          status: 'cancelled', endDate,
+          cancelReason: body.reason ?? null,
+          cancelledAt: today,
+          autoInvoice: 0,
+          updatedAt: new Date().toISOString(),
+        }).where(eq(businessRetainers.id, retainerId)).run()
     })
     invalidate()
     res.json(plan)
@@ -1277,6 +1420,9 @@ router.get('/invoices/ledger', async (req, res, next) => {
           partPaid: i.status === 'unpaid' && applied > 0,
           issueDate: i.issueDate, dueDate: i.dueDate, paidDate: i.paidDate,
           notes: i.notes, voidReason: i.voidReason, sentDate: i.sentDate,
+          /** On hold: not chased until this date. */
+          heldUntil: !isVoid && i.status !== 'paid' && i.chaseAfter && i.chaseAfter > today ? i.chaseAfter : null,
+          holdReason: i.holdReason,
         }
       })
       .sort((a, b) => b.issueDate.localeCompare(a.issueDate) || b.id - a.id)
@@ -1287,6 +1433,10 @@ router.get('/invoices/ledger', async (req, res, next) => {
       totals: {
         count:       live.length,
         voidCount:   rows.length - live.length,
+        /** Bills that were owed and let go. Not counted as billed anywhere. */
+        writtenOff:  round2(rows.filter(r => r.status === 'void' && /written off/i.test(r.voidReason ?? '')).reduce((s, r) => s + r.gross, 0)),
+        writtenOffCount: rows.filter(r => r.status === 'void' && /written off/i.test(r.voidReason ?? '')).length,
+        onHold:      round2(live.filter(r => r.heldUntil).reduce((s, r) => s + r.owed, 0)),
         billed:      round2(live.reduce((s, r) => s + r.gross, 0)),
         collected:   round2(live.reduce((s, r) => s + (r.net ?? 0), 0)),
         fees:        round2(live.reduce((s, r) => s + r.fee, 0)),
@@ -1489,19 +1639,41 @@ router.put('/invoices/:id', async (req, res, next) => {
     if (!current) return res.status(404).json({ error: 'No such invoice' })
     if (current.status === 'void') return res.status(409).json({ error: `${current.invoiceNumber} is void. Restore it to edit it.` })
 
-    const { status, paidDate, feeAmount, refundedAmount, ...fields } = body
+    const { status, paidDate, feeAmount, refundedAmount, excess, ...fields } = { ...body, excess: excessChoice.parse(req.body?.excess) }
     // Subtotal is written equal to the amount everywhere else; an edit to the
     // amount that left it behind would have the two disagree.
     if (fields.amount != null && fields.subtotal === undefined) fields.subtotal = fields.amount
 
-    db.transaction(tx => {
-      if (fields.amount != null) {
-        const applied = allocationsFor(tx, invoiceId).reduce((s, a) => s + a.amount, 0)
-        if (fields.amount < applied - 0.005) {
-          refuse(409, `${round2(applied).toFixed(2)} has already been paid on this invoice, so it cannot be less than that`)
-        }
+    // Lowering an invoice below what was paid leaves money over. It either
+    // goes toward their next bills (paying ahead if none is open yet) or was
+    // given back. Asking beats refusing: "it cannot be less than that" was a
+    // dead end for a client who overpaid.
+    const appliedNow = round2(allocationsFor(db, invoiceId).reduce((s, a) => s + a.amount, 0))
+    const over = fields.amount != null ? round2(appliedNow - fields.amount) : 0
+    if (over > 0.005 && !excess) {
+      return res.status(409).json({
+        error: `${over.toFixed(2)} more than that has already been paid. Choose whether it goes toward their next bill or was given back.`,
+        excess: over,
+      })
+    }
+    let creditPlan: ReturnType<typeof planCredit> | null = null
+    let numbers: string[] = []
+    if (over > 0.005 && excess === 'credit') {
+      creditPlan = planCredit(current.clientId, over, [invoiceId])
+      if (creditPlan.left > 0.005) {
+        return res.status(409).json({ error: `They have nothing open or coming up to put ${over.toFixed(2)} toward. Record it as given back instead.` })
       }
+      const alloc = await createInvoiceNumberAllocator()
+      numbers = creditPlan.ahead.map(() => alloc.next())
+    }
+
+    db.transaction(tx => {
       if (Object.keys(fields).length) tx.update(businessInvoices).set(fields).where(eq(businessInvoices.id, invoiceId)).run()
+      if (over > 0.005 && excess === 'refund') refundFrom(tx, invoiceId, over)
+      if (over > 0.005 && excess === 'credit' && creditPlan) {
+        const ahead = creditPlan.ahead.map((a, i) => issueAhead(tx, a.retainerId, a.periodStart, numbers[i], localToday()).id)
+        moveMoney(tx, invoiceId, over, [...creditPlan.open.map(x => x.inv.id), ...ahead])
+      }
 
       // Only draft <-> unpaid is a plain status change.
       if (status === 'draft' || status === 'unpaid') {
@@ -1526,6 +1698,142 @@ router.put('/invoices/:id', async (req, res, next) => {
     })
     invalidate()
     res.json((await db.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)))[0])
+  } catch (e) { next(e) }
+})
+
+const excessChoice = z.enum(['credit', 'refund']).optional()
+
+/**
+ * Where money a client has over could go: their open invoices first, oldest
+ * first, then the next periods of their retainers, paid ahead.
+ */
+function planCredit(clientId: number, amount: number, except: number[] = []) {
+  const open = openInvoicesOf(db, clientId, except)
+  let left = round2(amount)
+  for (const x of open) left = round2(left - Math.min(x.owed, left))
+  const retainers = db.select().from(businessRetainers).where(eq(businessRetainers.clientId, clientId)).all()
+  const { periods, left: after } = planAhead(retainers, left)
+  return { open, ahead: periods, left: after }
+}
+
+/**
+ * Record money as given back, latest bank or cash money first. A Stripe payment
+ * is refunded in Stripe, and the refund arrives with the next sync.
+ */
+function refundFrom(tx: Tx, invoiceId: number, amount: number) {
+  let left = round2(amount)
+  const manual = allocationsFor(tx, invoiceId).filter(a => !a.paymentId)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+  for (const a of manual) {
+    if (left <= 0.005) break
+    const r = round2(Math.min(a.amount - a.refunded, left))
+    if (r <= 0) continue
+    tx.update(businessPaymentAllocations).set({ refunded: round2(a.refunded + r) }).where(eq(businessPaymentAllocations.id, a.id)).run()
+    left = round2(left - r)
+  }
+  if (left > 0.005) refuse(409, `${left.toFixed(2)} of that came by card. Refund it in Stripe and it will arrive with the next sync.`)
+  recomputeInvoice(tx, invoiceId)
+}
+
+/**
+ * Accept what has been paid as payment in full: a discount, a first month
+ * free, or a short payment let go. The invoice is lowered to what arrived and
+ * the original price kept as its subtotal, so the discount stays visible.
+ */
+router.post('/invoices/:id/settle', async (req, res, next) => {
+  try {
+    const body = parse(z.object({ reason: z.string().nullish() }), req.body ?? {})
+    const invoiceId = id(req.params.id)
+    const inv = db.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)).get()
+    if (!inv) return res.status(404).json({ error: 'No such invoice' })
+    const applied = round2(allocationsFor(db, invoiceId).reduce((s, a) => s + a.amount, 0))
+    if (inv.status !== 'unpaid' || applied <= 0) {
+      return res.status(409).json({ error: 'Only an invoice with part of it paid can be settled for what arrived. To let all of it go, write it off.' })
+    }
+    const discount = round2(inv.amount - applied)
+    const note = `Accepted ${applied.toFixed(2)} as payment in full (${discount.toFixed(2)} off)${body.reason ? `: ${body.reason}` : ''}`
+    db.transaction(tx => {
+      tx.update(businessInvoices).set({
+        amount: applied, subtotal: inv.subtotal ?? inv.amount,
+        notes: inv.notes ? `${inv.notes}. ${note}` : note,
+      }).where(eq(businessInvoices.id, invoiceId)).run()
+      recomputeInvoice(tx, invoiceId)
+    })
+    invalidate()
+    res.json({ discount, note })
+  } catch (e) { next(e) }
+})
+
+/**
+ * On hold: a client disputing a bill, or one agreed to wait. It stays owed and
+ * in every total, but out of "Chase" until the date. No date clears the hold.
+ */
+router.post('/invoices/:id/hold', async (req, res, next) => {
+  try {
+    const body = parse(z.object({ until: dateStr.nullish(), reason: z.string().nullish() }), req.body ?? {})
+    const row = db.update(businessInvoices).set({ chaseAfter: body.until ?? null, holdReason: body.until ? body.reason ?? null : null })
+      .where(eq(businessInvoices.id, id(req.params.id))).returning().get()
+    invalidate()
+    res.json(row)
+  } catch (e) { next(e) }
+})
+
+/** Give back part or all of a bank or cash payment. */
+router.post('/allocations/:id/refund', async (req, res, next) => {
+  try {
+    const body = parse(z.object({ amount: money.positive() }), req.body)
+    const a = db.select().from(businessPaymentAllocations).where(eq(businessPaymentAllocations.id, id(req.params.id))).get()
+    if (!a) return res.status(404).json({ error: 'No such payment record' })
+    if (a.paymentId) return res.status(409).json({ error: 'That came by card. Refund it in Stripe and it will arrive with the next sync.' })
+    if (body.amount > round2(a.amount - a.refunded) + 0.005) {
+      return res.status(409).json({ error: `Only ${round2(a.amount - a.refunded).toFixed(2)} of that payment is left to give back` })
+    }
+    db.transaction(tx => {
+      tx.update(businessPaymentAllocations).set({ refunded: round2(a.refunded + body.amount) })
+        .where(eq(businessPaymentAllocations.id, a.id)).run()
+      recomputeInvoice(tx, a.invoiceId)
+    })
+    invalidate()
+    res.json({ ok: true })
+  } catch (e) { next(e) }
+})
+
+/**
+ * A bank or cash payment recorded against the wrong client: it moves to the
+ * right one, onto their open bills oldest first, and anything over becomes a
+ * paid invoice for them, as recording it fresh would.
+ */
+router.post('/allocations/:id/move', async (req, res, next) => {
+  try {
+    const body = parse(z.object({ clientId: z.number().int(), dryRun: z.boolean().optional() }), req.body)
+    const a = db.select().from(businessPaymentAllocations).where(eq(businessPaymentAllocations.id, id(req.params.id))).get()
+    if (!a) return res.status(404).json({ error: 'No such payment record' })
+    if (a.paymentId) return res.status(409).json({ error: 'That came by card. Use Change on the payment to give it to someone else.' })
+    const open = openInvoicesOf(db, body.clientId, [a.invoiceId])
+    let left = round2(a.amount)
+    const splits = open.map(x => { const amt = round2(Math.min(x.owed, left)); left = round2(left - amt); return { invoiceId: x.inv.id, invoiceNumber: x.inv.invoiceNumber, amount: amt } })
+      .filter(x => x.amount > 0.005)
+    const plan = { splits, leftOver: left }
+    if (body.dryRun) return res.json(plan)
+    const rest = left > 0.005 ? await nextInvoiceNumber() : null
+    db.transaction(tx => {
+      tx.delete(businessPaymentAllocations).where(eq(businessPaymentAllocations.id, a.id)).run()
+      recomputeInvoice(tx, a.invoiceId)
+      const all = [...splits]
+      if (rest) {
+        reactivateIfChurned(tx, body.clientId)
+        const inv = tx.insert(businessInvoices).values({
+          clientId: body.clientId, invoiceNumber: rest, amount: left, subtotal: left, status: 'unpaid',
+          issueDate: a.date, dueDate: a.date, sentDate: a.date, notes: 'Payment received',
+        }).returning().get()
+        all.push({ invoiceId: inv.id, invoiceNumber: rest, amount: left })
+      }
+      all.forEach((sp, i) => recordManualPayment(tx, sp.invoiceId, {
+        amount: sp.amount, date: a.date, method: a.method as 'bank' | 'cash', fee: i === 0 ? a.fee : 0, note: a.note,
+      }))
+    })
+    invalidate()
+    res.json(plan)
   } catch (e) { next(e) }
 })
 

@@ -7,7 +7,7 @@ import { RetainerTable } from '../components/RetainerTable'
 import { PaymentsLedger } from '../components/PaymentsLedger'
 import { Question, Figure } from '../components/MoneySections'
 import { SplitBar, hoverCard, SERIES } from '../components/charts'
-import { useLedger, useRetainers, useUnassignedPayments, usePayments } from '../../../hooks/useBusiness'
+import { useLedger, useRetainers, useUnassignedPayments, usePayments, exportUrl } from '../../../hooks/useBusiness'
 import type { LedgerRow, Retainer } from '../lib/types'
 import type { RetainerAction } from '../components/RetainerTable'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -108,6 +108,15 @@ export function Invoices({
             </button>
           ))}
         </div>
+        <span className="flex items-center gap-1.5 ml-auto">
+          <span className="text-[9.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--c-text-3)' }}>Export</span>
+          {(['invoices', 'payments', 'costs'] as const).map(k => (
+            <a key={k} href={exportUrl(k, view === 'ledger' ? range : {})} download
+              title={`A spreadsheet of ${k}${view === 'ledger' && preset !== 'All' ? ' for this period' : ''}, for the accountant`}
+              className="px-2 py-1 rounded-md text-[11px] font-semibold hover:bg-white/5"
+              style={{ border: '1px solid var(--c-border-mid)', color: 'var(--c-text-2)' }}>{k}</a>
+          ))}
+        </span>
         {view === 'ledger' && (
           <DateFilter
             preset={preset} onPreset={setPreset}
@@ -123,7 +132,9 @@ export function Invoices({
             answer={t.outstanding > 0
               ? <><b className="num" style={{ color: '#f59e0b' }}>{fmtView(t.outstanding)}</b> owed by {owedBy.length} client{owedBy.length === 1 ? '' : 's'}
                 {t.overdue > 0 ? <>, <b className="num" style={{ color: 'var(--c-loss)' }}>{fmtView(t.overdue)}</b> of it overdue</> : ', none of it late'}.
-                {t.avgDaysToPay != null ? <> Invoices are paid {t.avgDaysToPay < 1 ? 'within a day' : `${Math.round(t.avgDaysToPay)} days after issue`} on average.</> : null}</>
+                {t.onHold ? <> {fmtView(t.onHold)} is on hold.</> : null}
+                {t.avgDaysToPay != null ? <> Invoices are paid {t.avgDaysToPay < 1 ? 'within a day' : `${Math.round(t.avgDaysToPay)} days after issue`} on average.</> : null}
+                {t.writtenOff ? <> {fmtView(t.writtenOff)} has been written off ({t.writtenOffCount} bill{t.writtenOffCount === 1 ? '' : 's'}), listed under Void.</> : null}</>
               : 'Nobody owes you anything.'}>
             <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)' }}>
               <div className="grid grid-cols-2 gap-3">

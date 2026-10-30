@@ -111,6 +111,8 @@ export interface FetchedCharge {
   payerEmail: string | null
   description: string | null
   status: string
+  /** The client disputed the charge with their bank. */
+  disputed: boolean
   /** Whatever the app stamped on the payment when it created the link. */
   ourInvoiceId: number | null
   /** Set when a Stripe invoice says this charge settled a subscription. */
@@ -274,6 +276,7 @@ export async function fetchCharges(sinceUnix: number): Promise<FetchedCharge[]> 
         payerEmail: billing.email ?? c.receipt_email ?? null,
         description: c.description ?? inv?.number ?? null,
         status: c.status,
+        disputed: !!c.disputed,
         ourInvoiceId: Number.isFinite(ourId) && ourId > 0 ? ourId : null,
         plan: planForCharge(
           plans,
@@ -639,7 +642,7 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
     if (existing?.matchedAt || existing?.ignored) {
       await db.update(stripePayments)
         .set({
-          fee: c.fee, amountNet: c.net, refunded: c.refunded, syncedAt: now,
+          fee: c.fee, amountNet: c.net, refunded: c.refunded, syncedAt: now, disputed: c.disputed ? 1 : 0,
           // Safe to refresh on a decided payment: these describe what Stripe
           // did, not what the user chose, so they can never undo a decision.
           subscriptionId:   c.plan?.subscriptionId ?? existing.subscriptionId,
@@ -672,6 +675,7 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
       payerEmail: c.payerEmail,
       description: c.description,
       status: c.status,
+      disputed: c.disputed ? 1 : 0,
       // A suggestion only. applyPayment writes the decision if it is applied.
       matchedClientId: m.clientId,
       matchedInvoiceId: null,
