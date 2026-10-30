@@ -22,6 +22,7 @@ import { BusinessSettingsModal } from './modals/SettingsModal'
 import { AdSpendModal } from './modals/AdSpendModal'
 import { PayInvoiceModal, RetainerActionModal, DrawModal } from './modals/MoneyModals'
 import { RetainerEditModal, DropClientModal, ComebackModal } from './modals/LifecycleModals'
+import { ChangePlanModal, RecordPaymentModal } from './modals/ClientActions'
 import type { RetainerAction } from './components/RetainerTable'
 import {
   ClientModal, ProjectModal, InvoiceModal, RetainerModal,
@@ -96,6 +97,8 @@ export function BusinessPage() {
   const [editRetainer, setEditRetainer] = useState<Retainer | null>(null)
   const [dropClient, setDropClient] = useState<{ id: number; name: string } | null>(null)
   const [comeback, setComeback] = useState<{ id: number; name: string } | null>(null)
+  const [changePlan, setChangePlan] = useState<Retainer[] | null>(null)
+  const [recordPayment, setRecordPayment] = useState<{ open: boolean; client: { id: number; name: string } | null }>({ open: false, client: null })
   const [drawOpen, setDrawOpen] = useState(false)
   const [clientModal, setClientModal] = useState<{ open: boolean; client?: any }>({ open: false })
   const [projectModal, setProjectModal] = useState<{ open: boolean; clientId?: number | null; project?: any }>({ open: false })
@@ -136,11 +139,9 @@ export function BusinessPage() {
           <Tabs tabs={TABS} active={tab} onChange={t => setTab(t as Tab)} />
           <NewMenu
             onNewWork={() => setNewWork(true)}
-            onNewClient={() => setClientModal({ open: true })}
-            onNewInvoice={() => setInvoiceModal({ open: true })}
+            onRecordPayment={() => setRecordPayment({ open: true, client: null })}
             onAddCost={() => setCostModal({ open: true })}
             onLogAdSpend={() => setAdSpend({ open: true })}
-            onLogTime={() => setTimeModal({ open: true, projectId: null })}
             onRecordDraw={() => setDrawOpen(true)}
           />
         </div>
@@ -179,6 +180,8 @@ export function BusinessPage() {
           onEditNote={note => setNoteModal({ open: true, clientId: note.clientId, note })}
           onDrop={setDropClient}
           onComeback={setComeback}
+          onChangePlan={setChangePlan}
+          onRecordPayment={client => setRecordPayment({ open: true, client })}
         />
       ) : (
         <Clients
@@ -247,6 +250,15 @@ export function BusinessPage() {
       <RetainerEditModal retainer={editRetainer} onClose={() => setEditRetainer(null)} fmtView={fmtView} />
       <DropClientModal client={dropClient} onClose={() => setDropClient(null)} fmtView={fmtView} />
       <ComebackModal client={comeback} onClose={() => setComeback(null)} fmtView={fmtView} />
+      <ChangePlanModal
+        retainers={changePlan}
+        onClose={() => setChangePlan(null)}
+        onPause={r => setRetainerAction({ r, a: 'pause' })}
+        onStop={r => setRetainerAction({ r, a: 'cancel' })}
+        fmtView={fmtView}
+      />
+      <RecordPaymentModal open={recordPayment.open} client={recordPayment.client}
+        onClose={() => setRecordPayment({ open: false, client: null })} fmtView={fmtView} />
       <RetainerModal
         open={retainerModal.open}
         clientId={retainerModal.clientId}
@@ -278,10 +290,13 @@ export function BusinessPage() {
   )
 }
 
-/** The five things worth doing from anywhere on the tab. */
+/**
+ * The four things worth starting from anywhere on the tab. Everything else
+ * starts where it belongs: an invoice on the client, hours on the website.
+ */
 function NewMenu({
-  onNewWork, onNewClient, onNewInvoice, onAddCost, onLogAdSpend, onLogTime, onRecordDraw,
-}: Record<'onNewWork' | 'onNewClient' | 'onNewInvoice' | 'onAddCost' | 'onLogAdSpend' | 'onLogTime' | 'onRecordDraw', () => void>) {
+  onNewWork, onRecordPayment, onAddCost, onLogAdSpend, onRecordDraw,
+}: Record<'onNewWork' | 'onRecordPayment' | 'onAddCost' | 'onLogAdSpend' | 'onRecordDraw', () => void>) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -294,14 +309,11 @@ function NewMenu({
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
   }, [open])
 
-  const items: [string, () => void, string?][] = [
-    ['New work', onNewWork, 'Client, website, invoices and retainer in one go'],
-    ['New client', onNewClient],
-    ['New invoice', onNewInvoice],
-    ['Add a cost', onAddCost],
-    ['Log ad spend', onLogAdSpend, 'A day at a time, or pull it from Meta'],
-    ['Log hours', onLogTime],
-    ['Record a draw', onRecordDraw],
+  const items: { label: string; hint: string; run: () => void; extra?: { label: string; run: () => void } }[] = [
+    { label: 'New client or work', hint: 'Client, website, invoices and a monthly plan in one go', run: onNewWork },
+    { label: 'Record a payment', hint: 'Someone paid by bank or cash: pick them, enter the amount', run: onRecordPayment },
+    { label: 'Add spending', hint: 'A tool, a client cost, or a bill', run: onAddCost, extra: { label: 'Ad spend', run: onLogAdSpend } },
+    { label: 'Owner draw', hint: 'Money one of you took out', run: onRecordDraw },
   ]
 
   return (
@@ -317,22 +329,31 @@ function NewMenu({
 
       {open && (
         <div
-          className="absolute right-0 mt-1.5 w-64 rounded-xl overflow-hidden z-50"
+          className="absolute right-0 mt-1.5 w-72 rounded-xl overflow-hidden z-50"
           style={{ background: 'var(--c-bg-elevated)', border: '1px solid var(--c-border-mid)', boxShadow: '0 12px 32px rgba(0,0,0,0.5)' }}
         >
-          {items.map(([label, fn, hint], i) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => { setOpen(false); fn() }}
-              className="w-full text-left px-3.5 py-2.5"
-              style={{ borderTop: i ? '1px solid var(--c-border)' : 'none' }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg-hover)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >
-              <span className="block text-xs font-semibold" style={{ color: 'var(--c-text-1)' }}>{label}</span>
-              {hint && <span className="block text-[10.5px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>{hint}</span>}
-            </button>
+          {items.map((it, i) => (
+            <div key={it.label} className="flex items-stretch" style={{ borderTop: i ? '1px solid var(--c-border)' : 'none' }}>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); it.run() }}
+                className="flex-1 text-left px-3.5 py-2.5"
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg-hover)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <span className="block text-xs font-semibold" style={{ color: 'var(--c-text-1)' }}>{it.label}</span>
+                <span className="block text-[10.5px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>{it.hint}</span>
+              </button>
+              {it.extra && (
+                <button type="button" onClick={() => { setOpen(false); it.extra!.run() }}
+                  className="px-3 text-[11px] font-semibold"
+                  style={{ color: 'var(--c-accent)', borderLeft: '1px solid var(--c-border)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg-hover)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  {it.extra.label}
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}

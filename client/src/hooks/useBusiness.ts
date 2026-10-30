@@ -265,6 +265,56 @@ export function useChangeRetainerPrice() {
     api.put(`/api/business/retainers/${id}/price`, body).then(r => r.data))
 }
 
+export interface PlanChange {
+  newAmount: number
+  serviceId?: number | null
+  from: 'now' | 'next'
+  openInvoice?: 'keep' | 'writeoff'
+  reason?: string
+}
+export interface PlanChangePreview extends PricePlan {
+  sentence: string
+  writtenOff: string[]
+  leftOpen: { invoiceNumber: string; amount: number }[]
+}
+
+/** The one-step plan change, previewed as a sentence before it is made. */
+export function usePlanChangePreview(retainerId: number | null, body: PlanChange | null) {
+  return useQuery<PlanChangePreview>({
+    queryKey: ['plan-change-preview', retainerId, body],
+    queryFn: () => api.post(`/api/business/retainers/${retainerId}/change`, { ...body, dryRun: true }).then(r => r.data),
+    enabled: !!retainerId && !!body && body.newAmount >= 0,
+    retry: false,
+  })
+}
+
+export function useChangePlan() {
+  return useBusinessMutation(({ id, ...body }: { id: number } & PlanChange) =>
+    api.post(`/api/business/retainers/${id}/change`, body).then(r => r.data as PlanChangePreview))
+}
+
+export interface ClientPaymentPlan {
+  splits: { invoiceId: number; invoiceNumber: string; amount: number; owed: number; settles: boolean }[]
+  leftOver: number
+  owedTotal: number
+}
+export type ClientPaymentBody = { amount: number; date?: string; fee?: number; method?: 'bank' | 'cash' | 'stripe' }
+
+/** One payment from a client, spread over what they owe, oldest first. */
+export function useClientPaymentPreview(clientId: number | null, body: ClientPaymentBody | null) {
+  return useQuery<ClientPaymentPlan>({
+    queryKey: ['client-payment-preview', clientId, body],
+    queryFn: () => api.post(`/api/business/clients/${clientId}/payments`, { ...body, dryRun: true }).then(r => r.data),
+    enabled: !!clientId && !!body && body.amount > 0,
+    retry: false,
+  })
+}
+
+export function useRecordClientPayment() {
+  return useBusinessMutation(({ clientId, ...body }: { clientId: number } & ClientPaymentBody) =>
+    api.post(`/api/business/clients/${clientId}/payments`, body).then(r => r.data as ClientPaymentPlan))
+}
+
 export function useUpdateRetainer() {
   return useBusinessMutation(({ id, ...body }: { id: number; [k: string]: any }) =>
     api.put(`/api/business/retainers/${id}`, body).then(r => r.data))

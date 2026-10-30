@@ -13,6 +13,16 @@ import type { RetainerAction } from '../components/RetainerTable'
 
 const STAGE_ORDER = ['discovery', 'design', 'build', 'review', 'launched']
 
+/** An empty section is one quiet line, not a table of headers over nothing. */
+function EmptyLine({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs px-4 py-2.5 rounded-xl"
+      style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', color: 'var(--c-text-3)' }}>
+      {children}
+    </p>
+  )
+}
+
 /**
  * One client, everything about them, nothing about anyone else.
  *
@@ -24,6 +34,7 @@ const STAGE_ORDER = ['discovery', 'design', 'build', 'review', 'launched']
 export function ClientDetail({
   clientId, fmtView, onBack, onEdit, onAddRetainer, onAddProject, onAddInvoice, onAddCost, onAddNote,
   onRetainerAction, onPay, onLogTime, onEditInvoice, onEditProject, onEditNote, onDrop, onComeback,
+  onChangePlan, onRecordPayment,
 }: {
   clientId: number
   fmtView: FmtView
@@ -42,6 +53,9 @@ export function ClientDetail({
   onEditNote: (note: any) => void
   onDrop: (client: { id: number; name: string }) => void
   onComeback: (client: { id: number; name: string }) => void
+  /** Opens Change plan with this client's live retainers. */
+  onChangePlan: (retainers: any[]) => void
+  onRecordPayment: (client: { id: number; name: string }) => void
 }) {
   const { data, isPending } = useClientSummary(clientId)
   const saveProject = useSaveProject()
@@ -63,6 +77,18 @@ export function ClientDetail({
     i.status === 'void' && /client left|written off/i.test(i.voidReason ?? ''))
   const today = new Date().toISOString().slice(0, 10)
 
+  // The plan in one line, so nobody has to read the retainer table to know it.
+  const live = retainers.filter((r: any) => r.status === 'active' || r.status === 'paused')
+  const per = (f: string) => (f === 'monthly' ? 'mo' : f.replace(/ly$/, ''))
+  const since = (d: string) => new Date(d).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })
+  const planParts = live.map((r: any) =>
+    r.status === 'paused' ? `${r.serviceName} paused`
+      : r.startDate > today ? `${fmtView(r.amount)}/${per(r.frequency)} for ${r.serviceName} from ${formatDate(r.startDate)}`
+      : `${fmtView(r.amount)}/${per(r.frequency)} for ${r.serviceName} since ${since(r.startDate)}`)
+  const nextDue = live.filter((r: any) => r.status === 'active' && r.nextInvoiceDate)
+    .map((r: any) => r.nextInvoiceDate).sort()[0]
+  const owes = e.outstanding
+
   return (
     <div className="space-y-7">
       <div>
@@ -75,29 +101,49 @@ export function ClientDetail({
           <ArrowLeft size={12} /> All clients
         </button>
 
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{client.name}</h2>
-            <p className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: 'var(--c-text-3)' }}>
-              {client.company && <span>{client.company}</span>}
-              {client.website && (
-                <a href={client.website.startsWith('http') ? client.website : `https://${client.website}`}
-                  target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1 hover:underline" style={{ color: 'var(--c-accent)' }}>
-                  {client.website.replace(/^https?:\/\//, '')} <ExternalLink size={10} />
-                </a>
-              )}
-              {client.email && <span>{client.email}</span>}
-              {client.phone && <span className="num">{client.phone}</span>}
-            </p>
-          </div>
-          <div className="flex gap-1.5">
-            <MiniBtn onClick={() => onEdit(client)}>Edit client</MiniBtn>
-            {churned
-              ? <MiniBtn tone="good" onClick={() => onComeback({ id: client.id, name: client.name })}>They are back...</MiniBtn>
-              : <MiniBtn tone="danger" onClick={() => onDrop({ id: client.id, name: client.name })}>Client left...</MiniBtn>}
-          </div>
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{client.name}</h2>
+          <p className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: 'var(--c-text-3)' }}>
+            {client.company && <span>{client.company}</span>}
+            {client.website && (
+              <a href={client.website.startsWith('http') ? client.website : `https://${client.website}`}
+                target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 hover:underline" style={{ color: 'var(--c-accent)' }}>
+                {client.website.replace(/^https?:\/\//, '')} <ExternalLink size={10} />
+              </a>
+            )}
+            {client.email && <span>{client.email}</span>}
+            {client.phone && <span className="num">{client.phone}</span>}
+          </p>
+          <p className="text-[13px] mt-2.5" style={{ color: 'var(--c-text-2)' }}>
+            {churned ? 'Left' : planParts.length ? <>Pays {planParts.join(' and ')}</> : 'No monthly plan'}
+            {nextDue && !churned && <> · next invoice {formatDate(nextDue)}</>}
+            {' · '}
+            {owes > 0
+              ? <span style={{ color: '#f59e0b' }}>owes <span className="num">{fmtView(owes)}</span></span>
+              : <span style={{ color: 'var(--c-profit)' }}>owes nothing</span>}
+          </p>
         </div>
+      </div>
+
+      {/* Everything you do to a client, in one place, always in reach. */}
+      <div className="sticky -top-6 z-10 -mx-6 px-6 py-2.5 flex items-center gap-1.5 flex-wrap"
+        style={{ background: 'var(--c-bg-primary)', borderBottom: '1px solid var(--c-border)' }}>
+        {!churned && (live.length
+          ? <MiniBtn tone="accent" onClick={() => onChangePlan(live)}>Change plan</MiniBtn>
+          : <MiniBtn tone="accent" onClick={() => onAddRetainer(clientId)}>Add a plan</MiniBtn>)}
+        <MiniBtn tone="good" onClick={() => onRecordPayment({ id: client.id, name: client.name })}
+          disabled={owes <= 0} title={owes > 0 ? 'Record money they paid' : 'They owe nothing'}>
+          Record payment
+        </MiniBtn>
+        <MiniBtn onClick={() => onAddInvoice(clientId)}>New invoice</MiniBtn>
+        <MiniBtn onClick={() => onAddProject(clientId)}>New website</MiniBtn>
+        <MiniBtn onClick={() => onAddNote(clientId)}>Add note</MiniBtn>
+        <span className="flex-1" />
+        <MiniBtn onClick={() => onEdit(client)}>Edit details</MiniBtn>
+        {churned
+          ? <MiniBtn tone="good" onClick={() => onComeback({ id: client.id, name: client.name })}>They are back...</MiniBtn>
+          : <MiniBtn tone="danger" onClick={() => onDrop({ id: client.id, name: client.name })}>Client left...</MiniBtn>}
       </div>
 
       {churned && (
@@ -185,6 +231,9 @@ export function ClientDetail({
       {/* ── Websites ─────────────────────────────────────────────────────── */}
       <Section label="Websites" count={projects.length || undefined}
         action={<MiniBtn tone="accent" onClick={() => onAddProject(clientId)}>+ Add website</MiniBtn>}>
+        {projects.length === 0 ? (
+          <EmptyLine>No website for this client.</EmptyLine>
+        ) : (
         <TablePanel>
           <table className="w-full">
             <THead>
@@ -236,6 +285,7 @@ export function ClientDetail({
             </tbody>
           </table>
         </TablePanel>
+        )}
       </Section>
 
       {/* ── Debts voided when they left ──────────────────────────────────── */}
@@ -292,7 +342,7 @@ export function ClientDetail({
             <tbody>
               {invoices.length === 0 ? (
                 <EmptyRow colSpan={8}>Nothing invoiced yet.</EmptyRow>
-              ) : (allInvoices ? invoices : invoices.slice(0, 15)).map((i: any) => {
+              ) : (allInvoices ? invoices : invoices.slice(0, 8)).map((i: any) => {
                 const overdue = i.status === 'unpaid' && i.dueDate < today
                 const part = i.status === 'unpaid' && i.applied > 0
                 const isVoid = i.status === 'void'
@@ -323,11 +373,11 @@ export function ClientDetail({
                   </Row>
                 )
               })}
-              {invoices.length > 15 && (
+              {invoices.length > 8 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-2.5 text-center">
                     <MiniBtn onClick={() => setAllInvoices(v => !v)}>
-                      {allInvoices ? 'Show the latest 15' : `Show ${invoices.length - 15} older`}
+                      {allInvoices ? 'Show the latest 8' : `Show ${invoices.length - 8} older`}
                     </MiniBtn>
                   </td>
                 </tr>
@@ -340,6 +390,9 @@ export function ClientDetail({
       {/* ── Costs ────────────────────────────────────────────────────────── */}
       <Section label="What they cost you" count={costs.length || undefined}
         action={<MiniBtn tone="accent" onClick={() => onAddCost(clientId)}>+ Add cost</MiniBtn>}>
+        {costs.length === 0 ? (
+          <EmptyLine>No costs attributed, so their margin reads as pure profit.</EmptyLine>
+        ) : (
         <TablePanel>
           <table className="w-full">
             <THead>
@@ -362,6 +415,7 @@ export function ClientDetail({
             </tbody>
           </table>
         </TablePanel>
+        )}
       </Section>
 
       {/* ── Notes ────────────────────────────────────────────────────────── */}
@@ -394,9 +448,7 @@ export function ClientDetail({
             </div>
           ))}
           {!client.notes && meetingNotes.length === 0 && (
-            <p className="text-xs py-4 text-center" style={{ color: 'var(--c-text-3)' }}>
-              Nothing written down for this client yet.
-            </p>
+            <p className="text-xs" style={{ color: 'var(--c-text-3)' }}>Nothing written down yet.</p>
           )}
         </div>
       </Section>
