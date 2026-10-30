@@ -750,8 +750,10 @@ router.post('/retainers', async (req, res, next) => {
       reactivateIfChurned(tx, body.clientId)
       return tx.insert(businessRetainers).values({
         ...body, frequency, status: 'active',
-        lastGeneratedDate: body.startDate,
-        nextInvoiceDate:   advance(body.startDate, frequency),
+        // The first invoice is for the start date itself. Marking the start as
+        // already billed skipped every new retainer's first month.
+        lastGeneratedDate: null,
+        nextInvoiceDate:   body.startDate,
       }).returning().get()
     })
     invalidate()
