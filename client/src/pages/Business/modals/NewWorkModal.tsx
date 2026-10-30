@@ -3,7 +3,7 @@ import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
-import { useServices, useClients, useCreateDeal, useInvoices } from '../../../hooks/useBusiness'
+import { useServices, useClients, useCreateDeal, useInvoices, useCreateService } from '../../../hooks/useBusiness'
 import { today, formatDate } from '../../../lib/utils'
 import type { Service, Client, Invoice } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -47,6 +47,29 @@ export function NewWorkModal({
   const [sendFirst, setSendFirst] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [useDeposit, setUseDeposit] = useState(true)
+  // A service the business has just started selling, added without leaving the form.
+  const createService = useCreateService()
+  const [adding, setAdding] = useState(false)
+  const [svcDraft, setSvcDraft] = useState({ name: '', kind: 'recurring' as 'recurring' | 'one_off', amount: '', staged: false })
+  const [svcError, setSvcError] = useState<string | null>(null)
+  const staging = services.find(s => s.kind === 'one_off' && s.milestones?.length)?.milestones ?? null
+
+  const addService = async () => {
+    setSvcError(null)
+    const amount = Number(svcDraft.amount)
+    if (!svcDraft.name.trim()) { setSvcError('Give it a name'); return }
+    try {
+      const svc = await createService.mutateAsync({
+        name: svcDraft.name.trim(), kind: svcDraft.kind,
+        defaultAmount: amount > 0 ? amount : null,
+        defaultFrequency: svcDraft.kind === 'recurring' ? 'monthly' : null,
+        milestones: svcDraft.kind === 'one_off' && svcDraft.staged ? staging : null,
+      })
+      setPicked(p => ({ ...p, [svc.id]: amount > 0 ? String(amount) : '' }))
+      setSvcDraft({ name: '', kind: 'recurring', amount: '', staged: false })
+      setAdding(false)
+    } catch (e: any) { setSvcError(e?.response?.data?.error ?? 'Could not add that') }
+  }
 
   const isNew = clientId === ''
   const start = today()
@@ -237,6 +260,53 @@ export function NewWorkModal({
               )
             })}
           </div>
+
+          {adding ? (
+            <div className="mt-2 rounded-lg p-3 space-y-2.5"
+              style={{ background: 'var(--c-bg-input)', border: '1px dashed rgba(129,140,248,0.4)' }}>
+              <div className="grid grid-cols-[1fr_auto_7rem] gap-2 items-end">
+                <Input id="svc-new-name" label="New service" value={svcDraft.name} autoFocus placeholder="e.g. Google Ads management"
+                  onChange={e => setSvcDraft({ ...svcDraft, name: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addService() } }} />
+                <div className="flex rounded-md overflow-hidden mb-px" style={{ border: '1px solid var(--c-border-mid)' }}>
+                  {([['recurring', 'Monthly'], ['one_off', 'One-off']] as const).map(([k, label]) => (
+                    <button key={k} type="button" onClick={() => setSvcDraft({ ...svcDraft, kind: k })}
+                      className="px-2.5 py-2 text-xs"
+                      style={{
+                        background: svcDraft.kind === k ? 'rgba(99,102,241,0.18)' : 'transparent',
+                        color: svcDraft.kind === k ? 'var(--c-text-1)' : 'var(--c-text-3)',
+                      }}>{label}</button>
+                  ))}
+                </div>
+                <Input id="svc-new-amount" label={svcDraft.kind === 'recurring' ? 'Price a month' : 'Price'} type="number" step="0.01"
+                  value={svcDraft.amount} onChange={e => setSvcDraft({ ...svcDraft, amount: e.target.value })}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addService() } }} />
+              </div>
+              <p className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>
+                {svcDraft.kind === 'recurring'
+                  ? 'Billed every month as a retainer, and counted in MRR.'
+                  : staging
+                    ? <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={svcDraft.staged} onChange={e => setSvcDraft({ ...svcDraft, staged: e.target.checked })}
+                          className="w-3.5 h-3.5 accent-indigo-500" />
+                        Bill it in stages like a website ({staging.map(m => `${m.pct}% ${m.label.toLowerCase()}`).join(', ')}), not all at once
+                      </label>
+                    : 'Billed in full, once.'}
+              </p>
+              {svcError && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{svcError}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => { setAdding(false); setSvcError(null) }}>Cancel</Button>
+                <Button size="sm" onClick={addService} disabled={createService.isPending}>
+                  {createService.isPending ? 'Adding...' : 'Add and pick it'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setAdding(true)}
+              className="mt-2 text-[11.5px] hover:underline" style={{ color: 'var(--c-accent)' }}>
+              + New service, for something you have started selling
+            </button>
+          )}
         </div>
 
         {/* ── The build, if one was ticked ─────────────────────────────── */}
@@ -245,7 +315,7 @@ export function NewWorkModal({
             <div className="col-span-2">
               <Input
                 id="deal-project"
-                label="Website name"
+                label={build.milestones?.length ? 'Website name' : 'Job name'}
                 value={projectName}
                 onChange={e => setProjectName(e.target.value)}
                 placeholder={clientName ? `${clientName} website` : 'Website name'}
