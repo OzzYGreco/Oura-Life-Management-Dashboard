@@ -10,10 +10,11 @@ const LABEL: Record<NeedAction, string> = {
   invoice: 'Invoice',
   setup:   'Set up',
   assign:  'Assign',
+  void:    'Void',
 }
 
-const TONE: Record<NeedAction, 'good' | 'accent' | 'default'> = {
-  paid: 'good', send: 'accent', invoice: 'accent', setup: 'accent', assign: 'default',
+const TONE: Record<NeedAction, 'good' | 'accent' | 'default' | 'danger'> = {
+  paid: 'good', send: 'accent', invoice: 'accent', setup: 'accent', assign: 'default', void: 'danger',
 }
 
 /**

@@ -3,6 +3,7 @@ import { api } from '../lib/api'
 import type {
   BusinessMetrics, ClientRow, LedgerRow, LedgerTotals,
   Retainer, Service, ActiveProject, NeedRow, OwnerPay,
+  InvoiceDetail, PaymentRow, PaymentOptions,
 } from '../pages/Business/lib/types'
 
 export function useClients() {
@@ -19,7 +20,7 @@ export function useInvoices(params = {}) {
 }
 /** Keyed under 'invoices' so every invoice mutation refreshes it too. */
 export function useInvoice(id: number | null | undefined) {
-  return useQuery({ queryKey: ['invoices', 'one', id], queryFn: () => api.get(`/api/business/invoices/${id}`).then(r => r.data), enabled: !!id })
+  return useQuery<InvoiceDetail>({ queryKey: ['invoices', 'one', id], queryFn: () => api.get(`/api/business/invoices/${id}`).then(r => r.data), enabled: !!id })
 }
 export function useMeetingNotes(params = {}) {
   return useQuery({ queryKey: ['meeting-notes', params], queryFn: () => api.get('/api/business/meeting-notes', { params }).then(r => r.data) })
@@ -178,6 +179,7 @@ function useBusinessMutation<TArgs>(fn: (args: TArgs) => Promise<any>) {
         'projects-active', 'business-needs', 'owner-pay', 'invoices', 'clients',
         'projects', 'dashboard', 'finance-summary', 'income-streams', 'cashflow',
         'expenses', 'time-entries-all', 'campaigns', 'campaign-spend', 'ad-spend-status', 'payment-status', 'payments', 'payments-unassigned',
+        'payment-options', 'meeting-notes',
       ]) qc.invalidateQueries({ queryKey: [key] })
     },
   })
@@ -188,9 +190,35 @@ export function useCreateDeal() {
   return useBusinessMutation((deal: any) => api.post('/api/business/deals', deal).then(r => r.data))
 }
 
+/** Record money received: all of what is left by default, or part of it. */
 export function usePayInvoice() {
-  return useBusinessMutation(({ id, ...body }: { id: number; paidDate?: string; feeAmount?: number; netReceived?: number }) =>
-    api.post(`/api/business/invoices/${id}/pay`, body).then(r => r.data))
+  return useBusinessMutation(({ id, ...body }: {
+    id: number; paidDate?: string; amount?: number; feeAmount?: number; method?: 'bank' | 'cash' | 'stripe'; note?: string
+  }) => api.post(`/api/business/invoices/${id}/pay`, body).then(r => r.data))
+}
+
+export function useVoidInvoice() {
+  return useBusinessMutation(({ id, reason }: { id: number; reason?: string | null }) =>
+    api.post(`/api/business/invoices/${id}/void`, { reason }).then(r => r.data))
+}
+
+export function useRestoreInvoice() {
+  return useBusinessMutation((id: number) => api.post(`/api/business/invoices/${id}/restore`).then(r => r.data))
+}
+
+/** Delete is only for a draft or a void invoice nothing was paid against. */
+export function useRemoveInvoice() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/invoices/${id}`))
+}
+
+export function useBulkInvoices() {
+  return useBusinessMutation((body: { ids: number[]; action: 'pay' | 'send' | 'void'; paidDate?: string; reason?: string }) =>
+    api.post('/api/business/invoices/bulk', body).then(r => r.data as { done: number }))
+}
+
+/** Remove one recorded payment. A Stripe one returns to the queue whole. */
+export function useRemoveAllocation() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/allocations/${id}`))
 }
 
 export function useUnpayInvoice() {
@@ -205,14 +233,113 @@ export function useCreateRetainer() {
   return useBusinessMutation((body: any) => api.post('/api/business/retainers', body).then(r => r.data))
 }
 
+export interface PricePlan {
+  effectiveDate: string
+  correction: boolean
+  oldAmount: number
+  newAmount: number
+  mrrDelta: number
+  repriced: { id: number; invoiceNumber: string; from: number; to: number; periodStart: string | null }[]
+  untouchedPaid: { id: number; invoiceNumber: string; amount: number }[]
+}
+
+export type PriceBody = { newAmount: number; effectiveDate?: string; correction?: boolean; reason?: string }
+
+/** What a price change would do, before it is made. Same route, `dryRun`. */
+export function usePricePreview(id: number | null, body: PriceBody | null) {
+  return useQuery<PricePlan>({
+    queryKey: ['price-preview', id, body],
+    queryFn: () => api.put(`/api/business/retainers/${id}/price`, { ...body, dryRun: true }).then(r => r.data),
+    enabled: !!id && !!body && body.newAmount > 0,
+    retry: false,
+  })
+}
+
 export function useChangeRetainerPrice() {
-  return useBusinessMutation(({ id, ...body }: { id: number; newAmount: number; effectiveDate?: string; reason?: string }) =>
+  return useBusinessMutation(({ id, ...body }: { id: number } & PriceBody) =>
     api.put(`/api/business/retainers/${id}/price`, body).then(r => r.data))
 }
 
+export function useUpdateRetainer() {
+  return useBusinessMutation(({ id, ...body }: { id: number; [k: string]: any }) =>
+    api.put(`/api/business/retainers/${id}`, body).then(r => r.data))
+}
+
 export function useRetainerLifecycle() {
-  return useBusinessMutation(({ id, action, ...body }: { id: number; action: 'pause' | 'resume' | 'cancel'; endDate?: string; reason?: string }) =>
-    api.post(`/api/business/retainers/${id}/${action}`, body).then(r => r.data))
+  return useBusinessMutation(({ id, action, ...body }: {
+    id: number; action: 'pause' | 'resume' | 'cancel' | 'reinstate'
+    endDate?: string; reason?: string; voidOpen?: boolean; date?: string
+  }) => api.post(`/api/business/retainers/${id}/${action}`, body).then(r => r.data))
+}
+
+export function useCancelPreview(id: number | null, endDate: string | null) {
+  return useQuery<{ endDate: string; voided: { id: number; invoiceNumber: string; amount: number; periodStart: string | null }[] }>({
+    queryKey: ['cancel-preview', id, endDate],
+    queryFn: () => api.post(`/api/business/retainers/${id}/cancel`, { endDate, dryRun: true }).then(r => r.data),
+    enabled: !!id && !!endDate,
+    retry: false,
+  })
+}
+
+export function useDeleteRetainer() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/retainers/${id}`))
+}
+
+// ─── Client lifecycle ────────────────────────────────────────────────────────
+
+export interface DropPlan {
+  client: { id: number; name: string }
+  endDate: string
+  retainers: { id: number; name: string; amount: number; frequency: string; status: string; endsOn: string; mrr: number }[]
+  mrrLost: number
+  voided: { id: number; invoiceNumber: string; amount: number; issueDate: string; status: string }[]
+  stillOwed: { id: number; invoiceNumber: string; amount: number; owed: number; issueDate: string; dueDate: string; writeOff: boolean }[]
+  projects: { id: number; name: string; stage: string }[]
+}
+
+export function useDropPreview(clientId: number | null, endDate: string | null) {
+  return useQuery<DropPlan>({
+    queryKey: ['drop-preview', clientId, endDate],
+    queryFn: () => api.post(`/api/business/clients/${clientId}/drop`, { endDate, dryRun: true }).then(r => r.data),
+    enabled: !!clientId && !!endDate,
+    retry: false,
+  })
+}
+
+export function useDropClient() {
+  return useBusinessMutation(({ id, ...body }: { id: number; endDate: string; reason?: string; writeOffInvoiceIds: number[] }) =>
+    api.post(`/api/business/clients/${id}/drop`, body).then(r => r.data as DropPlan))
+}
+
+export function useReactivateClient() {
+  return useBusinessMutation((id: number) => api.post(`/api/business/clients/${id}/reactivate`).then(r => r.data))
+}
+
+export function useRemoveClient() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/clients/${id}`))
+}
+
+export function useSaveClient() {
+  return useBusinessMutation(({ id, ...body }: { id?: number; [k: string]: any }) =>
+    (id ? api.put(`/api/business/clients/${id}`, body) : api.post('/api/business/clients', body)).then(r => r.data))
+}
+
+export function useSaveProject() {
+  return useBusinessMutation(({ id, ...body }: { id?: number; [k: string]: any }) =>
+    (id ? api.put(`/api/business/projects/${id}`, body) : api.post('/api/business/projects', body)).then(r => r.data))
+}
+
+export function useSaveMeetingNote() {
+  return useBusinessMutation(({ id, ...body }: { id?: number; [k: string]: any }) =>
+    (id ? api.put(`/api/business/meeting-notes/${id}`, body) : api.post('/api/business/meeting-notes', body)).then(r => r.data))
+}
+
+export function useRemoveMeetingNote() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/meeting-notes/${id}`))
+}
+
+export function useRemoveTimeEntry() {
+  return useBusinessMutation((id: number) => api.delete(`/api/business/time/${id}`))
 }
 
 export function useRecordDraw() {
@@ -248,6 +375,23 @@ export function useCampaignSpend(campaignId: number | null) {
     queryFn: () => api.get(`/api/business/campaigns/${campaignId}/spend`).then(r => r.data),
     enabled: !!campaignId,
   })
+}
+
+export interface RangePlan { days: number; writing: number; kept: number; replaced: number; total: number }
+export type RangeBody = { from: string; to: string; perDay?: number; total?: number; overwrite?: boolean }
+
+export function useRangePreview(campaignId: number | null, body: RangeBody | null) {
+  return useQuery<RangePlan>({
+    queryKey: ['range-preview', campaignId, body],
+    queryFn: () => api.post(`/api/business/campaigns/${campaignId}/spend/range`, { ...body, dryRun: true }).then(r => r.data),
+    enabled: !!campaignId && !!body,
+    retry: false,
+  })
+}
+
+export function useLogAdSpendRange() {
+  return useBusinessMutation(({ campaignId, ...body }: { campaignId: number } & RangeBody) =>
+    api.post(`/api/business/campaigns/${campaignId}/spend/range`, body).then(r => r.data as RangePlan))
 }
 
 export function useLogAdSpend() {
@@ -287,14 +431,14 @@ export function usePaymentStatus() {
 }
 
 export function useUnassignedPayments() {
-  return useQuery<{ payments: any[]; takenInvoiceIds: number[] }>({
+  return useQuery<{ payments: any[]; takenInvoiceIds: number[]; owed: Record<string, number> }>({
     queryKey: ['payments-unassigned'],
     queryFn: () => api.get('/api/business/payments/unassigned').then(r => r.data),
   })
 }
 
-export function usePayments(limit = 100) {
-  return useQuery<any[]>({
+export function usePayments(limit = 500) {
+  return useQuery<PaymentRow[]>({
     queryKey: ['payments', limit],
     queryFn: () => api.get('/api/business/payments', { params: { limit } }).then(r => r.data),
   })
@@ -305,10 +449,29 @@ export function useSyncPayments() {
     api.post('/api/business/payments/sync', { lookbackDays }).then(r => r.data))
 }
 
+/** The client's invoices this payment could settle, and the sets that fit exactly. */
+export function usePaymentOptions(paymentId: number | null, clientId: number | null) {
+  return useQuery<PaymentOptions>({
+    queryKey: ['payment-options', paymentId, clientId],
+    queryFn: () => api.get(`/api/business/payments/${paymentId}/options`, { params: { clientId } }).then(r => r.data),
+    enabled: !!paymentId && !!clientId,
+  })
+}
+
+/** Assign a payment, or move one already assigned: the server releases it first. */
 export function useAssignPayment() {
   return useBusinessMutation(({ id, ...body }: {
-    id: number; clientId: number; invoiceId?: number | null; invoiceIds?: number[]; remember?: boolean
+    id: number; clientId: number; invoiceId?: number | null; invoiceIds?: number[]
+    allocations?: { invoiceId: number; amount: number }[]; adjustToMatch?: boolean; remember?: boolean
   }) => api.post(`/api/business/payments/${id}/assign`, body).then(r => r.data))
+}
+
+export function useReleasePayment() {
+  return useBusinessMutation((id: number) => api.post(`/api/business/payments/${id}/release`).then(r => r.data))
+}
+
+export function useUnignorePayment() {
+  return useBusinessMutation((id: number) => api.post(`/api/business/payments/${id}/unignore`).then(r => r.data))
 }
 
 /** Raise a paid invoice from a payment that has nothing to attach to. */

@@ -6,7 +6,7 @@
  * meant without anything complaining.
  */
 
-export type InvoiceStatus = 'draft' | 'unpaid' | 'paid' | 'overdue'
+export type InvoiceStatus = 'draft' | 'unpaid' | 'paid' | 'overdue' | 'part-paid' | 'void'
 export type RetainerStatus = 'active' | 'paused' | 'cancelled'
 export type ProjectStage = 'discovery' | 'design' | 'build' | 'review' | 'launched'
 export type Frequency = 'weekly' | 'monthly' | 'quarterly' | 'yearly'
@@ -23,6 +23,7 @@ export interface Client {
   source: string | null
   wonDate: string | null
   churnedAt: string | null
+  churnReason?: string | null
 }
 
 /** A client row with its economics already computed server-side. */
@@ -98,6 +99,31 @@ export interface Invoice {
   sentDate: string | null
   milestoneLabel: string | null
   notes: string | null
+  voidReason?: string | null
+  voidedAt?: string | null
+  raisedFromPaymentId?: number | null
+}
+
+/** One sum of money applied to one invoice. */
+export interface Allocation {
+  id: number
+  invoiceId: number
+  paymentId: number | null
+  method: 'stripe' | 'bank' | 'cash'
+  amount: number
+  fee: number
+  refunded: number
+  date: string
+  note: string | null
+  payerName?: string | null
+}
+
+/** An invoice as the edit form loads it, with the money on it. */
+export interface InvoiceDetail extends Invoice {
+  applied: number
+  owed: number
+  allocations: Allocation[]
+  knockOn: { stripePayments: number; alsoReopens: string[] }
 }
 
 /** A ledger row: the invoice plus everything needed to read it at a glance. */
@@ -113,15 +139,22 @@ export interface LedgerRow {
   gross: number
   fee: number
   net: number | null
+  /** Money in so far, and what is still owed. */
+  applied: number
+  owed: number
+  partPaid: boolean
   status: InvoiceStatus
   issueDate: string
   dueDate: string
   paidDate: string | null
   notes: string | null
+  voidReason: string | null
+  sentDate: string | null
 }
 
 export interface LedgerTotals {
   count: number
+  voidCount: number
   billed: number
   collected: number
   fees: number
@@ -147,7 +180,49 @@ export interface Retainer {
   netTermDays: number
   autoInvoice: number
   nextInvoiceDate: string | null
+  lastGeneratedDate: string | null
+  pausedAt: string | null
   notes: string | null
+}
+
+/** A row on the Payments view: a Stripe payment, or money recorded by hand. */
+export interface PaymentRow {
+  key: string
+  source: 'stripe' | 'bank' | 'cash'
+  paymentId: number | null
+  allocationId?: number
+  date: string
+  payer: string | null
+  clientId: number | null
+  clientName: string | null
+  gross: number
+  fee: number
+  net: number
+  refunded: number
+  settled: { allocationId: number; invoiceId: number; amount: number; invoiceNumber: string; invoiceAmount: number; milestoneLabel: string | null }[]
+  applied: number
+  unallocated: number
+  how: 'auto' | 'by hand' | 'raised' | 'to assign' | 'not income' | 'recorded'
+  reason: string | null
+  subscription: boolean
+}
+
+/** What a payment could be applied to, for one client. */
+export interface PaymentOptions {
+  invoices: {
+    id: number; invoiceNumber: string; amount: number; status: string
+    issueDate: string; notes: string | null; milestoneLabel: string | null
+    /** What it can still take. */
+    owed: number
+    /** What this payment already puts on it. */
+    current: number
+    raisedHere: boolean
+  }[]
+  /** Sets of invoice ids that add up to the payment exactly. */
+  suggestions: number[][]
+  /** Single invoices a few pence off, which "adjust to match" can close. */
+  near: { invoiceId: number; gap: number }[]
+  openCount: number
 }
 
 export interface Service {
@@ -197,7 +272,7 @@ export interface OwnerPay {
   byMonth: { month: string; drawn: number }[]
 }
 
-export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign'
+export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void'
 
 export interface NeedRow {
   key: string
@@ -331,4 +406,10 @@ export const STATUS_COLOR: Record<string, string> = {
   unpaid:  '#f59e0b',
   overdue: 'var(--c-loss)',
   draft:   'var(--c-text-3)',
+  'part-paid': '#38bdf8',
+  void:    'var(--c-text-3)',
+  // Retainers
+  active:    'var(--c-profit)',
+  paused:    '#f59e0b',
+  cancelled: 'var(--c-text-3)',
 }

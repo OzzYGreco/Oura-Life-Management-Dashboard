@@ -3,9 +3,9 @@ import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
 import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
-import { useServices, useClients, useCreateDeal } from '../../../hooks/useBusiness'
-import { today } from '../../../lib/utils'
-import type { Service, Client } from '../lib/types'
+import { useServices, useClients, useCreateDeal, useInvoices } from '../../../hooks/useBusiness'
+import { today, formatDate } from '../../../lib/utils'
+import type { Service, Client, Invoice } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
 const SOURCES = ['', 'Meta ads', 'TikTok ads', 'Referral', 'Cold outreach', 'Google', 'Word of mouth', 'Other']
@@ -46,6 +46,7 @@ export function NewWorkModal({
   const [termDays, setTermDays] = useState('6')
   const [sendFirst, setSendFirst] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [useDeposit, setUseDeposit] = useState(true)
 
   const isNew = clientId === ''
   const start = today()
@@ -64,6 +65,19 @@ export function NewWorkModal({
     [services, picked],
   )
   const build = chosen.find(s => s.kind === 'one_off')
+
+  // Money this client already paid that sits on no website: usually a deposit
+  // taken before the work was set up here. Offered as the first milestone so
+  // the same money is not invoiced twice.
+  const { data: theirInvoices = [] } = useInvoices(clientId ? { clientId } : { clientId: -1 })
+  const depositCandidate = useMemo(() => {
+    if (isNew || !build) return null
+    const since = addDays(start, -45)
+    return (theirInvoices as Invoice[])
+      .filter(i => i.status === 'paid' && !i.projectId && !i.retainerId && i.issueDate >= since)
+      .sort((a, b) => b.issueDate.localeCompare(a.issueDate))[0] ?? null
+  }, [theirInvoices, isNew, build, start])
+  const deposit = depositCandidate && useDeposit ? depositCandidate : null
   const recurring = chosen.filter(s => s.kind === 'recurring')
   const monthly = recurring.reduce((s, svc) => s + (Number(picked[svc.id]) || 0), 0)
 
@@ -72,16 +86,24 @@ export function NewWorkModal({
     if (!build) return []
     const total = Number(picked[build.id]) || 0
     const ms = build.milestones?.length ? build.milestones : [{ label: 'Full', pct: 100, offsetDays: 0 }]
+    const withDeposit = !!deposit && ms.length > 1
+    const restPct = ms.slice(1).reduce((t, m) => t + m.pct, 0) || 1
     let allocated = 0
     return ms.map((m, i) => {
+      if (withDeposit && i === 0) {
+        allocated = deposit!.amount
+        return { label: `${m.label} (already paid, ${deposit!.invoiceNumber})`, amount: deposit!.amount, date: deposit!.issueDate }
+      }
       const isLast = i === ms.length - 1
       const amount = isLast
         ? Math.round((total - allocated) * 100) / 100
-        : Math.round(total * (m.pct / 100) * 100) / 100
+        : withDeposit
+          ? Math.round((total - deposit!.amount) * (m.pct / restPct) * 100) / 100
+          : Math.round(total * (m.pct / 100) * 100) / 100
       allocated = Math.round((allocated + amount) * 100) / 100
       return { label: m.label, amount, date: addDays(start, m.offsetDays ?? 0) }
     })
-  }, [build, picked, start])
+  }, [build, picked, start, deposit])
 
   const clientName = isNew
     ? newClient.name
@@ -115,7 +137,8 @@ export function NewWorkModal({
           termDays: Number(termDays) || 0,
           startDate: start,
         })),
-        sendFirst,
+        sendFirst: deposit ? false : sendFirst,
+        depositInvoiceId: deposit?.id,
       })
       reset()
       onCreated(res.clientId)
@@ -235,7 +258,7 @@ export function NewWorkModal({
         <div className="grid grid-cols-3 gap-3">
           <Input id="deal-terms" label="Payment terms (days)" type="number" value={termDays}
             onChange={e => setTermDays(e.target.value)} />
-          {build && (
+          {build && !deposit && (
             <label htmlFor="deal-send" className="col-span-2 flex items-end gap-2 pb-2 text-xs cursor-pointer"
               style={{ color: 'var(--c-text-2)' }}>
               <input id="deal-send" type="checkbox" checked={sendFirst} onChange={e => setSendFirst(e.target.checked)}
@@ -244,6 +267,19 @@ export function NewWorkModal({
             </label>
           )}
         </div>
+
+        {depositCandidate && (
+          <label htmlFor="deal-deposit" className="flex items-start gap-2 text-xs cursor-pointer px-3 py-2.5 rounded-lg"
+            style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: 'var(--c-text-2)' }}>
+            <input id="deal-deposit" type="checkbox" checked={useDeposit} onChange={e => setUseDeposit(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-indigo-500" />
+            <span>
+              {clientName} already paid <span className="num">{fmtView(depositCandidate.amount)}</span> on{' '}
+              {formatDate(depositCandidate.issueDate)} ({depositCandidate.invoiceNumber}, not on any website). Use it as the
+              deposit, so it is not invoiced a second time.
+            </span>
+          </label>
+        )}
 
         {/* ── What this will create ────────────────────────────────────── */}
         {chosen.length > 0 && (

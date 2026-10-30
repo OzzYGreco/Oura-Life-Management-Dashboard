@@ -1,13 +1,17 @@
+import { useState } from 'react'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Sparkline } from '../../../components/ui/Sparkline'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
-import { useClientSummary } from '../../../hooks/useBusiness'
+import { useClientSummary, useReactivateClient, useSaveProject, useRemoveMeetingNote } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
 import { STAGES } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
+import type { RetainerAction } from '../components/RetainerTable'
+
+const STAGE_ORDER = ['discovery', 'design', 'build', 'review', 'launched']
 
 /**
  * One client, everything about them, nothing about anyone else.
@@ -19,7 +23,7 @@ import type { FmtView } from '../../../hooks/useFmtView'
  */
 export function ClientDetail({
   clientId, fmtView, onBack, onEdit, onAddRetainer, onAddProject, onAddInvoice, onAddCost, onAddNote,
-  onRetainerAction, onPay, onLogTime,
+  onRetainerAction, onPay, onLogTime, onEditInvoice, onEditProject, onEditNote, onDrop,
 }: {
   clientId: number
   fmtView: FmtView
@@ -30,15 +34,30 @@ export function ClientDetail({
   onAddInvoice: (clientId: number) => void
   onAddCost: (clientId: number) => void
   onAddNote: (clientId: number) => void
-  onRetainerAction: (retainer: any, action: 'price' | 'pause' | 'resume' | 'cancel') => void
-  onPay: (invoiceId: number) => void
+  onRetainerAction: (retainer: any, action: RetainerAction) => void
+  onPay: (invoice: { id: number; invoiceNumber: string; clientName: string }) => void
   onLogTime: (projectId: number) => void
+  onEditInvoice: (invoiceId: number) => void
+  onEditProject: (project: any) => void
+  onEditNote: (note: any) => void
+  onDrop: (client: { id: number; name: string }) => void
 }) {
   const { data, isPending } = useClientSummary(clientId)
+  const reactivate = useReactivateClient()
+  const saveProject = useSaveProject()
+  const removeNote = useRemoveMeetingNote()
+  const [allInvoices, setAllInvoices] = useState(false)
+  const [showVoid, setShowVoid] = useState(false)
   if (isPending || !data) return <PageLoader />
 
-  const { client, economics: e, retainers, projects, invoices, costs, meetingNotes } = data
+  const { client, economics: e, retainers: rawRetainers, projects, invoices: everyInvoice, costs, meetingNotes } = data
+  // The shared retainer modals expect the client name on the row.
+  const retainers = rawRetainers.map((r: any) => ({ ...r, clientName: client.name }))
   const activeRetainers = retainers.filter((r: any) => r.status !== 'cancelled')
+  const churned = client.status === 'churned'
+  const voidCount = everyInvoice.filter((i: any) => i.status === 'void').length
+  const invoices = everyInvoice.filter((i: any) => showVoid || i.status !== 'void')
+  const today = new Date().toISOString().slice(0, 10)
 
   return (
     <div className="space-y-7">
@@ -68,9 +87,23 @@ export function ClientDetail({
               {client.phone && <span className="num">{client.phone}</span>}
             </p>
           </div>
-          <MiniBtn onClick={() => onEdit(client)}>Edit client</MiniBtn>
+          <div className="flex gap-1.5">
+            <MiniBtn onClick={() => onEdit(client)}>Edit client</MiniBtn>
+            {churned
+              ? <MiniBtn tone="good" disabled={reactivate.isPending} onClick={() => reactivate.mutate(client.id)}>They are back</MiniBtn>
+              : <MiniBtn tone="danger" onClick={() => onDrop({ id: client.id, name: client.name })}>Client left...</MiniBtn>}
+          </div>
         </div>
       </div>
+
+      {churned && (
+        <div className="px-4 py-2.5 rounded-xl text-xs"
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
+          Left on <b className="num">{client.churnedAt ? formatDate(client.churnedAt) : 'an unknown date'}</b>
+          {client.churnReason ? <>: {client.churnReason}</> : null}. Their retainers are ended and nothing new is billed.
+          Anything still owed from before stays in Outstanding.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
         <KpiCard label="MRR" value={e.mrr ? `${fmtView(e.mrr)}/mo` : '--'} color={e.mrr ? 'var(--c-accent)' : 'var(--c-text-2)'}
@@ -119,19 +152,23 @@ export function ClientDetail({
               ) : retainers.map((r: any) => (
                 <Row key={r.id} dim={r.status === 'cancelled'}>
                   <Td><span className="font-medium">{r.serviceName}</span></Td>
-                  <Td align="right" mono color="var(--c-accent)">{fmtView(r.amount)}/mo</Td>
+                  <Td align="right" mono color="var(--c-accent)">
+                    {fmtView(r.amount)}/{r.frequency === 'monthly' ? 'mo' : r.frequency.slice(0, 2)}
+                  </Td>
                   <Td align="right" mono color="var(--c-text-3)">{formatDate(r.startDate)}</Td>
                   <Td align="right" mono color="var(--c-text-2)">
                     {r.status === 'active' && r.nextInvoiceDate ? formatDate(r.nextInvoiceDate)
-                      : r.endDate ? `ended ${formatDate(r.endDate)}` : '--'}
+                      : r.endDate ? `ended ${formatDate(r.endDate)}`
+                      : r.status === 'paused' ? `paused${r.pausedAt ? ` ${formatDate(r.pausedAt)}` : ''}` : '--'}
                   </Td>
-                  <Td><StatusDot status={r.status === 'active' ? 'paid' : r.status === 'paused' ? 'unpaid' : 'draft'} /></Td>
+                  <Td><StatusDot status={r.status} /></Td>
                   <Td align="right">
                     <div className="flex gap-1.5 justify-end">
-                      {r.status !== 'cancelled' && <MiniBtn onClick={() => onRetainerAction(r, 'price')}>Change price</MiniBtn>}
+                      <MiniBtn onClick={() => onRetainerAction(r, 'edit')}>Edit</MiniBtn>
                       {r.status === 'active' && <MiniBtn onClick={() => onRetainerAction(r, 'pause')}>Pause</MiniBtn>}
                       {r.status === 'paused' && <MiniBtn tone="good" onClick={() => onRetainerAction(r, 'resume')}>Resume</MiniBtn>}
                       {r.status !== 'cancelled' && <MiniBtn tone="danger" onClick={() => onRetainerAction(r, 'cancel')}>Cancel</MiniBtn>}
+                      {r.status === 'cancelled' && <MiniBtn onClick={() => onRetainerAction(r, 'reinstate')}>Reinstate</MiniBtn>}
                     </div>
                   </Td>
                 </Row>
@@ -156,12 +193,14 @@ export function ClientDetail({
               ) : projects.map((p: any) => {
                 const stage = STAGES.find(s => s.key === p.stage)
                 const rate = p.hours > 0 ? p.collected / p.hours : null
+                const nextStage = STAGE_ORDER[STAGE_ORDER.indexOf(p.stage) + 1]
+                const live = p.status === 'active' || p.status === 'paused'
                 return (
-                  <Row key={p.id}>
+                  <Row key={p.id} dim={p.status === 'cancelled'}>
                     <Td><span className="font-medium">{p.name}</span></Td>
                     <Td>
-                      <Pill color={p.status === 'paused' ? '#f59e0b' : stage?.color ?? 'var(--c-text-3)'}>
-                        {p.status === 'paused' ? 'paused' : stage?.label ?? p.stage}
+                      <Pill color={p.status === 'paused' ? '#f59e0b' : p.status === 'cancelled' ? 'var(--c-text-3)' : stage?.color ?? 'var(--c-text-3)'}>
+                        {p.status === 'paused' || p.status === 'cancelled' ? p.status : stage?.label ?? p.stage}
                       </Pill>
                     </Td>
                     <Td align="right" mono>{p.value ? fmtView(p.value) : '--'}</Td>
@@ -171,7 +210,22 @@ export function ClientDetail({
                     <Td align="right" mono color="var(--c-text-3)">{fmtHours(p.hours)}</Td>
                     <Td align="right" mono color="var(--c-text-2)">{rate ? `${fmtView(rate)}/h` : '--'}</Td>
                     <Td align="right" mono color="var(--c-text-3)">{p.dueDate ? formatDate(p.dueDate) : '--'}</Td>
-                    <Td align="right"><MiniBtn onClick={() => onLogTime(p.id)}>Log hours</MiniBtn></Td>
+                    <Td align="right">
+                      <div className="flex gap-1.5 justify-end">
+                        {live && nextStage && (
+                          <MiniBtn tone="accent" disabled={saveProject.isPending}
+                            title={`Move to ${nextStage}`}
+                            onClick={() => saveProject.mutate({
+                              id: p.id, stage: nextStage,
+                              ...(nextStage === 'launched' ? { launchedDate: today, status: 'completed' } : {}),
+                            })}>
+                            {nextStage === 'launched' ? 'Launched' : `To ${nextStage}`}
+                          </MiniBtn>
+                        )}
+                        {live && <MiniBtn onClick={() => onLogTime(p.id)}>Log hours</MiniBtn>}
+                        <MiniBtn onClick={() => onEditProject(p)}>Edit</MiniBtn>
+                      </div>
+                    </Td>
                   </Row>
                 )
               })}
@@ -182,7 +236,14 @@ export function ClientDetail({
 
       {/* ── Invoices ─────────────────────────────────────────────────────── */}
       <Section label="Invoices" count={invoices.length || undefined}
-        action={<MiniBtn tone="accent" onClick={() => onAddInvoice(clientId)}>+ New invoice</MiniBtn>}>
+        action={
+          <>
+            {voidCount > 0 && (
+              <MiniBtn onClick={() => setShowVoid(v => !v)}>{showVoid ? 'Hide void' : `Show ${voidCount} void`}</MiniBtn>
+            )}
+            <MiniBtn tone="accent" onClick={() => onAddInvoice(clientId)}>+ New invoice</MiniBtn>
+          </>
+        }>
         <TablePanel>
           <table className="w-full">
             <THead>
@@ -192,25 +253,45 @@ export function ClientDetail({
             <tbody>
               {invoices.length === 0 ? (
                 <EmptyRow colSpan={8}>Nothing invoiced yet.</EmptyRow>
-              ) : invoices.slice(0, 15).map((i: any) => {
-                const overdue = i.status === 'unpaid' && i.dueDate < new Date().toISOString().slice(0, 10)
+              ) : (allInvoices ? invoices : invoices.slice(0, 15)).map((i: any) => {
+                const overdue = i.status === 'unpaid' && i.dueDate < today
+                const part = i.status === 'unpaid' && i.applied > 0
+                const isVoid = i.status === 'void'
                 return (
-                  <Row key={i.id}>
+                  <Row key={i.id} dim={isVoid}>
                     <Td mono color="var(--c-text-3)">{i.invoiceNumber}</Td>
-                    <Td color="var(--c-text-2)">{i.serviceName ?? i.notes ?? '--'}</Td>
-                    <Td align="right" mono className="font-semibold">{fmtView(i.amount)}</Td>
+                    <Td color="var(--c-text-2)">
+                      {i.milestoneLabel ? `${i.serviceName ?? 'Website'} - ${i.milestoneLabel.toLowerCase()}` : i.serviceName ?? i.notes ?? '--'}
+                    </Td>
+                    <Td align="right" mono className="font-semibold" style={isVoid ? { textDecoration: 'line-through' } : undefined}>
+                      {fmtView(i.amount)}
+                      {part && <span className="block text-[10px] font-normal" style={{ color: '#38bdf8' }}>{fmtView(i.owed)} left</span>}
+                    </Td>
                     <Td align="right" mono color="var(--c-text-3)">{formatDate(i.issueDate)}</Td>
                     <Td align="right" mono color={overdue ? 'var(--c-loss)' : 'var(--c-text-3)'}>{formatDate(i.dueDate)}</Td>
                     <Td align="right" mono color="var(--c-text-3)">{i.paidDate ? formatDate(i.paidDate) : '--'}</Td>
-                    <Td><StatusDot status={overdue ? 'overdue' : i.status} /></Td>
+                    <Td><StatusDot status={overdue ? 'overdue' : part ? 'part-paid' : i.status} /></Td>
                     <Td align="right">
-                      {i.status !== 'paid' && <MiniBtn tone="good" onClick={() => onPay(i.id)}>Mark paid</MiniBtn>}
+                      <div className="flex gap-1.5 justify-end">
+                        {i.status !== 'paid' && !isVoid && (
+                          <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>
+                            {part ? 'Add payment' : 'Mark paid'}
+                          </MiniBtn>
+                        )}
+                        <MiniBtn onClick={() => onEditInvoice(i.id)}>{isVoid ? 'Open' : 'Edit'}</MiniBtn>
+                      </div>
                     </Td>
                   </Row>
                 )
               })}
               {invoices.length > 15 && (
-                <EmptyRow colSpan={8}>{invoices.length - 15} older invoices, in the Invoices tab.</EmptyRow>
+                <tr>
+                  <td colSpan={8} className="px-4 py-2.5 text-center">
+                    <MiniBtn onClick={() => setAllInvoices(v => !v)}>
+                      {allInvoices ? 'Show the latest 15' : `Show ${invoices.length - 15} older`}
+                    </MiniBtn>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -260,8 +341,14 @@ export function ClientDetail({
             <div key={n.id} style={{ borderTop: '1px solid var(--c-border)', paddingTop: 12 }}>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-xs font-semibold" style={{ color: 'var(--c-text-1)' }}>{n.title}</span>
-                <span className="text-[10px] num" style={{ color: 'var(--c-text-3)' }}>
-                  {n.meetingDate ? formatDate(n.meetingDate) : ''}
+                <span className="flex items-baseline gap-2">
+                  <span className="text-[10px] num" style={{ color: 'var(--c-text-3)' }}>
+                    {n.meetingDate ? formatDate(n.meetingDate) : ''}
+                  </span>
+                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-accent)' }}
+                    onClick={() => onEditNote(n)}>edit</button>
+                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
+                    onClick={() => { if (window.confirm(`Delete the note "${n.title}"?`)) removeNote.mutate(n.id) }}>delete</button>
                 </span>
               </div>
               <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: 'var(--c-text-2)' }}>{n.content}</p>
