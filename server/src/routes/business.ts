@@ -357,6 +357,70 @@ router.post('/clients/:id/drop', async (req, res, next) => {
 })
 
 /**
+ * Correct the day a client left, after the fact.
+ *
+ * Their retainers that ended with them move to the new day, so churn and MRR
+ * history follow. Moved earlier, open bills for periods from the new day are
+ * voided, as leaving on that day would have done. Moved later, bills voided
+ * only because they fell after the old day, and now fall before the new one,
+ * are owed again.
+ */
+router.post('/clients/:id/left-on', async (req, res, next) => {
+  try {
+    const clientId = id(req.params.id)
+    const body = parse(z.object({ date: dateStr, dryRun: z.boolean().optional() }), req.body)
+    const today = localToday()
+    if (body.date > today) {
+      return res.status(400).json({ error: 'That is ahead. Use "They are back", then "Client left..." with the day ahead to record notice.' })
+    }
+    const client = db.select().from(businessClients).where(eq(businessClients.id, clientId)).get()
+    if (!client) return res.status(404).json({ error: 'No such client' })
+    if (client.status !== 'churned') return res.status(409).json({ error: `${client.name} has not left` })
+    const old = client.churnedAt
+    const date = body.date
+
+    // The retainers that ended when they left: on the old day, or any time
+    // after the new one (a retainer cannot outlive the client).
+    const retainers = db.select().from(businessRetainers).where(eq(businessRetainers.clientId, clientId)).all()
+      .filter(r => r.status === 'cancelled' && r.endDate && r.startDate < date && (r.endDate === old || r.endDate > date))
+    const ids = retainers.map(r => r.id)
+    const bills = ids.length
+      ? db.select().from(businessInvoices).where(inArray(businessInvoices.retainerId, ids)).all()
+      : []
+    const toVoid = bills.filter(i => (i.status === 'unpaid' || i.status === 'draft') && (i.periodStart ?? i.issueDate) >= date)
+    const toRestore = bills.filter(i => i.status === 'void' && i.voidReason === 'Client left before this period'
+      && (i.periodStart ?? i.issueDate) < date)
+
+    const plan = {
+      from: old, to: date,
+      retainers: retainers.map(r => ({ id: r.id, name: r.name, from: r.endDate, to: date })),
+      voided: toVoid.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount })),
+      restored: toRestore.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount })),
+    }
+    if (body.dryRun) return res.json(plan)
+
+    db.transaction(tx => {
+      for (const r of retainers) {
+        tx.update(businessRetainers).set({
+          endDate: date,
+          // MRR reads a cancelled retainer as gone from its cancel date, so that
+          // can never sit before the new last day.
+          cancelledAt: r.cancelledAt && r.cancelledAt > date ? r.cancelledAt : date,
+          updatedAt: new Date().toISOString(),
+        }).where(eq(businessRetainers.id, r.id)).run()
+        tx.delete(businessRetainerChanges).where(and(
+          eq(businessRetainerChanges.retainerId, r.id), gte(businessRetainerChanges.effectiveDate, date))).run()
+      }
+      for (const i of toVoid) voidInvoice(tx, i.id, 'Client left before this period', today)
+      for (const i of toRestore) restoreInvoice(tx, i.id)
+      tx.update(businessClients).set({ churnedAt: date }).where(eq(businessClients.id, clientId)).run()
+    })
+    invalidate()
+    res.json(plan)
+  } catch (e) { next(e) }
+})
+
+/**
  * What a returning client could pick back up: every invoice voided for them
  * that can still stand as a debt, and every retainer that was ended.
  *

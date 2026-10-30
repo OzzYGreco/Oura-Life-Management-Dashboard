@@ -425,6 +425,28 @@ export function useComeback(clientId: number | null) {
   })
 }
 
+export interface LeftOnPlan {
+  from: string | null; to: string
+  retainers: { id: number; name: string; from: string | null; to: string }[]
+  voided: { id: number; invoiceNumber: string; amount: number }[]
+  restored: { id: number; invoiceNumber: string; amount: number }[]
+}
+
+/** What moving the day a client left would change. */
+export function useLeftOnPreview(clientId: number | null, date: string | null) {
+  return useQuery<LeftOnPlan>({
+    queryKey: ['left-on-preview', clientId, date],
+    queryFn: () => api.post(`/api/business/clients/${clientId}/left-on`, { date, dryRun: true }).then(r => r.data),
+    enabled: !!clientId && !!date,
+    retry: false,
+  })
+}
+
+export function useChangeLeftOn() {
+  return useBusinessMutation(({ id, date }: { id: number; date: string }) =>
+    api.post(`/api/business/clients/${id}/left-on`, { date }).then(r => r.data as LeftOnPlan))
+}
+
 export function useReactivateClient() {
   return useBusinessMutation(({ id, ...body }: {
     id: number; restoreInvoiceIds?: number[]; reinstateRetainerIds?: number[]

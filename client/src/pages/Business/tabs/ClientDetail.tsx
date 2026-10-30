@@ -3,7 +3,7 @@ import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
-import { useClientSummary, useSaveProject, useRemoveMeetingNote, useReactivateClient } from '../../../hooks/useBusiness'
+import { useClientSummary, useSaveProject, useRemoveMeetingNote, useReactivateClient, useLeftOnPreview, useChangeLeftOn } from '../../../hooks/useBusiness'
 import { Question, Fold } from '../components/MoneySections'
 import { ClientWorth } from '../components/ClientWorth'
 import { formatDate } from '../../../lib/utils'
@@ -63,6 +63,7 @@ export function ClientDetail({
   const stay = useReactivateClient()
   const [allInvoices, setAllInvoices] = useState(false)
   const [showVoid, setShowVoid] = useState(false)
+  const [editLeft, setEditLeft] = useState(false)
   if (isPending || !data) return <PageLoader />
 
   const { client, economics: e, retainers: rawRetainers, projects, invoices: everyInvoice, costs, meetingNotes } = data
@@ -168,8 +169,14 @@ export function ClientDetail({
         <div className="px-4 py-2.5 rounded-xl text-xs"
           style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
           Left on <b className="num">{client.churnedAt ? formatDate(client.churnedAt) : 'an unknown date'}</b>
-          {client.churnReason ? <>: {client.churnReason}</> : null}. Their retainers are ended and nothing new is billed.
+          {client.churnReason ? <>: {client.churnReason}</> : null}.{' '}
+          <button type="button" className="hover:underline" style={{ color: 'var(--c-accent)' }}
+            onClick={() => setEditLeft(v => !v)}>{editLeft ? 'Keep this date' : 'Change date'}</button>
+          {' '}Their retainers are ended and nothing new is billed.
           Anything still owed stays in Outstanding. If they settle a voided bill, mark it paid below: the same invoice is paid, no new one raised.
+          {editLeft && (
+            <LeftOnEditor clientId={client.id} current={client.churnedAt} fmtView={fmtView} onDone={() => setEditLeft(false)} />
+          )}
         </div>
       )}
 
@@ -481,6 +488,53 @@ export function ClientDetail({
         </div>
         </Fold>
       </div>
+    </div>
+  )
+}
+
+/**
+ * Move the day a client left. The preview says what follows from it before
+ * anything is saved: their retainers move with it, bills for after the new day
+ * are voided, and ones voided only for falling after the old day come back.
+ */
+function LeftOnEditor({ clientId, current, fmtView, onDone }: {
+  clientId: number; current: string | null; fmtView: FmtView; onDone: () => void
+}) {
+  const [date, setDate] = useState(current ?? '')
+  const changed = !!date && date !== current
+  const { data: plan, error } = useLeftOnPreview(clientId, changed ? date : null)
+  const save = useChangeLeftOn()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const list = (xs: { invoiceNumber: string; amount: number }[]) => xs.map(i => `${i.invoiceNumber} (${fmtView(i.amount)})`).join(', ')
+
+  return (
+    <div className="mt-2.5 pt-2.5 flex flex-wrap items-end gap-3" style={{ borderTop: '1px solid var(--c-border)' }}>
+      <label className="flex flex-col gap-1">
+        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Last day as a client</span>
+        <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={e => setDate(e.target.value)}
+          className="rounded-md px-2 py-1.5 text-xs num outline-none"
+          style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }} />
+      </label>
+      <p className="flex-1 min-w-[16rem] text-[11.5px]" style={{ color: 'var(--c-text-2)' }}>
+        {!changed ? 'Pick the day they really left.'
+          : error ? <span style={{ color: 'var(--c-loss)' }}>{(error as any)?.response?.data?.error ?? 'That date does not work'}</span>
+          : !plan ? 'Working out what this changes...'
+          : <>
+              Churn moves to {formatDate(plan.to)}
+              {plan.retainers.length ? <>, and {plan.retainers.map(r => r.name).join(', ')} end{plan.retainers.length === 1 ? 's' : ''} that day too</> : null}.
+              {plan.voided.length ? <> Voids {list(plan.voided)}, billed for after it.</> : null}
+              {plan.restored.length ? <> {list(plan.restored)} {plan.restored.length === 1 ? 'is' : 'are'} owed again, since {plan.restored.length === 1 ? 'it falls' : 'they fall'} before it.</> : null}
+            </>}
+        {saveError && <span className="block" style={{ color: 'var(--c-loss)' }}>{saveError}</span>}
+      </p>
+      <MiniBtn tone="accent" disabled={!plan || !changed || save.isPending}
+        onClick={async () => {
+          setSaveError(null)
+          try { await save.mutateAsync({ id: clientId, date }); onDone() }
+          catch (e: any) { setSaveError(e?.response?.data?.error ?? 'Could not save that') }
+        }}>
+        {save.isPending ? 'Saving...' : 'Save'}
+      </MiniBtn>
     </div>
   )
 }
