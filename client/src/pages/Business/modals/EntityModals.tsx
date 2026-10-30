@@ -21,6 +21,7 @@ import { useChangeCostPrice } from '../../../hooks/useBusiness'
 import { today, formatDate } from '../../../lib/utils'
 import type { Client, Project, Service } from '../lib/types'
 import { MiniBtn } from '../components/primitives'
+import { RemindButton } from './GrowthModals'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -498,6 +499,7 @@ export function InvoiceModal({
                     Accept what was paid
                   </Button>
                 )}
+                {existing.owed > 0 && existing.status !== 'draft' && <RemindButton invoice={{ id: existing.id, invoiceNumber: existing.invoiceNumber }} label="Send a reminder" />}
                 {existing.owed > 0 && (existing.chaseAfter && existing.chaseAfter > today() ? (
                   <Button variant="secondary" size="sm" title={`On hold until ${formatDate(existing.chaseAfter)}`}
                     onClick={() => run(() => hold.mutateAsync({ id: invoiceId!, until: null }), false)}>

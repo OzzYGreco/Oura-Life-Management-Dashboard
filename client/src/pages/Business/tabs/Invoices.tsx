@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useUrlState } from '../lib/useUrlState'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { DateFilter, type Preset, presetRange } from '../../../components/shared/DateFilter'
@@ -7,6 +7,8 @@ import { RetainerTable } from '../components/RetainerTable'
 import { PaymentsLedger } from '../components/PaymentsLedger'
 import { Question, Figure } from '../components/MoneySections'
 import { SplitBar, hoverCard, SERIES } from '../components/charts'
+import { MiniBtn } from '../components/primitives'
+import { BulkPriceModal } from '../modals/GrowthModals'
 import { useLedger, useRetainers, useUnassignedPayments, usePayments, exportUrl } from '../../../hooks/useBusiness'
 import type { LedgerRow, Retainer } from '../lib/types'
 import type { RetainerAction } from '../components/RetainerTable'
@@ -45,6 +47,7 @@ export function Invoices({
   const { data: retainers = [] } = useRetainers()
   const { data: queue } = useUnassignedPayments()
   const { data: payments } = usePayments()
+  const [bulkOpen, setBulkOpen] = useState(false)
   const toAssign = queue?.payments.length ?? 0
 
   const owedBy = useMemo(() => {
@@ -178,7 +181,9 @@ export function Invoices({
         </>
       ) : (
         <>
+        <BulkPriceModal open={bulkOpen} onClose={() => setBulkOpen(false)} fmtView={fmtView} />
         <Question q="What recurs?"
+          action={<MiniBtn tone="accent" onClick={() => setBulkOpen(true)} title="One price change for everyone on a service, from a date">Change prices</MiniBtn>}
           answer={mrr.total > 0
             ? <><b className="num" style={{ color: 'var(--c-accent)' }}>{fmtView(mrr.total)}/mo</b> from {mrr.count} retainer{mrr.count === 1 ? '' : 's'}. {mrr.parts[0]?.key} brings {Math.round((mrr.parts[0]?.value ?? 0) / mrr.total * 100)}% of it.{mrr.later ? <> {mrr.later} more start{mrr.later === 1 ? 's' : ''} later.</> : null}</>
             : 'Nothing recurring yet.'}>

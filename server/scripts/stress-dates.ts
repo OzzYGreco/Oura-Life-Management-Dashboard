@@ -4,7 +4,7 @@
  * copy (OURA_DB_PATH is required) because it writes.
  */
 import { db } from '../src/db'
-import { businessClients, businessRetainers, businessInvoices } from '../src/db/schema'
+import { businessClients, businessRetainers, businessInvoices, businessRetainerChanges } from '../src/db/schema'
 import { eq } from 'drizzle-orm'
 import { generateRetainerInvoices } from '../src/lib/retainerBilling'
 import { loadBusinessData, invalidateBusinessData, retainerMrrOn } from '../src/lib/businessMetrics'
@@ -57,6 +57,21 @@ async function main() {
   await run('2026-12-10')
   const dates = invoicesOf(r3.id).map(i => i.issueDate).sort()
   check('ahead: November billed once, December billed as normal', dates.join() === '2026-10-05,2026-11-05,2026-12-05', dates.join())
+
+  // Price rise set up ahead for January.
+  const c4 = db.insert(businessClients).values({ name: 'ZZ Rise', status: 'active' }).returning().get()
+  const r4 = db.insert(businessRetainers).values({ clientId: c4.id, serviceId: svc, name: 'Local SEO', amount: 149, startDate: '2026-10-17', nextInvoiceDate: '2026-10-17' }).returning().get()
+  db.insert(businessRetainerChanges).values({ retainerId: r4.id, effectiveDate: '2027-01-17', oldAmount: 149, newAmount: 169 }).run()
+  await run('2026-12-20')
+  check('rise: still billing £149 in December, plan still £149', invoicesOf(r4.id).every(i => i.amount === 149) && retainer(r4.id).amount === 149,
+    invoicesOf(r4.id).map(i => `${i.issueDate} ${i.amount}`).join(', '))
+  await run('2027-01-20')
+  const jan = invoicesOf(r4.id).find(i => i.issueDate === '2027-01-17')
+  check('rise: January billed at £169 and the plan now says £169', jan?.amount === 169 && retainer(r4.id).amount === 169, `${jan?.amount} ${retainer(r4.id).amount}`)
+  invalidateBusinessData()
+  const d4 = await loadBusinessData()
+  const rr4 = d4.retainers.find(x => x.id === r4.id)!
+  check('rise: MRR 149 before the day, 169 after', retainerMrrOn(rr4, '2027-01-16', d4.changes) === 149 && retainerMrrOn(rr4, '2027-01-17', d4.changes) === 169)
 
   console.log(failed ? `\n${failed} failed` : '\nall passed')
   process.exit(failed ? 1 : 0)

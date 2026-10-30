@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Section } from '../../../components/ui/Section'
 import { MiniBtn } from './primitives'
+import { ReminderModal } from '../modals/GrowthModals'
 import type { NeedRow, NeedAction } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
@@ -13,11 +14,12 @@ const LABEL: Record<NeedAction, string> = {
   void:    'Void',
   open:    'Open',
   repay:   'Paid back',
+  card:    'Open',
 }
 
 const TONE: Record<NeedAction, 'good' | 'accent' | 'default' | 'danger'> = {
   paid: 'good', send: 'accent', invoice: 'accent', setup: 'accent', assign: 'default', void: 'danger',
-  open: 'accent', repay: 'good',
+  open: 'accent', repay: 'good', card: 'accent',
 }
 
 /** What the secondary button says, by kind of row: it does the real thing. */
@@ -30,6 +32,7 @@ const DISMISS: Record<NeedAction, string> = {
   void:    '',
   open:    '',
   repay:   '',
+  card:    'Sorted',
 }
 
 /** The other answers to money owed, besides "it is paid" and "write it off". */
@@ -61,10 +64,12 @@ export function NeedsYou({
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [menu, setMenu] = useState<string | null>(null)
+  const [remind, setRemind] = useState<{ id: number; invoiceNumber: string } | null>(null)
   const LIMIT = 5
 
   return (
     <Section label="Needs you" count={rows.length || undefined}>
+      {remind && <ReminderModal invoice={remind} onClose={() => setRemind(null)} />}
       {rows.length === 0 ? (
         <div className="rounded-xl px-4 py-8 text-center text-xs"
           style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', color: 'var(--c-text-3)' }}>
@@ -119,6 +124,11 @@ export function NeedsYou({
                               <span className="absolute right-0 top-full mt-1 z-20 w-56 rounded-lg py-1 shadow-xl"
                                 style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)' }}
                                 onMouseLeave={() => setMenu(null)}>
+                                <button type="button" onClick={() => { setMenu(null); setRemind({ id: r.invoiceId!, invoiceNumber: `${r.clientName}'s ${r.what}` }) }}
+                                  className="block w-full text-left px-3 py-1.5 hover:bg-white/5">
+                                  <span className="block text-[12px]" style={{ color: 'var(--c-text-1)' }}>Send a reminder</span>
+                                  <span className="block text-[10.5px]" style={{ color: 'var(--c-text-3)' }}>a ready message, with a card link</span>
+                                </button>
                                 {([
                                   { how: 'hold', label: 'Wait two weeks', hint: 'agreed to wait, or disputing it' },
                                   ...(r.partPaid ? [{ how: 'settle', label: 'Accept what they paid', hint: 'the rest was a discount' }] : []),
@@ -137,7 +147,8 @@ export function NeedsYou({
                           <MiniBtn onClick={() => onDismiss(r)} disabled={busyKey === r.key}
                             // Voiding a draft or cancelling a website is a removal; the rest only hide a reminder.
                             tone={r.action === 'send' || r.action === 'invoice' ? 'danger' : 'default'}
-                            title={r.action === 'send' ? 'Void this draft' : r.action === 'invoice' ? 'Cancel this website' : 'This does not need doing'}>
+                            title={r.action === 'send' ? 'Void this draft' : r.action === 'invoice' ? 'Cancel this website'
+                              : r.action === 'card' ? 'They updated their card or paid another way' : 'This does not need doing'}>
                             {DISMISS[r.action]}
                           </MiniBtn>
                         )}

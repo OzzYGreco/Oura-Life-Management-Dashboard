@@ -7,14 +7,15 @@ import {
   businessRetainers, businessRetainerChanges, businessServices,
   businessOwners, businessOwnerDraws,
   financeIncome, financeExpenses, marketingCampaigns, marketingSpendDaily, stripePayments,
-  businessPaymentAllocations,
+  businessPaymentAllocations, businessEvents,
 } from '../db/schema'
 import { eq, and, gte, lte, like, or, inArray, sql, desc, ne } from 'drizzle-orm'
 import { localToday } from '../lib/date'
 import { advance, addDays } from '../lib/recurrence'
 import { createInvoiceNumberAllocator, nextInvoiceNumber } from '../lib/invoiceNumbers'
 import { generateRetainerInvoices, invalidateRetainerBilling } from '../lib/retainerBilling'
-import { invoicesBefore, planAhead, issueAhead, moveMoney, openInvoicesOf } from '../lib/lifecycle'
+import { invoicesBefore, planAhead, issueAhead, moveMoney, openInvoicesOf, priceOn } from '../lib/lifecycle'
+import { logEvent } from '../lib/events'
 import {
   syncAdSpend, recomputeCampaignSpend, configuredPlatforms, metaConfigured,
 } from '../lib/adSpendSync'
@@ -45,6 +46,7 @@ function invalidate(): void {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+const gbp = (n: number) => `£${n.toFixed(2)}`
 const id = (v: string) => parseInt(v, 10)
 
 /** Runs the retainer generator at boot. Kept exported: `index.ts` calls it. */
@@ -296,6 +298,7 @@ router.delete('/clients/:id/everything', async (req, res, next) => {
         tx.delete(businessRetainerChanges).where(eq(businessRetainerChanges.retainerId, r.id)).run()
         tx.delete(businessRetainers).where(eq(businessRetainers.id, r.id)).run()
       }
+      tx.delete(businessEvents).where(eq(businessEvents.clientId, clientId)).run()
       tx.delete(businessClients).where(eq(businessClients.id, clientId)).run()
     })
     invalidate()
@@ -392,7 +395,7 @@ router.post('/clients/:id/drop', async (req, res, next) => {
       notice,
       /** Notice: the bills still to come before the last day. */
       stillToBill: notice
-        ? retainers.filter(r => r.status === 'active').flatMap(r => invoicesBefore(r, endDate).map(x => ({ ...x, name: r.name })))
+        ? retainers.filter(r => r.status === 'active').flatMap(r => invoicesBefore(r, endDate, d.changes).map(x => ({ ...x, name: r.name })))
         : [],
     }
     if (body.dryRun) return res.json(plan)
@@ -417,6 +420,9 @@ router.post('/clients/:id/drop', async (req, res, next) => {
         tx.update(businessProjects).set({ status: 'cancelled', updatedAt: new Date().toISOString() })
           .where(eq(businessProjects.id, p.id)).run()
       }
+      logEvent(tx, clientId, notice ? 'notice' : 'left', notice
+        ? `Gave notice, leaving on ${endDate}${body.reason ? `: ${body.reason}` : ''}`
+        : `Left on ${endDate}${body.reason ? `: ${body.reason}` : ''}${writeOff.size ? `, ${writeOff.size} bill${writeOff.size === 1 ? '' : 's'} written off` : ''}`)
       tx.update(businessClients).set(notice
         ? { leavingOn: endDate, churnReason: body.reason ?? null }
         : { status: 'churned', churnedAt: endDate, churnReason: body.reason ?? null, leavingOn: null })
@@ -485,6 +491,7 @@ router.post('/clients/:id/left-on', async (req, res, next) => {
       for (const i of toVoid) voidInvoice(tx, i.id, 'Client left before this period', today)
       for (const i of toRestore) restoreInvoice(tx, i.id)
       tx.update(businessClients).set({ churnedAt: date }).where(eq(businessClients.id, clientId)).run()
+      logEvent(tx, clientId, 'left-date', `Day they left changed from ${old ?? 'unknown'} to ${date}`)
     })
     invalidate()
     res.json(plan)
@@ -568,7 +575,7 @@ router.post('/clients/:id/payments', async (req, res, next) => {
     const date = body.date ?? localToday()
     const retainers = d.retainers.filter(r => r.clientId === clientId && r.status === 'active')
     const useAhead = left > 0.005 && retainers.length > 0 && (body.ahead ?? !body.restFor)
-    const ahead = useAhead ? planAhead(retainers, left) : { periods: [], left }
+    const ahead = useAhead ? planAhead(retainers, left, 12, d.changes) : { periods: [], left }
     left = ahead.left
 
     // The same money entered twice: a payment of this size for this client
@@ -605,6 +612,7 @@ router.post('/clients/:id/payments', async (req, res, next) => {
         }).returning().get()
         splits.push({ invoiceId: inv.id, invoiceNumber: restNumber, amount: left, owed: left, settles: true })
       }
+      logEvent(tx, clientId, 'payment', `${gbp(body.amount)} received by ${body.method ?? 'bank'}${ahead.periods.length ? `, ${ahead.periods.length} month${ahead.periods.length === 1 ? '' : 's'} paid ahead` : ''}`)
       splits.forEach((sp, idx) => recordManualPayment(tx, sp.invoiceId, {
         amount: sp.amount, date, method: body.method ?? 'bank',
         // The fee belongs to the payment; it rides on the first invoice it touches.
@@ -637,6 +645,8 @@ router.post('/clients/:id/reactivate', async (req, res, next) => {
     const row = db.transaction(tx => {
       // Notice taken back: their scheduled ends are lifted.
       const c = tx.select().from(businessClients).where(eq(businessClients.id, clientId)).get()
+      logEvent(tx, clientId, 'back', c?.leavingOn ? 'Took their notice back and stayed'
+        : `Came back${body.reinstateRetainerIds?.length ? `, billing again from ${start}` : ''}${body.restoreInvoiceIds?.length ? `, ${body.restoreInvoiceIds.length} old bill${body.restoreInvoiceIds.length === 1 ? '' : 's'} owed again` : ''}`)
       if (c?.leavingOn) {
         tx.update(businessRetainers).set({ endDate: null, cancelReason: null, updatedAt: new Date().toISOString() })
           .where(and(eq(businessRetainers.clientId, clientId), eq(businessRetainers.status, 'active'))).run()
@@ -1194,14 +1204,6 @@ router.put('/retainers/:id', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
-/** The price in force on a date, read from the change log rather than `amount`. */
-function priceOn(r: typeof businessRetainers.$inferSelect, changes: (typeof businessRetainerChanges.$inferSelect)[], date: string): number {
-  const mine = changes.filter(c => c.retainerId === r.id).sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || a.id - b.id)
-  const applied = mine.filter(c => c.effectiveDate <= date)
-  if (applied.length) return applied[applied.length - 1].newAmount
-  return mine.length ? mine[0].oldAmount : r.amount
-}
-
 const priceSchema = z.object({
   newAmount:     money,
   effectiveDate: dateStr.optional(),
@@ -1315,9 +1317,14 @@ async function planPriceChange(retainerId: number, body: z.infer<typeof priceSch
 router.put('/retainers/:id/price', async (req, res, next) => {
   try {
     const body = parse(priceSchema, req.body)
-    const { plan, apply } = await planPriceChange(id(req.params.id), body)
+    const { plan, apply, current } = await planPriceChange(id(req.params.id), body)
     if (body.dryRun) return res.json(plan)
-    db.transaction(tx => apply(tx))
+    db.transaction(tx => {
+      apply(tx)
+      logEvent(tx, current.clientId, 'price', plan.correction
+        ? `${current.name} price corrected to ${gbp(body.newAmount)}`
+        : `${current.name} price ${gbp(plan.oldAmount)} to ${gbp(body.newAmount)} from ${plan.effectiveDate}`)
+    })
     invalidate()
     res.json(plan)
   } catch (e) { next(e) }
@@ -1390,6 +1397,7 @@ router.post('/retainers/:id/change', async (req, res, next) => {
     db.transaction(tx => {
       apply(tx)
       for (const i of writeOff) voidInvoice(tx, i.id, `Written off: plan changed to ${newService}`, today)
+      logEvent(tx, r.clientId, 'plan', sentence)
     })
     invalidate()
     res.json(preview)
@@ -1413,9 +1421,11 @@ router.post('/retainers/:id/pause', async (req, res, next) => {
           eq(businessInvoices.retainerId, retainerId), inArray(businessInvoices.status, ['unpaid', 'draft']))).all()
         for (const i of open) if (!allocationsFor(tx, i.id).length) voidInvoice(tx, i.id, 'Retainer paused', today)
       }
-      return tx.update(businessRetainers)
+      const row = tx.update(businessRetainers)
         .set({ status: 'paused', pausedAt: today, resumeOn: body.resumeOn ?? null, updatedAt: new Date().toISOString() })
         .where(eq(businessRetainers.id, retainerId)).returning().get()
+      if (row) logEvent(tx, row.clientId, 'pause', `${row.name} paused${body.resumeOn ? `, restarting ${body.resumeOn}` : ''}`)
+      return row
     })
     invalidate()
     res.json(row)
@@ -1440,6 +1450,7 @@ router.post('/retainers/:id/resume', async (req, res, next) => {
         updatedAt: new Date().toISOString(),
       })
       .where(eq(businessRetainers.id, retainerId)).returning())[0]
+    logEvent(db, current.clientId, 'resume', `${current.name} resumed, billing from ${from}`)
     invalidate()
     res.json(row)
   } catch (e) { next(e) }
@@ -1472,7 +1483,7 @@ router.post('/retainers/:id/cancel', async (req, res, next) => {
       endDate, scheduled,
       voided: voids.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, periodStart: i.periodStart })),
       /** Notice: the bills still to come before the last day. */
-      stillToBill: scheduled && current.status === 'active' ? invoicesBefore(current, endDate) : [],
+      stillToBill: scheduled && current.status === 'active' ? invoicesBefore(current, endDate, db.select().from(businessRetainerChanges).all()) : [],
     }
     if (body.dryRun) return res.json(plan)
 
@@ -1480,6 +1491,9 @@ router.post('/retainers/:id/cancel', async (req, res, next) => {
       for (const i of voids) voidInvoice(tx, i.id, 'Retainer ended before this period', today)
       tx.delete(businessRetainerChanges).where(and(
         eq(businessRetainerChanges.retainerId, retainerId), gte(businessRetainerChanges.effectiveDate, endDate))).run()
+      logEvent(tx, current.clientId, 'cancel', scheduled
+        ? `${current.name} set to end on ${endDate}${body.reason ? `: ${body.reason}` : ''}`
+        : `${current.name} ended on ${endDate}${body.reason ? `: ${body.reason}` : ''}`)
       tx.update(businessRetainers).set(scheduled && current.status === 'active'
         ? { endDate, cancelReason: body.reason ?? null, updatedAt: new Date().toISOString() }
         : {
@@ -1503,6 +1517,7 @@ router.post('/retainers/:id/reinstate', async (req, res, next) => {
     if (!current) return res.status(404).json({ error: 'No such retainer' })
     const row = db.transaction(tx => {
       reactivateIfChurned(tx, current.clientId)
+      logEvent(tx, current.clientId, 'reinstate', `${current.name} reinstated`)
       return tx.update(businessRetainers).set({
         status: 'active', endDate: null, cancelledAt: null, cancelReason: null, autoInvoice: 1,
         updatedAt: new Date().toISOString(),
@@ -1758,7 +1773,11 @@ router.post('/invoices/:id/void', async (req, res, next) => {
   try {
     const body = parse(z.object({ reason: z.string().nullish() }), req.body ?? {})
     const invoiceId = id(req.params.id)
-    db.transaction(tx => voidInvoice(tx, invoiceId, body.reason ?? null, localToday()))
+    db.transaction(tx => {
+      voidInvoice(tx, invoiceId, body.reason ?? null, localToday())
+      const v = tx.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)).get()
+      if (v) logEvent(tx, v.clientId, 'void', `${v.invoiceNumber} (${gbp(v.amount)}) voided${body.reason ? `: ${body.reason}` : ''}`)
+    })
     invalidate()
     res.json((await db.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)))[0])
   } catch (e) { next(e) }
@@ -1767,7 +1786,11 @@ router.post('/invoices/:id/void', async (req, res, next) => {
 router.post('/invoices/:id/restore', async (req, res, next) => {
   try {
     const invoiceId = id(req.params.id)
-    db.transaction(tx => restoreInvoice(tx, invoiceId))
+    db.transaction(tx => {
+      restoreInvoice(tx, invoiceId)
+      const v = tx.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)).get()
+      if (v) logEvent(tx, v.clientId, 'restore', `${v.invoiceNumber} (${gbp(v.amount)}) owed again`)
+    })
     invalidate()
     res.json((await db.select().from(businessInvoices).where(eq(businessInvoices.id, invoiceId)))[0])
   } catch (e) { next(e) }
@@ -1917,7 +1940,7 @@ function planCredit(clientId: number, amount: number, except: number[] = []) {
   let left = round2(amount)
   for (const x of open) left = round2(left - Math.min(x.owed, left))
   const retainers = db.select().from(businessRetainers).where(eq(businessRetainers.clientId, clientId)).all()
-  const { periods, left: after } = planAhead(retainers, left)
+  const { periods, left: after } = planAhead(retainers, left, 12, db.select().from(businessRetainerChanges).all())
   return { open, ahead: periods, left: after }
 }
 
@@ -1962,6 +1985,7 @@ router.post('/invoices/:id/settle', async (req, res, next) => {
         amount: applied, subtotal: inv.subtotal ?? inv.amount,
         notes: inv.notes ? `${inv.notes}. ${note}` : note,
       }).where(eq(businessInvoices.id, invoiceId)).run()
+      logEvent(tx, inv.clientId, 'settled', `${inv.invoiceNumber}: ${note}`)
       recomputeInvoice(tx, invoiceId)
     })
     invalidate()
@@ -1978,6 +2002,7 @@ router.post('/invoices/:id/hold', async (req, res, next) => {
     const body = parse(z.object({ until: dateStr.nullish(), reason: z.string().nullish() }), req.body ?? {})
     const row = db.update(businessInvoices).set({ chaseAfter: body.until ?? null, holdReason: body.until ? body.reason ?? null : null })
       .where(eq(businessInvoices.id, id(req.params.id))).returning().get()
+    if (row) logEvent(db, row.clientId, 'hold', body.until ? `${row.invoiceNumber} on hold until ${body.until}${body.reason ? `: ${body.reason}` : ''}` : `${row.invoiceNumber} taken off hold`)
     invalidate()
     res.json(row)
   } catch (e) { next(e) }
@@ -1997,6 +2022,8 @@ router.post('/allocations/:id/refund', async (req, res, next) => {
       tx.update(businessPaymentAllocations).set({ refunded: round2(a.refunded + body.amount) })
         .where(eq(businessPaymentAllocations.id, a.id)).run()
       recomputeInvoice(tx, a.invoiceId)
+      const v = tx.select().from(businessInvoices).where(eq(businessInvoices.id, a.invoiceId)).get()
+      if (v) logEvent(tx, v.clientId, 'refund', `${gbp(body.amount)} given back on ${v.invoiceNumber}`)
     })
     invalidate()
     res.json({ ok: true })
@@ -2024,6 +2051,10 @@ router.post('/allocations/:id/move', async (req, res, next) => {
     db.transaction(tx => {
       tx.delete(businessPaymentAllocations).where(eq(businessPaymentAllocations.id, a.id)).run()
       recomputeInvoice(tx, a.invoiceId)
+      const from = tx.select().from(businessInvoices).where(eq(businessInvoices.id, a.invoiceId)).get()
+      const to = tx.select().from(businessClients).where(eq(businessClients.id, body.clientId)).get()
+      if (from) logEvent(tx, from.clientId, 'moved', `${gbp(a.amount)} payment of ${a.date} moved to ${to?.name ?? 'another client'}`)
+      logEvent(tx, body.clientId, 'moved', `${gbp(a.amount)} payment of ${a.date} moved here from another client`)
       const all = [...splits]
       if (rest) {
         reactivateIfChurned(tx, body.clientId)
@@ -2883,3 +2914,6 @@ router.delete('/campaigns/:id', async (req, res, next) => {
 })
 
 export default router
+
+/** Shared with the routes split out into businessGrowth.ts. */
+export { invalidate, parse, id, money, dateStr }

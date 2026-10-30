@@ -12,7 +12,7 @@
  * lowered, a bank payment recorded against the wrong client.
  */
 import {
-  businessRetainers, businessClients, businessInvoices, businessPaymentAllocations,
+  businessRetainers, businessClients, businessInvoices, businessPaymentAllocations, businessRetainerChanges,
 } from '../db/schema'
 import { eq, and, lte, isNotNull, inArray } from 'drizzle-orm'
 import { advance, addDays } from './recurrence'
@@ -22,6 +22,22 @@ import {
 } from './payments'
 
 type Retainer = typeof businessRetainers.$inferSelect
+type Change = typeof businessRetainerChanges.$inferSelect
+
+/**
+ * The price a retainer bills for a period starting on `date`, read from its
+ * change log. A change dated ahead (a price rise from January) is billed from
+ * its date and not before, so it can be set up today.
+ */
+export function priceOn(r: Retainer, changes: Change[], date: string): number {
+  const mine = changes.filter(c => c.retainerId === r.id).sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || a.id - b.id)
+  const applied = mine.filter(c => c.effectiveDate <= date)
+  if (applied.length) return applied[applied.length - 1].newAmount
+  return mine.length ? mine[0].oldAmount : r.amount
+}
+
+export const changesOf = (tx: Tx, retainerId: number) =>
+  tx.select().from(businessRetainerChanges).where(eq(businessRetainerChanges.retainerId, retainerId)).all()
 
 // ─── Dated events ────────────────────────────────────────────────────────────
 
@@ -59,6 +75,18 @@ export function settleDatedEvents(tx: Tx, today: string): void {
   // Clients whose notice has run out.
   const leaving = tx.select().from(businessClients).where(and(
     isNotNull(businessClients.leavingOn), lte(businessClients.leavingOn, today))).all()
+  // A price change dated ahead becomes the retainer's price on its day, so
+  // everything that reads `amount` (the plan line, MRR today) agrees.
+  const live = tx.select().from(businessRetainers).where(eq(businessRetainers.status, 'active')).all()
+  const allChanges = live.length ? tx.select().from(businessRetainerChanges).all() : []
+  for (const r of live) {
+    if (!allChanges.some(c => c.retainerId === r.id)) continue
+    const now = priceOn(r, allChanges, today)
+    if (Math.abs(now - r.amount) > 0.005) {
+      tx.update(businessRetainers).set({ amount: now, updatedAt: new Date().toISOString() }).where(eq(businessRetainers.id, r.id)).run()
+    }
+  }
+
   for (const c of leaving) {
     tx.update(businessClients).set({
       status: c.status === 'active' ? 'churned' : c.status,
@@ -69,11 +97,11 @@ export function settleDatedEvents(tx: Tx, today: string): void {
 }
 
 /** The invoices a retainer will still issue from its next date up to (not on) its last day. */
-export function invoicesBefore(r: Retainer, endDate: string): { periodStart: string; amount: number }[] {
+export function invoicesBefore(r: Retainer, endDate: string, changes: Change[] = []): { periodStart: string; amount: number }[] {
   const out: { periodStart: string; amount: number }[] = []
   let cursor = r.nextInvoiceDate ?? advance(r.lastGeneratedDate ?? r.startDate, r.frequency)
   while (cursor < endDate && out.length < 60) {
-    out.push({ periodStart: cursor, amount: r.amount })
+    out.push({ periodStart: cursor, amount: priceOn(r, changes, cursor) })
     cursor = advance(cursor, r.frequency)
   }
   return out
@@ -86,7 +114,7 @@ export function invoicesBefore(r: Retainer, endDate: string): { periodStart: str
  * client's live retainers, stopping at any retainer's last day. The last one may
  * be part-covered.
  */
-export function planAhead(retainers: Retainer[], amount: number, max = 12) {
+export function planAhead(retainers: Retainer[], amount: number, max = 12, changes: Change[] = []) {
   const cursors = retainers
     .filter(r => r.status === 'active')
     .map(r => ({ r, at: r.nextInvoiceDate ?? advance(r.lastGeneratedDate ?? r.startDate, r.frequency) }))
@@ -96,8 +124,9 @@ export function planAhead(retainers: Retainer[], amount: number, max = 12) {
     const live = cursors.filter(c => !c.r.endDate || c.at < c.r.endDate)
     if (!live.length) break
     const next = live.sort((a, b) => a.at.localeCompare(b.at))[0]
-    const pays = round2(Math.min(next.r.amount, left))
-    out.push({ retainerId: next.r.id, name: next.r.name, periodStart: next.at, amount: next.r.amount, pays })
+    const price = priceOn(next.r, changes, next.at)
+    const pays = round2(Math.min(price, left))
+    out.push({ retainerId: next.r.id, name: next.r.name, periodStart: next.at, amount: price, pays })
     left = round2(left - pays)
     next.at = advance(next.at, next.r.frequency)
   }
@@ -112,8 +141,9 @@ export function planAhead(retainers: Retainer[], amount: number, max = 12) {
 export function issueAhead(tx: Tx, retainerId: number, periodStart: string, invoiceNumber: string, today: string) {
   const r = tx.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId)).get()
   if (!r) refuse(404, 'No such retainer')
+  const price = priceOn(r, changesOf(tx, r.id), periodStart)
   const inv = tx.insert(businessInvoices).values({
-    clientId: r.clientId, invoiceNumber, amount: r.amount, subtotal: r.amount,
+    clientId: r.clientId, invoiceNumber, amount: price, subtotal: price,
     status: 'unpaid', issueDate: periodStart, dueDate: addDays(periodStart, r.netTermDays ?? 0),
     notes: r.name, retainerId: r.id, serviceId: r.serviceId, currency: r.currency,
     periodStart, periodEnd: advance(periodStart, r.frequency), sentDate: today,

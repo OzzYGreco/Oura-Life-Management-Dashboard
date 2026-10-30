@@ -217,6 +217,7 @@ function useBusinessMutation<TArgs>(fn: (args: TArgs) => Promise<any>) {
         'projects', 'dashboard', 'finance-summary', 'income-streams', 'cashflow',
         'expenses', 'time-entries-all', 'campaigns', 'campaign-spend', 'ad-spend-status', 'payment-status', 'payments', 'payments-unassigned',
         'payment-options', 'meeting-notes', 'comeback', 'finance-expenses', 'finance-recurring', 'services',
+        'business-settings', 'client-events', 'forecast', 'vat', 'month-summary', 'reminder',
       ]) qc.invalidateQueries({ queryKey: [key] })
     },
   })
@@ -689,4 +690,92 @@ export function useRetainerFromPayment() {
 export function useIgnorePayment() {
   return useBusinessMutation((id: number) =>
     api.post(`/api/business/payments/${id}/ignore`).then(r => r.data))
+}
+
+// ─── Getting paid, looking ahead (businessGrowth routes) ─────────────────────
+
+export interface BusinessSettings { businessName: string; signOff: string; bankDetails: string }
+
+export function useBusinessSettings() {
+  return useQuery<BusinessSettings>({ queryKey: ['business-settings'], queryFn: () => api.get('/api/business/settings').then(r => r.data) })
+}
+export function useSaveBusinessSettings() {
+  return useBusinessMutation((body: Partial<BusinessSettings>) => api.put('/api/business/settings', body).then(r => r.data as BusinessSettings))
+}
+
+export interface ClientEvent { id: number; at: string; kind: string; summary: string }
+export function useClientEvents(clientId: number | null) {
+  return useQuery<ClientEvent[]>({
+    queryKey: ['client-events', clientId],
+    queryFn: () => api.get(`/api/business/clients/${clientId}/events`).then(r => r.data),
+    enabled: !!clientId,
+  })
+}
+
+export function usePaymentLink() {
+  return useBusinessMutation(({ id, fresh }: { id: number; fresh?: boolean }) =>
+    api.post(`/api/business/invoices/${id}/payment-link`, { fresh }).then(r => r.data as { url: string; reused: boolean }))
+}
+
+export interface Reminder { to: string | null; subject: string; body: string; mailto: string; hasLink: boolean; hasBank: boolean }
+export function useReminder(invoiceId: number | null) {
+  return useQuery<Reminder>({
+    queryKey: ['reminder', invoiceId],
+    queryFn: () => api.get(`/api/business/invoices/${invoiceId}/reminder`).then(r => r.data),
+    enabled: !!invoiceId,
+  })
+}
+
+export function useDismissFailedCharges() {
+  return useBusinessMutation((ids: number[]) => api.post('/api/business/failed-charges/dismiss', { ids }).then(r => r.data))
+}
+
+export interface ForecastMonth { month: string; retainers: number; owed: number; stages: number; costs: number; ads: number; net: number; cumulative: number }
+export interface Forecast {
+  from: string; to: string; months: ForecastMonth[]; totalIn: number; totalOut: number; lateOwed: number
+  items: { date: string; kind: 'retainer' | 'owed' | 'stage' | 'cost' | 'ads'; label: string; amount: number; late?: boolean; clientId?: number | null }[]
+}
+export function useForecast(months = 3) {
+  return useQuery<Forecast>({ queryKey: ['forecast', months], queryFn: () => api.get(`/api/business/forecast?months=${months}`).then(r => r.data) })
+}
+
+export interface Vat { threshold: number; rolling12: number; pct: number; monthlyPace: number; crossing: string | null }
+export function useVat() {
+  return useQuery<Vat>({ queryKey: ['vat'], queryFn: () => api.get('/api/business/vat').then(r => r.data) })
+}
+
+export interface MonthSummary {
+  month: string; from: string; to: string; partial: boolean
+  moneyIn: number; costs: number; adSpend: number; profit: number; marginPct: number
+  previous: { moneyIn: number; profit: number }
+  mrr: { start: number; end: number }
+  joined: { id: number; name: string }[]; left: { id: number; name: string; reason: string | null }[]
+  owedNow: number; writtenOff: number; top: { id: number; name: string; amount: number }[]
+  draws: { name: string; taken: number }[]; safeToDraw: number; vat: Vat; text: string
+}
+export function useMonthSummary(month: string | null, opts?: OwnerPayOpts) {
+  const qs = new URLSearchParams({ month: month ?? '' })
+  if (opts) { qs.set('taxReserve', opts.taxReserveEnabled ? '1' : '0'); qs.set('taxRate', String(opts.taxRatePct)); qs.set('buffer', String(opts.bufferMonths)) }
+  return useQuery<MonthSummary>({
+    queryKey: ['month-summary', month, opts],
+    queryFn: () => api.get(`/api/business/month-summary?${qs}`).then(r => r.data),
+    enabled: !!month,
+  })
+}
+
+export interface BulkPriceBody { serviceId: number; currentAmount?: number | null; newAmount: number; from: string; exclude?: number[] }
+export interface BulkPricePlan {
+  service: string; from: string; count: number; mrrDelta: number
+  rows: { retainerId: number; clientId: number; clientName: string; frequency: string; from: string; oldAmount: number; newAmount: number; included: boolean; why: string | null }[]
+}
+export function useBulkPricePreview(body: BulkPriceBody | null) {
+  return useQuery<BulkPricePlan>({
+    queryKey: ['bulk-price-preview', body],
+    queryFn: () => api.post('/api/business/retainers/bulk-price', { ...body, dryRun: true }).then(r => r.data),
+    enabled: !!body && body.newAmount > 0 && !!body.from,
+    retry: false,
+  })
+}
+export function useBulkPrice() {
+  return useBusinessMutation((body: BulkPriceBody) => api.post('/api/business/retainers/bulk-price', body).then(r => r.data as BulkPricePlan))
 }

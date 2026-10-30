@@ -315,6 +315,9 @@ export const businessInvoices = sqliteTable('business_invoices', {
   voidedFrom:  text('voided_from'),
   /** Set when the invoice exists only because this payment arrived with nothing to settle. */
   raisedFromPaymentId: integer('raised_from_payment_id'),
+  /** A Stripe Payment Link made for this invoice. */
+  paymentLinkId:  text('payment_link_id'),
+  paymentLinkUrl: text('payment_link_url'),
   /** On hold: kept out of chasing until this date. */
   chaseAfter:  text('chase_after'),
   holdReason:  text('hold_reason'),
@@ -607,4 +610,58 @@ export const noteImages = sqliteTable('note_images', {
   filePath:     text('file_path').notNull(),
   originalName: text('original_name'),
   createdAt:    text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+// ─── Settings, failed charges, history, leads (0014) ─────────────────────────
+
+export const businessSettings = sqliteTable('business_settings', {
+  key:       text('key').primaryKey(),
+  value:     text('value'),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const stripeFailedCharges = sqliteTable('stripe_failed_charges', {
+  id:               integer('id').primaryKey({ autoIncrement: true }),
+  stripeId:         text('stripe_id').notNull(),
+  stripeCustomerId: text('stripe_customer_id'),
+  subscriptionId:   text('subscription_id'),
+  amount:           real('amount').notNull(),
+  currency:         text('currency').notNull().default('GBP'),
+  failedDate:       text('failed_date').notNull(),
+  payerName:        text('payer_name'),
+  payerEmail:       text('payer_email'),
+  failureMessage:   text('failure_message'),
+  clientId:         integer('client_id'),
+  dismissedAt:      text('dismissed_at'),
+  createdAt:        text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const businessEvents = sqliteTable('business_events', {
+  id:       integer('id').primaryKey({ autoIncrement: true }),
+  at:       text('at').notNull().default(sql`(datetime('now'))`),
+  clientId: integer('client_id'),
+  kind:     text('kind').notNull(),
+  summary:  text('summary').notNull(),
+  data:     text('data', { mode: 'json' }),
+})
+
+export const businessLeads = sqliteTable('business_leads', {
+  id:           integer('id').primaryKey({ autoIncrement: true }),
+  name:         text('name').notNull(),
+  company:      text('company'),
+  email:        text('email'),
+  phone:        text('phone'),
+  source:       text('source'),
+  campaignId:   integer('campaign_id'),
+  serviceId:    integer('service_id'),
+  stage:        text('stage').notNull().default('new'),   // new | contacted | quoted | won | lost
+  quoteOneOff:  real('quote_one_off'),
+  quoteMonthly: real('quote_monthly'),
+  quotedAt:     text('quoted_at'),
+  decidedAt:    text('decided_at'),
+  lostReason:   text('lost_reason'),
+  clientId:     integer('client_id'),
+  notes:        text('notes'),
+  createdAt:    text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt:    text('updated_at').notNull().default(sql`(datetime('now'))`),
 })

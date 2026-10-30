@@ -22,7 +22,7 @@ import {
   businessRetainerChanges, businessServices, businessTimeEntries,
   businessOwners, businessOwnerDraws,
   financeExpenses, marketingCampaigns, marketingSpendDaily, stripePayments,
-  businessPaymentAllocations,
+  businessPaymentAllocations, stripeFailedCharges,
 } from '../db/schema'
 import { localToday } from './date'
 
@@ -70,6 +70,8 @@ export interface BusinessData {
   expenses:  Expense[]
   campaigns: (typeof marketingCampaigns.$inferSelect)[]
   owners:    (typeof businessOwners.$inferSelect)[]
+  /** Declined card payments, not yet sorted. */
+  failedCharges: (typeof stripeFailedCharges.$inferSelect)[]
   draws:     (typeof businessOwnerDraws.$inferSelect)[]
   adSpendDaily: (typeof marketingSpendDaily.$inferSelect)[]
   payments: (typeof stripePayments.$inferSelect)[]
@@ -106,6 +108,7 @@ export async function loadBusinessData(): Promise<BusinessData> {
       db.select().from(stripePayments),
       db.select().from(businessPaymentAllocations),
     ])
+  const failedCharges = db.select().from(stripeFailedCharges).all().filter(f => !f.dismissedAt)
 
   const invoices = allInvoices.filter(i => i.status !== 'void')
   const byId = new Map(invoices.map(i => [i.id, i]))
@@ -122,7 +125,7 @@ export async function loadBusinessData(): Promise<BusinessData> {
     })
   }
 
-  const data = { clients, projects, invoices, allInvoices, receipts, applied, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments }
+  const data = { clients, projects, invoices, allInvoices, receipts, applied, retainers, changes, services, time, expenses, campaigns, owners, draws, adSpendDaily, payments, failedCharges }
   cache = { data, at: Date.now() }
   return data
 }
@@ -1113,7 +1116,7 @@ export async function businessDashboardSummary(today = localToday()) {
 
 // ─── Home screen ──────────────────────────────────────────────────────────────
 
-export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void' | 'open' | 'repay'
+export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void' | 'open' | 'repay' | 'card'
 
 export interface NeedRow {
   key: string
@@ -1134,6 +1137,7 @@ export interface NeedRow {
   expenseId?: number
   /** Some of it has been paid: "accept what arrived" is an answer too. */
   partPaid?: boolean
+  failedChargeIds?: number[]
 }
 
 /**
@@ -1299,6 +1303,60 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
     })
   }
 
+  // Declined card payments, one row per customer: Stripe retries for days, so
+  // ten failures are usually one problem. Cleared once money from that client
+  // arrives after the last failure. If they paid another way and Stripe is
+  // still retrying, that is its own warning: the card charge may yet succeed
+  // and take the money twice.
+  // Whose card it is: the client tied to it, else whoever that Stripe customer
+  // has paid as before (an old customer replaced by a new card), else the
+  // client with the same name.
+  const norm = (v: string | null) => (v ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+  const clientOf = (f: (typeof d.failedCharges)[number]) => f.clientId
+    ?? d.payments.find(p => p.stripeCustomerId && p.stripeCustomerId === f.stripeCustomerId && p.matchedClientId)?.matchedClientId
+    ?? d.clients.find(c => f.payerName && norm(c.name) === norm(f.payerName))?.id
+    ?? null
+  const byCustomer = new Map<string, { clientId: number | null; list: typeof d.failedCharges }>()
+  for (const f of d.failedCharges) {
+    const cid = clientOf(f)
+    const k = cid ? `client-${cid}` : f.stripeCustomerId ?? `charge-${f.id}`
+    const g = byCustomer.get(k) ?? { clientId: cid, list: [] }
+    g.list.push(f)
+    byCustomer.set(k, g)
+  }
+  const DAY = 86_400_000
+  for (const { clientId, list } of byCustomer.values()) {
+    list.sort((a, b) => a.failedDate.localeCompare(b.failedDate) || a.id - b.id)
+    const last = list[list.length - 1]
+    const client = clientId ? d.clients.find(c => c.id === clientId) : null
+    if (client?.status === 'churned') continue
+    const paid = d.payments
+      .filter(p => !p.ignored && ((p.stripeCustomerId && p.stripeCustomerId === last.stripeCustomerId) || (clientId && p.matchedClientId === clientId)))
+      .map(p => p.paidDate)
+      .concat(clientId ? d.receipts.filter(x => x.clientId === clientId && !x.paymentId).map(x => x.date) : [])
+      .sort()
+    const lastPaid = paid[paid.length - 1] ?? null
+    if (lastPaid && lastPaid > last.failedDate) continue
+    // The run of failures that is still going: after the last money in.
+    const run = list.filter(f => !lastPaid || f.failedDate > lastPaid)
+    // Stripe retries one bill for a couple of weeks. Failures just before and
+    // just after a payment are that same bill, still being retried.
+    const paidMidRun = !!lastPaid
+      && list.some(f => f.failedDate <= lastPaid && Date.parse(lastPaid) - Date.parse(f.failedDate) <= 10 * DAY)
+      && Date.parse(run[0].failedDate) - Date.parse(lastPaid) <= 10 * DAY
+    const why = last.failureMessage ? last.failureMessage.toLowerCase().replace(/\.$/, '') : 'declined'
+    rows.push({
+      key: `card-${last.id}`, action: 'card', failedChargeIds: list.map(f => f.id),
+      clientId, clientName: client?.name ?? last.payerName ?? last.payerEmail ?? 'Unknown card holder',
+      what: paidMidRun ? 'paid another way, but Stripe is still retrying the card' : 'card payment declined',
+      amount: last.amount,
+      detail: paidMidRun
+        ? `last try ${last.failedDate}; mark that Stripe invoice paid so it stops`
+        : `${run.length > 1 ? `${run.length} tries since ${run[0].failedDate}` : last.failedDate}, ${why}`,
+      rank: 60,
+    })
+  }
+
   // Costs a partner paid out of their own pocket, not yet paid back.
   for (const e of d.expenses) {
     if (!e.paidByOwnerId || e.reimbursedAt) continue
@@ -1312,7 +1370,7 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
   }
 
   for (const r of rows) {
-    r.group = r.action === 'paid' ? 'chase' : r.action === 'send' || r.action === 'void' ? 'send' : 'fix'
+    r.group = r.action === 'paid' || r.action === 'card' ? 'chase' : r.action === 'send' || r.action === 'void' ? 'send' : 'fix'
   }
   return rows.sort((a, b) => a.rank - b.rank || b.amount - a.amount)
 }
