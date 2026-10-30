@@ -11,12 +11,11 @@ import {
   useSaveProject,
   useInvoice, useCreateInvoice, useUpdateInvoice,
   useVoidInvoice, useRestoreInvoice, useRemoveInvoice, useUnpayInvoice, useRemoveAllocation,
-  useSettleInvoice, useHoldInvoice, useRefundAllocation, useMoveAllocation,
+  useSettleInvoice, useHoldInvoice, useRefundAllocation, useMoveAllocation, useSaveCost,
   useCreateRetainer, useLogTime,
   useSaveMeetingNote, useCreateCampaign, useUpdateCampaign, useDeleteCampaign,
   useCampaignSpend,
 } from '../../../hooks/useBusiness'
-import { useCreateExpense, useUpdateExpense } from '../../../hooks/useFinances'
 import { useChangeCostPrice } from '../../../hooks/useBusiness'
 import { today, formatDate } from '../../../lib/utils'
 import type { Client, Project, Service } from '../lib/types'
@@ -653,8 +652,10 @@ export function CostModal({
   open, expense, clientId, onClose,
 }: { open: boolean; expense?: any; clientId?: number | null; onClose: () => void }) {
   const { data: clients = [] } = useClients()
-  const create = useCreateExpense()
-  const update = useUpdateExpense()
+  // The business save, so Needs you and every figure refresh at once.
+  const saveCost = useSaveCost()
+  const create = { mutateAsync: (d: any) => saveCost.mutateAsync(d), isPending: saveCost.isPending }
+  const update = create
   const changePrice = useChangeCostPrice()
   const [f, setF] = useState<any>({})
   const [scope, setScope] = useState<'this' | 'future' | 'all'>('future')
