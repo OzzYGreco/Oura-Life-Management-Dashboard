@@ -227,8 +227,10 @@ async function main() {
   // ── MRR ───────────────────────────────────────────────────────────────────
   section('3. MRR')
 
+  // A retainer set up to start later is not worth anything until it starts.
+  const todayStr = new Date().toISOString().slice(0, 10)
   const activeSum = round2(d.retainers
-    .filter(r => r.status === 'active')
+    .filter(r => r.status === 'active' && r.startDate <= todayStr)
     .reduce((s, r) => s + r.amount * ({ weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 }[r.frequency] ?? 1), 0))
   check('MRR equals the sum of active retainers',
     near(m.mrr.current, activeSum), `metrics ${money(m.mrr.current)} vs rows ${money(activeSum)}`)
