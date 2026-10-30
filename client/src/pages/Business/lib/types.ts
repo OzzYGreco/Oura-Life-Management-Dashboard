@@ -283,6 +283,7 @@ export interface NeedRow {
   amount: number
   detail: string | null
   rank: number
+  group?: 'chase' | 'send' | 'fix'
   invoiceId?: number
   projectId?: number
   expenseId?: number

@@ -1146,7 +1146,9 @@ router.get('/invoices/ledger', async (req, res, next) => {
         avgDaysToPay: (() => {
           const paid = rows.filter(r => r.status === 'paid' && r.paidDate)
           if (!paid.length) return null
-          const days = paid.map(r => Math.round((Date.parse(r.paidDate!) - Date.parse(r.issueDate)) / 86_400_000))
+          // Paid before it was raised (a deposit taken on the day, invoiced after)
+          // is paid at once, not in negative days.
+          const days = paid.map(r => Math.max(0, Math.round((Date.parse(r.paidDate!) - Date.parse(r.issueDate)) / 86_400_000)))
           return round2(days.reduce((a, b) => a + b, 0) / days.length)
         })(),
       },

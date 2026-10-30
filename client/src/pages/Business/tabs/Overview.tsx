@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useUrlState } from '../lib/useUrlState'
 import { Section } from '../../../components/ui/Section'
 import { KpiCard } from '../../../components/ui/KpiCard'
@@ -8,12 +9,17 @@ import { MoneyInChart } from '../components/MoneyInChart'
 import { NeedsYou } from '../components/NeedsYou'
 import { PaymentsToAssign } from '../components/PaymentsToAssign'
 import { MiniBtn, Pill, fmtHours } from '../components/primitives'
-import { useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice, useVoidInvoice } from '../../../hooks/useBusiness'
+import {
+  useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice, useVoidInvoice,
+  useSaveProject,
+} from '../../../hooks/useBusiness'
 import type { OwnerPayOpts } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
 import { STAGES } from '../lib/types'
 import type { NeedRow } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
+
+const DISMISSED_KEY = 'oura.business.dismissedNeeds'
 
 const PERIOD_LABEL: Partial<Record<Preset, string>> = {
   '1D': 'today', MTD: 'this month', QTD: 'this quarter', YTD: 'this year',
@@ -43,7 +49,15 @@ export function Overview({
   ), [preset, customFrom, customTo])
 
   const { data: m, isPending } = useBusinessMetrics(range, ownerPayOpts)
-  const { data: needs = [] } = useNeeds()
+  const { data: allNeeds = [] } = useNeeds()
+  const navigate = useNavigate()
+  const saveProject = useSaveProject()
+  // "Not needed" on a row with no record to change (a fee spotted in notes, a
+  // cost that only looks like a client's) is remembered here, per browser.
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) ?? '[]') } catch { return [] }
+  })
+  const needs = allNeeds.filter(r => !dismissed.includes(r.key))
   const { data: builds = [] } = useActiveProjects()
 
   const payInvoice = usePayInvoice()
@@ -85,6 +99,27 @@ export function Overview({
     }
   }
 
+  /** The second answer on a row. Each one does the real thing where there is one. */
+  const dismiss = async (row: NeedRow) => {
+    setBusyKey(row.key)
+    try {
+      if (row.action === 'paid' && row.invoiceId) {
+        if (!window.confirm(`Write off ${row.clientName}'s ${fmtView(row.amount)}? It is voided, and can still be marked paid later from their page.`)) return
+        await voidInvoice.mutateAsync({ id: row.invoiceId, reason: 'Written off' })
+      } else if (row.action === 'send' && row.invoiceId) {
+        await voidInvoice.mutateAsync({ id: row.invoiceId, reason: 'Not needed' })
+      } else if (row.action === 'invoice' && row.projectId) {
+        await saveProject.mutateAsync({ id: row.projectId, status: 'cancelled' })
+      } else {
+        const next = [...dismissed, row.key]
+        setDismissed(next)
+        try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(next)) } catch { /* private window */ }
+      }
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
   if (isPending || !m) return <PageLoader />
 
   const periodLabel = preset === 'Custom' ? 'selected range' : (PERIOD_LABEL[preset] ?? 'this period')
@@ -115,40 +150,40 @@ export function Overview({
       */}
       <Section label="The business">
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
-          <KpiCard hero label="MRR" value={`${fmtView(m.mrr.current)}/mo`} color="var(--c-accent)"
+          <KpiCard onClick={() => navigate('/business/retainers')} hero label="MRR" value={`${fmtView(m.mrr.current)}/mo`} color="var(--c-accent)"
             sub={`${m.mrr.activeCount} active retainer${m.mrr.activeCount === 1 ? '' : 's'}${
               m.mrr.netNewThisMonth ? ` · ${m.mrr.netNewThisMonth > 0 ? '+' : ''}${fmtView(m.mrr.netNewThisMonth)} this month` : ''}`} />
-          <KpiCard hero label="Gross volume" value={fmtView(m.pnl.grossVolume)}
+          <KpiCard onClick={() => navigate('/business/money')} hero label="Gross volume" value={fmtView(m.pnl.grossVolume)}
             sub={`${m.volume.invoiceCount} invoice${m.volume.invoiceCount === 1 ? '' : 's'} ${periodLabel}${
               lastMonthNet ? ` · last month ${fmtView(lastMonthNet)}` : ''}`} />
-          <KpiCard hero label="Net volume" value={fmtView(m.pnl.netVolume)} color="var(--c-profit)"
+          <KpiCard onClick={() => navigate('/business/money')} hero label="Net volume" value={fmtView(m.pnl.netVolume)} color="var(--c-profit)"
             sub={m.pnl.fees || m.pnl.refunds
               ? `after ${fmtView(m.pnl.fees)} fees and ${fmtView(m.pnl.refunds)} refunds`
               : 'no fees or refunds recorded'} />
-          <KpiCard hero label="Owner's pay" value={fmtView(op.drawnPeriod)} color="var(--c-accent-2)"
+          <KpiCard onClick={() => navigate('/business/money')} hero label="Owner's pay" value={fmtView(op.drawnPeriod)} color="var(--c-accent-2)"
             sub={op.owners.length
               ? `${op.owners.map(o => `${o.name.split(' ')[0]} ${fmtView(o.period)}`).join(' · ')} · ${fmtView(op.drawnAllTime)} all time`
               : 'no partners set up'} />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
-          <KpiCard label="Net profit" value={fmtView(m.pnl.netProfit)}
+          <KpiCard onClick={() => navigate('/business/money')} label="Net profit" value={fmtView(m.pnl.netProfit)}
             color={m.pnl.netProfit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}
             sub={`${m.pnl.marginPct.toFixed(1)}% margin ${periodLabel}`} />
-          <KpiCard label="Outstanding" value={fmtView(m.ar.total)}
+          <KpiCard onClick={() => navigate('/business/invoices?status=open')} label="Outstanding" value={fmtView(m.ar.total)}
             color={m.ar.overdueCount ? 'var(--c-loss)' : m.ar.total ? '#f59e0b' : 'var(--c-text-2)'}
             sub={m.ar.total
               ? `${m.ar.count} unpaid · ${m.ar.overdueCount ? `${m.ar.overdueCount} overdue` : 'none overdue'}`
               : 'everyone has paid'} />
-          <KpiCard label="Safe to draw" value={fmtView(Math.max(op.safeToDraw, 0))}
+          <KpiCard onClick={() => navigate('/business/money')} label="Safe to draw" value={fmtView(Math.max(op.safeToDraw, 0))}
             color={op.safeToDraw >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}
             sub={[
               op.taxReserveEnabled ? `after ${op.taxRatePct}% tax` : 'no tax held back',
               op.bufferMonths > 0 ? `${op.bufferMonths}-month buffer` : 'no buffer',
             ].join(' and a ')} />
-          <KpiCard label="Active clients" value={m.clients.active}
+          <KpiCard onClick={() => navigate('/business/clients')} label="Active clients" value={m.clients.active}
             sub={`${m.clients.newInRange} won ${periodLabel}`} />
-          <KpiCard label="Average client" value={`${fmtView(m.mrr.arpa)}/mo`}
+          <KpiCard onClick={() => navigate('/business/retainers')} label="Average client" value={`${fmtView(m.mrr.arpa)}/mo`}
             sub={`across ${m.mrr.activeCount} retainers`} />
         </div>
       </Section>
@@ -160,7 +195,7 @@ export function Overview({
 
       <PaymentsToAssign fmtView={fmtView} />
 
-      <NeedsYou rows={needs} fmtView={fmtView} onAct={act} busyKey={busyKey} />
+      <NeedsYou rows={needs} fmtView={fmtView} onAct={act} onDismiss={dismiss} busyKey={busyKey} />
 
       {builds.length > 0 && (
         <Section label="Websites in progress" count={builds.length}>

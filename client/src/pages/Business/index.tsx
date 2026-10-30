@@ -7,9 +7,11 @@ import { CurrencySelector } from '../../components/ui/CurrencySelector'
 import { ConversionBanner } from '../../components/ui/ConversionBanner'
 import { useFmtView } from '../../hooks/useFmtView'
 import { useFinanceSettings } from '../../hooks/useFinanceSettings'
+import { useFinanceExpenses } from '../../hooks/useFinances'
 import { useRetainerLifecycle, useSendInvoice, useDeleteDraw, useProjects, useBusinessMetrics } from '../../hooks/useBusiness'
 
 import { Overview } from './tabs/Overview'
+import { BusinessSearch } from './components/BusinessSearch'
 import { Clients } from './tabs/Clients'
 import { ClientDetail } from './tabs/ClientDetail'
 import { Invoices, type InvoicesView } from './tabs/Invoices'
@@ -74,6 +76,8 @@ export function BusinessPage() {
   }
 
   const { data: projects = [] } = useProjects()
+  // So "Assign" on a cost in Needs you opens THAT cost, not a blank form.
+  const { data: businessCosts = [] } = useFinanceExpenses({ category: 'Business' })
   // All-time figures, only so the settings dialog can show what its rules would
   // hold back right now. Same query key as the Money tab, so it costs nothing.
   const { data: metrics } = useBusinessMetrics({}, ownerPayOpts)
@@ -123,6 +127,11 @@ export function BusinessPage() {
       title="Business: Zavabuild"
       action={
         <div className="flex items-center gap-2">
+          <BusinessSearch
+            fmtView={fmtView}
+            onOpenClient={openClient}
+            onOpenInvoice={invoiceId => setInvoiceModal({ open: true, invoiceId })}
+          />
           <CurrencySelector pageKey="business" defaultCurrency="GBP" />
           <Tabs tabs={TABS} active={tab} onChange={t => setTab(t as Tab)} />
           <NewMenu
@@ -147,7 +156,7 @@ export function BusinessPage() {
           onOpenStats={() => setTab('money')}
           onInvoiceProject={invoiceProject}
           onSetUpRetainer={(clientId, amount) => setRetainerModal({ open: true, clientId, amount })}
-          onAssignCost={() => setCostModal({ open: true })}
+          onAssignCost={expenseId => setCostModal({ open: true, expense: (businessCosts as any[]).find(e => e.id === expenseId) })}
         />
       )}
 
