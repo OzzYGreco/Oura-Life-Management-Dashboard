@@ -833,7 +833,8 @@ export function retainerGaps(d: BusinessData, on = localToday()) {
   const gaps: { clientId: number; clientName: string; amount: number; frequency: string; context: string }[] = []
 
   for (const c of d.clients) {
-    if (!c.notes) continue
+    // Someone who left or never signed is not a fee waiting to be set up.
+    if (!c.notes || c.status === 'churned' || c.status === 'lead') continue
     const live = d.retainers.filter(r =>
       r.clientId === c.id && r.status === 'active' && (!r.endDate || r.endDate > on))
     const liveTotal = live.reduce((s, r) => s + toMonthly(r.amount, r.frequency), 0)
@@ -1114,6 +1115,8 @@ export interface NeedRow {
   detail: string | null
   /** Sort weight - lower is more urgent. */
   rank: number
+  /** Chase (money owed), Send (drafts) or Fix (setup and tidying). */
+  group?: 'chase' | 'send' | 'fix'
   invoiceId?: number
   projectId?: number
   expenseId?: number
@@ -1180,7 +1183,11 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
     }
   }
 
+  // Work agreed with someone who left, or who never became a client, is not
+  // waiting to be invoiced; it filled this list with names nobody would bill.
+  const notBillable = new Set(d.clients.filter(c => c.status === 'churned' || c.status === 'lead').map(c => c.id))
   for (const p of unbilledProjects(d)) {
+    if (p.clientId && notBillable.has(p.clientId)) continue
     rows.push({
       key: `unbilled-${p.id}`, action: 'invoice', projectId: p.id,
       clientId: p.clientId, clientName: clientName(p.clientId),
@@ -1264,6 +1271,9 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
     })
   }
 
+  for (const r of rows) {
+    r.group = r.action === 'paid' ? 'chase' : r.action === 'send' || r.action === 'void' ? 'send' : 'fix'
+  }
   return rows.sort((a, b) => a.rank - b.rank || b.amount - a.amount)
 }
 

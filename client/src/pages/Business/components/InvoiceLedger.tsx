@@ -12,7 +12,12 @@ import type { LedgerRow, LedgerTotals } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
 type SortKey = 'issueDate' | 'clientName' | 'gross' | 'net' | 'dueDate' | 'status'
-const STATUSES = ['all', 'paid', 'part-paid', 'unpaid', 'overdue', 'draft', 'void'] as const
+const STATUSES = ['open', 'all', 'paid', 'part-paid', 'unpaid', 'overdue', 'draft', 'void'] as const
+const STATUS_LABEL: Record<(typeof STATUSES)[number], string> = {
+  open: 'Open (not paid yet)', all: 'Everything', paid: 'Paid', 'part-paid': 'Part-paid',
+  unpaid: 'Unpaid, not late', overdue: 'Overdue', draft: 'Drafts', void: 'Void',
+}
+const OPEN = ['unpaid', 'overdue', 'part-paid', 'draft']
 const KINDS = [
   { key: 'all', label: 'Any' },
   { key: 'retainer', label: 'Retainer' },
@@ -47,7 +52,8 @@ export function InvoiceLedger({
   onNewInvoice: () => void
 }) {
   const [q, setQ] = useUrlState('q', '')
-  const [status, setStatus] = useUrlState<(typeof STATUSES)[number]>('status', 'all')
+  // Opens on what still needs money or sending; paid history is one click away.
+  const [status, setStatus] = useUrlState<(typeof STATUSES)[number]>('status', 'open')
   const [kind, setKind] = useUrlState<(typeof KINDS)[number]['key']>('kind', 'all')
   const [sort, setSort] = useState<SortKey>('issueDate')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
@@ -67,7 +73,7 @@ export function InvoiceLedger({
     const term = q.trim().toLowerCase()
     // Void invoices stay out of "Any": they are kept for the numbering, not to be read.
     const filtered = rows.filter(r =>
-      (status === 'all' ? r.status !== 'void' : r.status === status) &&
+      (status === 'all' ? r.status !== 'void' : status === 'open' ? OPEN.includes(r.status) : r.status === status) &&
       (kind === 'all' || r.kind === kind) &&
       (!term
         || r.invoiceNumber.toLowerCase().includes(term)
@@ -170,24 +176,17 @@ export function InvoiceLedger({
               style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}
             />
           </div>
-          {/* Two filter groups side by side need saying apart, or the two
-              "All" buttons read as one broken control. */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--c-text-3)' }}>Status</span>
-            {STATUSES.map(s => (
-              <MiniBtn key={s} tone={status === s ? 'accent' : 'default'} onClick={() => setStatus(s)}>
-                {s === 'all' ? 'Any' : s}
-              </MiniBtn>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--c-text-3)' }}>Kind</span>
-            {KINDS.map(k => (
-              <MiniBtn key={k.key} tone={kind === k.key ? 'accent' : 'default'} onClick={() => setKind(k.key)}>
-                {k.label}
-              </MiniBtn>
-            ))}
-          </div>
+          {/* Two small menus instead of fifteen buttons. */}
+          <select aria-label="Show" value={status} onChange={e => setStatus(e.target.value as (typeof STATUSES)[number])}
+            className="px-2 py-1 rounded-md text-[11px] outline-none"
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}>
+            {STATUSES.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+          </select>
+          <select aria-label="Kind" value={kind} onChange={e => setKind(e.target.value as (typeof KINDS)[number]['key'])}
+            className="px-2 py-1 rounded-md text-[11px] outline-none"
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}>
+            {KINDS.map(k => <option key={k.key} value={k.key}>{k.key === 'all' ? 'Every kind' : k.label}</option>)}
+          </select>
           {status === 'all' && totals.voidCount > 0 && (
             <span className="text-[10.5px]" style={{ color: 'var(--c-text-3)' }}>{totals.voidCount} void hidden</span>
           )}
