@@ -625,6 +625,24 @@ export function arAging(d: BusinessData, today = localToday()) {
 
 // ─── Client economics ─────────────────────────────────────────────────────────
 
+/**
+ * The day someone became a paying client.
+ *
+ * `wonDate` is only written by the New work form, so a client added any other
+ * way (by hand, or from a Stripe payment) had none and was never counted as
+ * won: October read "0 won this month" with two new clients in it, and cost
+ * per client won was spread over too few. Without the field, the first real
+ * bill decides: the earliest invoice that was not voided, or retainer start.
+ */
+export function wonOn(d: BusinessData, c: (typeof businessClients.$inferSelect)): string | null {
+  if (c.wonDate) return c.wonDate
+  const firsts = [
+    ...d.invoices.filter(i => i.clientId === c.id && i.status !== 'draft').map(i => i.issueDate),
+    ...d.retainers.filter(r => r.clientId === c.id).map(r => r.startDate),
+  ].sort()
+  return firsts[0] ?? null
+}
+
 /** Lifetime revenue, attributed costs and current MRR for one client. */
 export function clientEconomics(d: BusinessData, clientId: number, on = localToday()) {
   const invoices = d.invoices.filter(i => i.clientId === clientId)
@@ -638,7 +656,7 @@ export function clientEconomics(d: BusinessData, clientId: number, on = localTod
   const mrr      = activeRet.reduce((s, r) => s + retainerMrrOn(r, on, d.changes), 0)
 
   const client   = d.clients.find(c => c.id === clientId)
-  const since    = client?.wonDate ?? paid.map(i => i.issueDate).sort()[0] ?? null
+  const since    = client ? wonOn(d, client) : null
   const tenureMo = since ? round2((Date.parse(on) - Date.parse(since)) / (86_400_000 * 30.44)) : 0
 
   const outstanding = invoices.filter(i => ['unpaid', 'overdue'].includes(i.status)).reduce((s, i) => s + owedOn(d, i), 0)
@@ -672,8 +690,8 @@ export function clientEconomics(d: BusinessData, clientId: number, on = localTod
 
 /** Acquisition economics across the whole book. */
 export function clientMetrics(d: BusinessData, r: Range, on = localToday()) {
-  const won      = d.clients.filter(c => c.wonDate)
-  const newInR   = won.filter(c => inRange(c.wonDate, r))
+  const won      = d.clients.filter(c => wonOn(d, c))
+  const newInR   = won.filter(c => inRange(wonOn(d, c), r))
   const active   = d.clients.filter(c => c.status === 'active').length
   const churned  = d.clients.filter(c => c.status === 'churned' || c.churnedAt).length
 
