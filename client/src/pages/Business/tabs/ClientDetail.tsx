@@ -97,14 +97,9 @@ export function ClientDetail({
   return (
     <div className="space-y-7">
       <div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-[11px] font-semibold mb-3 hover:underline"
-          style={{ color: 'var(--c-text-3)' }}
-        >
-          <ArrowLeft size={12} /> All clients
-        </button>
+        <div className="mb-3">
+          <MiniBtn onClick={onBack}><span className="inline-flex items-center gap-1.5"><ArrowLeft size={12} /> All clients</span></MiniBtn>
+        </div>
 
         <div className="min-w-0">
           <h2 className="text-lg font-bold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{client.name}</h2>
