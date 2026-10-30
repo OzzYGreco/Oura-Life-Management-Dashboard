@@ -170,10 +170,11 @@ export function ClientDetail({
           style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
           Left on <b className="num">{client.churnedAt ? formatDate(client.churnedAt) : 'an unknown date'}</b>
           {client.churnReason ? <>: {client.churnReason}</> : null}.{' '}
-          <button type="button" className="hover:underline" style={{ color: 'var(--c-accent)' }}
-            onClick={() => setEditLeft(v => !v)}>{editLeft ? 'Keep this date' : 'Change date'}</button>
-          {' '}Their retainers are ended and nothing new is billed.
+          Their retainers are ended and nothing new is billed.
           Anything still owed stays in Outstanding. If they settle a voided bill, mark it paid below: the same invoice is paid, no new one raised.
+          <span className="ml-2 inline-block align-middle">
+            <MiniBtn onClick={() => setEditLeft(v => !v)}>{editLeft ? 'Keep this date' : 'Change the date'}</MiniBtn>
+          </span>
           {editLeft && (
             <LeftOnEditor clientId={client.id} current={client.churnedAt} fmtView={fmtView} onDone={() => setEditLeft(false)} />
           )}
@@ -219,10 +220,10 @@ export function ClientDetail({
                   <Td align="right">
                     <div className="flex gap-1.5 justify-end">
                       <MiniBtn onClick={() => onRetainerAction(r, 'edit')}>Edit</MiniBtn>
-                      {r.status === 'active' && <MiniBtn onClick={() => onRetainerAction(r, 'pause')}>Pause</MiniBtn>}
+                      {r.status === 'active' && <MiniBtn tone="warn" onClick={() => onRetainerAction(r, 'pause')}>Pause</MiniBtn>}
                       {r.status === 'paused' && <MiniBtn tone="good" onClick={() => onRetainerAction(r, 'resume')}>Resume</MiniBtn>}
                       {r.status !== 'cancelled' && <MiniBtn tone="danger" onClick={() => onRetainerAction(r, 'cancel')}>Cancel</MiniBtn>}
-                      {r.status === 'cancelled' && <MiniBtn onClick={() => onRetainerAction(r, 'reinstate')}>Reinstate</MiniBtn>}
+                      {r.status === 'cancelled' && <MiniBtn tone="good" onClick={() => onRetainerAction(r, 'reinstate')}>Reinstate</MiniBtn>}
                     </div>
                   </Td>
                 </Row>
@@ -473,10 +474,8 @@ export function ClientDetail({
                   <span className="text-[10px] num" style={{ color: 'var(--c-text-3)' }}>
                     {n.meetingDate ? formatDate(n.meetingDate) : ''}
                   </span>
-                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-accent)' }}
-                    onClick={() => onEditNote(n)}>edit</button>
-                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
-                    onClick={() => { if (window.confirm(`Delete the note "${n.title}"?`)) removeNote.mutate(n.id) }}>delete</button>
+                  <MiniBtn onClick={() => onEditNote(n)}>Edit</MiniBtn>
+                  <MiniBtn tone="danger" onClick={() => { if (window.confirm(`Delete the note "${n.title}"?`)) removeNote.mutate(n.id) }}>Delete</MiniBtn>
                 </span>
               </div>
               <p className="text-xs mt-1 whitespace-pre-wrap" style={{ color: 'var(--c-text-2)' }}>{n.content}</p>

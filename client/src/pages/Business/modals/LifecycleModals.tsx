@@ -279,7 +279,7 @@ export function RetainerEditModal({
               <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Keep</Button>
             </span>
           ) : (
-            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>Delete</Button>
+            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>Delete</Button>
           )}
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>

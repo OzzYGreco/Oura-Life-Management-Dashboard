@@ -145,11 +145,11 @@ function CampaignRow({ c, months, fmtView, onEditDays }: {
             <input type="date" value={offFrom} max={today()} onChange={e => setOffFrom(e.target.value)}
               className="rounded px-1.5 py-0.5 text-[11px] num outline-none"
               style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }} />
-            <MiniBtn tone="accent" onClick={turnOff} disabled={logRange.isPending || saveCampaign.isPending}>Save</MiniBtn>
+            <MiniBtn tone="warn" onClick={turnOff} disabled={logRange.isPending || saveCampaign.isPending}>Turn off</MiniBtn>
             <MiniBtn onClick={() => setOffFrom(null)}>Cancel</MiniBtn>
           </span>
         ) : (
-          <MiniBtn onClick={() => setOffFrom(lastRecorded ? addDay(lastRecorded, 1) : today())}
+          <MiniBtn tone="warn" onClick={() => setOffFrom(lastRecorded ? addDay(lastRecorded, 1) : today())}
             title="Record nothing spent from a day, and pause the campaign">Ads off</MiniBtn>
         )}
         {error && <span className="block text-[10.5px] mt-1" style={{ color: 'var(--c-loss)' }}>{error}</span>}

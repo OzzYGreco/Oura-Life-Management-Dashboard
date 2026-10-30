@@ -7,6 +7,7 @@ import { useServices, useClients, useCreateDeal, useInvoices, useCreateService, 
 import { today, formatDate } from '../../../lib/utils'
 import type { Service, Client, Invoice } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
+import { MiniBtn } from '../components/primitives'
 
 const SOURCES = ['', 'Meta ads', 'TikTok ads', 'Referral', 'Cold outreach', 'Google', 'Word of mouth', 'Other']
 
@@ -259,7 +260,7 @@ export function NewWorkModal({
                     className="w-24 rounded-md px-2 py-1 text-sm num text-right outline-none"
                     style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }} />
                   <Button size="sm" onClick={saveEdit} disabled={updateService.isPending || !editing.name.trim()}>Save</Button>
-                  <Button size="sm" variant="ghost" onClick={() => dropService(svc)}>Remove</Button>
+                  <Button size="sm" variant="danger" onClick={() => dropService(svc)}>Remove</Button>
                   <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
                 </div>
               )
@@ -295,9 +296,8 @@ export function NewWorkModal({
                     <span className="text-[11px] w-8" style={{ color: 'var(--c-text-3)' }}>
                       {svc.kind === 'recurring' ? '/mo' : ''}
                     </span>
-                    <button type="button" title={`Rename, reprice or remove ${svc.name}`}
-                      onClick={() => setEditing({ id: svc.id, name: svc.name, amount: svc.defaultAmount != null ? String(svc.defaultAmount) : '' })}
-                      className="text-[11px] hover:underline" style={{ color: 'var(--c-text-3)' }}>edit</button>
+                    <MiniBtn title={`Rename, reprice or remove ${svc.name}`}
+                      onClick={() => setEditing({ id: svc.id, name: svc.name, amount: svc.defaultAmount != null ? String(svc.defaultAmount) : '' })}>Edit</MiniBtn>
                   </div>
                 </div>
               )
@@ -351,10 +351,9 @@ export function NewWorkModal({
               </div>
             </div>
           ) : (
-            <button type="button" onClick={() => setAdding(true)}
-              className="mt-2 text-[11.5px] hover:underline" style={{ color: 'var(--c-accent)' }}>
-              + New service, for something you have started selling
-            </button>
+            <div className="mt-2">
+              <MiniBtn tone="accent" onClick={() => setAdding(true)} title="For something you have started selling">+ New service</MiniBtn>
+            </div>
           )}
         </div>
 

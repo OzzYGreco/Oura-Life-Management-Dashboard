@@ -245,15 +245,13 @@ export function WhatWeCanTake({
                   <span className="num w-20" style={{ color: 'var(--c-text-3)' }}>{d.date}</span>
                   <span className="flex-1" style={{ color: 'var(--c-text-2)' }}>{d.ownerName}{d.notes ? ` · ${d.notes}` : ''}</span>
                   <span className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(d.amount)}</span>
-                  <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
-                    onClick={() => { if (window.confirm(`Remove ${d.ownerName}'s ${fmtView(d.amount)} draw?`)) onDeleteDraw(d.id) }}>remove</button>
+                  <MiniBtn tone="danger" onClick={() => { if (window.confirm(`Remove ${d.ownerName}'s ${fmtView(d.amount)} draw?`)) onDeleteDraw(d.id) }}>Remove</MiniBtn>
                 </div>
               ))}
               {op.recent.length > 3 && (
-                <button type="button" className="text-[11px] mt-1 hover:underline" style={{ color: 'var(--c-accent)' }}
-                  onClick={() => setAllDraws(v => !v)}>
-                  {allDraws ? 'Show fewer' : `Show all ${op.recent.length}`}
-                </button>
+                <div className="mt-1.5">
+                  <MiniBtn onClick={() => setAllDraws(v => !v)}>{allDraws ? 'Show fewer' : `Show all ${op.recent.length}`}</MiniBtn>
+                </div>
               )}
             </div>
           )}

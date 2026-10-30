@@ -149,7 +149,7 @@ export function CostsSheet({
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <colgroup>
               <col /><col style={{ width: '15%' }} /><col style={{ width: '16%' }} /><col style={{ width: 100 }} />
-              <col style={{ width: 132 }} /><col style={{ width: 110 }} /><col style={{ width: 128 }} /><col style={{ width: 96 }} /><col style={{ width: 92 }} />
+              <col style={{ width: 132 }} /><col style={{ width: 110 }} /><col style={{ width: 128 }} /><col style={{ width: 96 }} /><col style={{ width: 128 }} />
             </colgroup>
             <thead>
               <tr style={{ background: 'var(--c-bg-input)', borderBottom: '1px solid var(--c-border)' }}>
@@ -238,10 +238,10 @@ export function CostsSheet({
                       {isTemplate ? fmtView(amount * (PER_MONTH[repeat] ?? 0)) : ''}
                     </td>
                     <td className={`${cell} text-right whitespace-nowrap`}>
-                      <button type="button" className="text-[10.5px] hover:underline mr-2" style={{ color: 'var(--c-accent)' }}
-                        onClick={() => onOpenFull(e)}>more</button>
-                      <button type="button" className="text-[10.5px] hover:underline" style={{ color: 'var(--c-loss)' }}
-                        onClick={() => { if (window.confirm(`Delete "${e.description}" (${fmtView(e.amount)})?`)) remove.mutate(e.id) }}>delete</button>
+                      <span className="inline-flex gap-1">
+                        <MiniBtn title="Notes and the other price options" onClick={() => onOpenFull(e)}>More</MiniBtn>
+                        <MiniBtn tone="danger" onClick={() => { if (window.confirm(`Delete "${e.description}" (${fmtView(e.amount)})?`)) remove.mutate(e.id) }}>Delete</MiniBtn>
+                      </span>
                     </td>
                   </tr>
                 )
@@ -261,8 +261,7 @@ export function CostsSheet({
       </div>
       {error && <p className="text-xs mt-2" style={{ color: 'var(--c-loss)' }}>{error}</p>}
       {rows.length > limit && (
-        <button type="button" className="text-[11px] mt-2 hover:underline" style={{ color: 'var(--c-accent)' }}
-          onClick={() => setLimit(l => l + 50)}>Show {Math.min(50, rows.length - limit)} more</button>
+        <div className="mt-2"><MiniBtn onClick={() => setLimit(l => l + 50)}>Show {Math.min(50, rows.length - limit)} more</MiniBtn></div>
       )}
     </div>
   )

@@ -10,6 +10,7 @@ import type { PlanChange, ClientPaymentBody } from '../../../hooks/useBusiness'
 import { formatDate, today } from '../../../lib/utils'
 import type { FmtView } from '../../../hooks/useFmtView'
 import type { Retainer, Service } from '../lib/types'
+import { MiniBtn } from '../components/primitives'
 
 const round2 = (n: number) => Math.round(n * 100) / 100
 
@@ -165,8 +166,8 @@ export function ChangePlanModal({
 
         <div className="flex justify-between gap-2 pt-1">
           <span className="flex gap-1.5">
-            {r.status === 'active' && <Button variant="ghost" size="sm" onClick={() => { onClose(); onPause(r) }}>Pause instead</Button>}
-            <Button variant="ghost" size="sm" onClick={() => { onClose(); onStop(r) }}>Stop it</Button>
+            {r.status === 'active' && <Button variant="warn" size="sm" onClick={() => { onClose(); onPause(r) }}>Pause instead</Button>}
+            <Button variant="danger" size="sm" onClick={() => { onClose(); onStop(r) }}>Stop it</Button>
           </span>
           <span className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -286,8 +287,7 @@ export function RecordPaymentModal({
                 {owes > 0 ? <>Owes <b className="num" style={{ color: 'var(--c-text-1)' }}>{fmtView(owes)}</b></> : 'Owes nothing right now'}
               </span>
               {!client && (
-                <button type="button" className="text-[11px] hover:underline" style={{ color: 'var(--c-accent)' }}
-                  onClick={() => { setClientId(null); setAmount('') }}>someone else</button>
+                <MiniBtn onClick={() => { setClientId(null); setAmount('') }}>Someone else</MiniBtn>
               )}
             </div>
 
