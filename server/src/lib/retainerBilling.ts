@@ -14,12 +14,12 @@
  * safe: an invoice is only ever issued for a period that has not been issued.
  */
 import { db } from '../db'
-import { businessRetainers, businessInvoices } from '../db/schema'
+import { businessRetainers, businessInvoices, businessRetainerChanges } from '../db/schema'
 import { eq, and, isNotNull } from 'drizzle-orm'
 import { advance, addDays } from './recurrence'
 import { createInvoiceNumberAllocator } from './invoiceNumbers'
 import { localToday } from './date'
-import { settleDatedEvents } from './lifecycle'
+import { settleDatedEvents, priceOn } from './lifecycle'
 
 /** Guards against a burst of requests each triggering a scan. */
 let lastRunAt = 0
@@ -52,6 +52,7 @@ export async function generateRetainerInvoices(
     .from(businessRetainers)
     .where(and(eq(businessRetainers.status, 'active'), eq(businessRetainers.autoInvoice, 1)))
 
+  const changes = await db.select().from(businessRetainerChanges)
   const generated: GeneratedInvoice[] = []
   const alloc = await createInvoiceNumberAllocator()
 
@@ -82,11 +83,13 @@ export async function generateRetainerInvoices(
       const periodEnd = advance(cursor, r.frequency)
       const dueDate = addDays(cursor, r.netTermDays ?? 0)
 
+      // Priced for the period, so a rise dated ahead starts on its day.
+      const price = priceOn(r, changes, cursor)
       const [row] = await db.insert(businessInvoices).values({
         clientId:      r.clientId,
         invoiceNumber,
-        amount:        r.amount,
-        subtotal:      r.amount,
+        amount:        price,
+        subtotal:      price,
         status:        'unpaid',
         issueDate:     cursor,
         dueDate,
@@ -104,7 +107,7 @@ export async function generateRetainerInvoices(
 
       generated.push({
         id: row.id, invoiceNumber, retainerId: r.id,
-        clientId: r.clientId, amount: r.amount, issueDate: cursor,
+        clientId: r.clientId, amount: price, issueDate: cursor,
       })
 
       last   = cursor

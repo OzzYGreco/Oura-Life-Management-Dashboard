@@ -13,7 +13,7 @@ import { PaymentsToAssign } from '../components/PaymentsToAssign'
 import { MiniBtn, Pill, fmtHours } from '../components/primitives'
 import {
   useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice, useVoidInvoice,
-  useSaveProject, useHoldInvoice, useSettleInvoice, useSaveCost,
+  useSaveProject, useHoldInvoice, useSettleInvoice, useSaveCost, useDismissFailedCharges,
 } from '../../../hooks/useBusiness'
 import type { OwnerPayOpts } from '../../../hooks/useBusiness'
 import { formatDate } from '../../../lib/utils'
@@ -69,6 +69,7 @@ export function Overview({
   const hold = useHoldInvoice()
   const settle = useSettleInvoice()
   const saveCost = useSaveCost()
+  const dismissCard = useDismissFailedCharges()
   const [undo, setUndo] = useState<{ id: number; label: string } | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
 
@@ -99,6 +100,7 @@ export function Overview({
           if (row.expenseId) onAssignCost(row.expenseId)
           break
         case 'open':
+        case 'card':
           if (row.clientId) onOpenClient(row.clientId)
           break
         case 'repay':
@@ -123,6 +125,8 @@ export function Overview({
       } else if (row.action === 'paid' && row.invoiceId) {
         if (!window.confirm(`Write off ${row.clientName}'s ${fmtView(row.amount)}? It is voided, and can still be marked paid later from their page.`)) return
         await voidInvoice.mutateAsync({ id: row.invoiceId, reason: 'Written off' })
+      } else if (row.action === 'card' && row.failedChargeIds?.length) {
+        await dismissCard.mutateAsync(row.failedChargeIds)
       } else if (row.action === 'send' && row.invoiceId) {
         await voidInvoice.mutateAsync({ id: row.invoiceId, reason: 'Not needed' })
       } else if (row.action === 'invoice' && row.projectId) {

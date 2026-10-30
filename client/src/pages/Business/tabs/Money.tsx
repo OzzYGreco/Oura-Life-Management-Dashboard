@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useUrlState } from '../lib/useUrlState'
 import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
@@ -8,6 +8,8 @@ import { OwnerPayPanel } from '../components/OwnerPayPanel'
 import { AdSpendStale } from '../components/AdSpendStale'
 import { Profitable, WhatWeCanTake, WhereItGoes, Fold, AdSpendBars } from '../components/MoneySections'
 import { CostsSheet } from '../components/CostsSheet'
+import { WhatIsComing, VatFold } from '../components/Forecast'
+import { MonthSummaryModal } from '../modals/GrowthModals'
 import { AdSpendGrid } from '../components/AdSpendGrid'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow, fmtMonth, fmtHours,
@@ -48,6 +50,7 @@ export function Money({
       : presetRange(preset) ?? {}
   ), [preset, customFrom, customTo])
 
+  const [summaryOpen, setSummaryOpen] = useState(false)
   const { data: m, isPending } = useBusinessMetrics(range, ownerPayOpts)
   const { data: campaigns = [] } = useCampaigns()
   const { data: expenses = [] } = useFinanceExpenses({ category: 'Business' })
@@ -69,11 +72,15 @@ export function Money({
 
   return (
     <div className="space-y-8">
-      <DateFilter
-        preset={preset} onPreset={setPreset}
-        customFrom={customFrom} onCustomFrom={setCustomFrom}
-        customTo={customTo} onCustomTo={setCustomTo}
-      />
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <DateFilter
+          preset={preset} onPreset={setPreset}
+          customFrom={customFrom} onCustomFrom={setCustomFrom}
+          customTo={customTo} onCustomTo={setCustomTo}
+        />
+        <MiniBtn tone="accent" onClick={() => setSummaryOpen(true)} title="One month on a page, to read or send to your partner">Month summary</MiniBtn>
+      </div>
+      <MonthSummaryModal open={summaryOpen} onClose={() => setSummaryOpen(false)} fmtView={fmtView} ownerPayOpts={ownerPayOpts} />
 
       <AdSpendStale stale={m.adStale} fmtView={fmtView} onLogAdSpend={onLogAdSpend} />
 
@@ -93,6 +100,8 @@ export function Money({
 
       <WhereItGoes m={m} expenses={expenses as any[]} campaigns={campaigns as any[]}
         fmtView={fmtView} periodLabel={periodLabel} range={range} />
+
+      <WhatIsComing fmtView={fmtView} />
 
       {/* Everything else, closed until asked for, each saying its answer while shut. */}
       <div className="space-y-2.5">
@@ -250,6 +259,8 @@ export function Money({
             />
           </div>
         </Fold>
+
+        <VatFold fmtView={fmtView} />
 
         <Fold id="delivery" title="Delivery"
           summary={`${m.work.launchedCount} websites launched · ${m.work.activeProjects} in progress${m.work.effectiveRate != null ? ` · ${fmtView(m.work.effectiveRate)}/h` : ''}`}>

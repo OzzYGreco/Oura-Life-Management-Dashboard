@@ -17,6 +17,7 @@ import checklistsRouter from './routes/checklists'
 import goalsRouter from './routes/goals'
 import financesRouter, { materializeRecurring } from './routes/finances'
 import businessRouter, { materializeRecurringInvoices } from './routes/business'
+import businessGrowthRouter from './routes/businessGrowth'
 import trainingRouter from './routes/training'
 import calendarRouter from './routes/calendar'
 import notesRouter from './routes/notes'
@@ -39,6 +40,7 @@ app.use('/api/checklists', checklistsRouter)
 app.use('/api/goals', goalsRouter)
 app.use('/api/finance', financesRouter)
 app.use('/api/business', businessRouter)
+app.use('/api/business', businessGrowthRouter)
 app.use('/api/training', trainingRouter)
 app.use('/api/calendar', calendarRouter)
 app.use('/api/notes', notesRouter)

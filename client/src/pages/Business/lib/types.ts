@@ -288,7 +288,7 @@ export interface OwnerPay {
   byMonth: { month: string; drawn: number }[]
 }
 
-export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void' | 'open' | 'repay'
+export type NeedAction = 'paid' | 'send' | 'invoice' | 'setup' | 'assign' | 'void' | 'open' | 'repay' | 'card'
 
 export interface NeedRow {
   key: string
@@ -304,6 +304,7 @@ export interface NeedRow {
   projectId?: number
   expenseId?: number
   partPaid?: boolean
+  failedChargeIds?: number[]
 }
 
 export interface MrrMovementRow {

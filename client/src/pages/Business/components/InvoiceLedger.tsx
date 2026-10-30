@@ -7,6 +7,7 @@ import {
 } from './primitives'
 import { format, parseISO } from 'date-fns'
 import { formatDate, today } from '../../../lib/utils'
+import { RemindButton } from '../modals/GrowthModals'
 import { useBulkInvoices } from '../../../hooks/useBusiness'
 import type { LedgerRow, LedgerTotals } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -403,6 +404,9 @@ function LedgerTableRow({
           {r.status === 'draft' && <MiniBtn tone="accent" onClick={() => onSend(r)}>Send</MiniBtn>}
           {/* A draft's next step is sending it; money can still be recorded from Edit. */}
           {/* A void debt can still be paid: a client who left settling up. */}
+          {!isVoid && r.owed > 0 && r.status !== 'draft' && (
+            <RemindButton invoice={{ id: r.id, invoiceNumber: r.invoiceNumber }} />
+          )}
           {!paid && r.status !== 'draft' && (
             <MiniBtn tone="good" onClick={() => onPay(r)}>Mark paid</MiniBtn>
           )}

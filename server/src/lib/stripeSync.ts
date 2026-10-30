@@ -26,8 +26,8 @@
  *   STRIPE_SECRET_KEY=rk_live_...
  */
 import { db } from '../db'
-import { stripePayments, businessInvoices, businessClients, businessPaymentAllocations } from '../db/schema'
-import { eq, and, isNull, sql } from 'drizzle-orm'
+import { stripePayments, businessInvoices, businessClients, businessPaymentAllocations, stripeFailedCharges } from '../db/schema'
+import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm'
 import { localToday } from './date'
 import { applyPayment, defaultSplits, learnCustomerTx, allocationsFor, round2 as r2, type Tx } from './payments'
 
@@ -83,6 +83,55 @@ async function stripeGet(path: string, params: Record<string, string | string[]>
     throw new Error(body?.error?.message ? `Stripe: ${body.error.message}` : `Stripe returned ${res.status}`)
   }
   return body
+}
+
+/**
+ * Write to Stripe. Only payment links use this; everything else reads. A
+ * read-only key answers with a permission error, which is turned into what to
+ * change rather than Stripe's own wording.
+ */
+async function stripePost(path: string, params: Record<string, string>): Promise<any> {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) throw Object.assign(new Error('Stripe is not connected, so a payment link cannot be made.'), { status: 409 })
+  const res = await fetch(`${API}/${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params),
+  })
+  const body: any = await res.json()
+  if (!res.ok || body.error) {
+    const perm = res.status === 403 || /permission|restricted/i.test(body?.error?.message ?? '')
+    throw Object.assign(new Error(perm
+      ? 'Your Stripe key can only read. To make payment links, give it write access to Payment Links, Prices and Products in Stripe (Developers, API keys, edit the restricted key).'
+      : body?.error?.message ? `Stripe: ${body.error.message}` : `Stripe returned ${res.status}`), { status: perm ? 409 : 502 })
+  }
+  return body
+}
+
+/**
+ * A Stripe Payment Link for one invoice, for what is still owed on it. The
+ * invoice id rides in the metadata, which the sync already reads, so the money
+ * matches the invoice by itself when it arrives. One use only.
+ */
+export async function createPaymentLink(p: { invoiceId: number; invoiceNumber: string; what: string; amount: number; currency: string }) {
+  const price = await stripePost('prices', {
+    currency: p.currency.toLowerCase(),
+    unit_amount: String(Math.round(p.amount * 100)),
+    'product_data[name]': `${p.invoiceNumber}: ${p.what}`,
+  })
+  const link = await stripePost('payment_links', {
+    'line_items[0][price]': price.id,
+    'line_items[0][quantity]': '1',
+    'metadata[ouraInvoiceId]': String(p.invoiceId),
+    'payment_intent_data[metadata][ouraInvoiceId]': String(p.invoiceId),
+    'restrictions[completed_sessions][limit]': '1',
+  })
+  return { id: link.id as string, url: link.url as string }
+}
+
+/** Switch a link off once its invoice no longer needs it. Best effort. */
+export async function deactivatePaymentLink(id: string): Promise<void> {
+  try { await stripePost(`payment_links/${id}`, { active: 'false' }) } catch { /* a read-only key, or already off */ }
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -229,7 +278,14 @@ function planForCharge(
   }
 }
 
-export async function fetchCharges(sinceUnix: number): Promise<FetchedCharge[]> {
+/** A card payment Stripe attempted and the bank declined. */
+export interface FailedCharge {
+  stripeId: string; customerId: string | null; subscriptionId: string | null
+  amount: number; currency: string; failedDate: string
+  payerName: string | null; payerEmail: string | null; failureMessage: string | null
+}
+
+export async function fetchCharges(sinceUnix: number, failed: FailedCharge[] = []): Promise<FetchedCharge[]> {
   const out: FetchedCharge[] = []
   const plans = await fetchSubscriptionPlans(sinceUnix)
   let startingAfter: string | undefined
@@ -250,6 +306,19 @@ export async function fetchCharges(sinceUnix: number): Promise<FetchedCharge[]> 
     })
 
     for (const c of body.data ?? []) {
+      if (c.status === 'failed') {
+        const inv = typeof c.invoice === 'object' ? c.invoice : null
+        failed.push({
+          stripeId: c.id,
+          customerId: typeof c.customer === 'string' ? c.customer : c.customer?.id ?? null,
+          subscriptionId: typeof inv?.subscription === 'string' ? inv.subscription : inv?.subscription?.id ?? null,
+          amount: fromMinor(c.amount), currency: String(c.currency ?? 'gbp').toUpperCase(),
+          failedDate: dateOf(c.created),
+          payerName: c.billing_details?.name ?? null, payerEmail: c.billing_details?.email ?? c.receipt_email ?? null,
+          failureMessage: c.outcome?.seller_message ?? c.failure_message ?? null,
+        })
+        continue
+      }
       if (c.status !== 'succeeded') continue
       const bt = typeof c.balance_transaction === 'object' ? c.balance_transaction : null
       const billing = c.billing_details ?? {}
@@ -612,9 +681,21 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
   }
 
   const since = Math.floor(Date.now() / 1000) - lookbackDays * 86400
-  const charges = await fetchCharges(since)
+  const failed: FailedCharge[] = []
+  const charges = await fetchCharges(since, failed)
 
   const clients = await db.select().from(businessClients)
+
+  // Declined card payments, kept apart from money: nothing arrived. Each is
+  // tied to the client whose Stripe customer it is, for "Chase".
+  for (const f of failed) {
+    const clientId = clients.find(c => c.stripeCustomerId && c.stripeCustomerId === f.customerId)?.id ?? null
+    await db.insert(stripeFailedCharges).values({
+      stripeId: f.stripeId, stripeCustomerId: f.customerId, subscriptionId: f.subscriptionId,
+      amount: f.amount, currency: f.currency, failedDate: f.failedDate,
+      payerName: f.payerName, payerEmail: f.payerEmail, failureMessage: f.failureMessage, clientId,
+    }).onConflictDoUpdate({ target: stripeFailedCharges.stripeId, set: { clientId } })
+  }
   const now = new Date().toISOString()
 
   let created = 0
@@ -716,6 +797,15 @@ export async function syncStripePayments(lookbackDays = 45): Promise<StripeSyncR
     }
     if (applied) autoApplied++
     else queued++
+  }
+
+  // A card link left open on a bill now paid (by bank, or written off) could
+  // take the money a second time. Switch those off.
+  const linked = await db.select().from(businessInvoices).where(isNotNull(businessInvoices.paymentLinkId))
+  for (const inv of linked) {
+    if (inv.status !== 'paid' && inv.status !== 'void') continue
+    await deactivatePaymentLink(inv.paymentLinkId!)
+    await db.update(businessInvoices).set({ paymentLinkId: null, paymentLinkUrl: null }).where(eq(businessInvoices.id, inv.id))
   }
 
   const parts = [`${charges.length} payment(s) read`, `${autoApplied} applied`, `${queued} to assign`]

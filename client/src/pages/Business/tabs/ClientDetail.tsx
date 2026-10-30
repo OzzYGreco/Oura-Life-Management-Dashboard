@@ -3,7 +3,8 @@ import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
-import { useClientSummary, useSaveProject, useRemoveMeetingNote, useReactivateClient, useLeftOnPreview, useChangeLeftOn } from '../../../hooks/useBusiness'
+import { useClientSummary, useSaveProject, useRemoveMeetingNote, useReactivateClient, useLeftOnPreview, useChangeLeftOn, useClientEvents } from '../../../hooks/useBusiness'
+import { RemindButton } from '../modals/GrowthModals'
 import { Question, Fold } from '../components/MoneySections'
 import { ClientWorth } from '../components/ClientWorth'
 import { formatDate } from '../../../lib/utils'
@@ -250,6 +251,7 @@ export function ClientDetail({
                   </span>
                   <span className="text-[13px] font-semibold num w-24 text-right" style={{ color: 'var(--c-text-1)' }}>{fmtView(i.owed)}</span>
                   <span className="flex gap-1.5">
+                    {i.status !== 'draft' && <RemindButton invoice={{ id: i.id, invoiceNumber: i.invoiceNumber }} />}
                     <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>Mark paid</MiniBtn>
                     <MiniBtn onClick={() => onEditInvoice(i.id)}>Edit</MiniBtn>
                   </span>
@@ -481,8 +483,42 @@ export function ClientDetail({
           )}
         </div>
         </Fold>
+        <ClientHistory clientId={clientId} />
       </div>
     </div>
+  )
+}
+
+/**
+ * What changed for this client and when, newest first: plan and price
+ * changes, pauses, leaving and coming back, payments moved or given back,
+ * bills voided or settled. Recorded from the day this was added.
+ */
+function ClientHistory({ clientId }: { clientId: number }) {
+  const { data: events = [] } = useClientEvents(clientId)
+  const [all, setAll] = useState(false)
+  const shown = all ? events : events.slice(0, 12)
+  return (
+    <Fold id="client-history" title="History"
+      summary={events.length ? `${events.length} change${events.length === 1 ? '' : 's'}, last on ${formatDate(events[0].at.slice(0, 10))}` : 'nothing changed since history began'}>
+      <div className="rounded-xl overflow-hidden" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
+        {events.length === 0 ? (
+          <p className="px-4 py-5 text-xs" style={{ color: 'var(--c-text-3)' }}>
+            Changes made from now on (price, plan, pauses, leaving, payments moved) are listed here.
+          </p>
+        ) : shown.map((e, i) => (
+          <div key={e.id} className="flex gap-4 px-4 py-2 text-[12px]" style={{ borderTop: i ? '1px solid rgba(255,255,255,0.045)' : 'none' }}>
+            <span className="num w-24 shrink-0" style={{ color: 'var(--c-text-3)' }}>{formatDate(e.at.slice(0, 10))}</span>
+            <span style={{ color: 'var(--c-text-2)' }}>{e.summary}</span>
+          </div>
+        ))}
+        {events.length > 12 && (
+          <div className="px-4 py-2" style={{ borderTop: '1px solid var(--c-border)' }}>
+            <MiniBtn onClick={() => setAll(v => !v)}>{all ? 'Show fewer' : `Show all ${events.length}`}</MiniBtn>
+          </div>
+        )}
+      </div>
+    </Fold>
   )
 }
 
