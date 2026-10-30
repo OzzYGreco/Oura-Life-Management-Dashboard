@@ -4,6 +4,7 @@ import { Section } from '../../../components/ui/Section'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, StatusDot, EmptyRow, fmtMonthYear,
 } from './primitives'
+import { format, parseISO } from 'date-fns'
 import { formatDate, today } from '../../../lib/utils'
 import { useBulkInvoices } from '../../../hooks/useBusiness'
 import type { LedgerRow, LedgerTotals } from '../lib/types'
@@ -324,6 +325,19 @@ export function InvoiceLedger({
   )
 }
 
+const THIS_YEAR = String(new Date().getFullYear())
+
+/**
+ * A date as short as it can be and still be unambiguous: the month groups
+ * already name the year, so this year's dates leave it off. Three date columns
+ * carrying ", 2026" each were what pushed the ledger into a sideways scroll.
+ */
+function day(d: string | null): string {
+  if (!d) return '--'
+  if (!d.startsWith(THIS_YEAR)) return formatDate(d)
+  try { return format(parseISO(d), 'MMM d') } catch { return d }
+}
+
 function LedgerTableRow({
   r, fmtView, selected, onSelect, onPay, onOpenClient, onEdit, onSend,
 }: {
@@ -353,8 +367,8 @@ function LedgerTableRow({
           {r.clientName}
         </button>
       </Td>
-      <Td color="var(--c-text-2)">
-        {r.what}
+      <Td color="var(--c-text-2)" className="max-w-[170px] truncate">
+        <span title={r.what}>{r.what}</span>
         {isVoid && r.voidReason && (
           <span className="block text-[10px]" style={{ color: 'var(--c-text-3)' }}>{r.voidReason}</span>
         )}
@@ -362,8 +376,8 @@ function LedgerTableRow({
       <Td align="right" mono className="font-semibold" style={isVoid ? { textDecoration: 'line-through' } : undefined}>
         {fmtView(r.gross)}
         {r.partPaid && (
-          <span className="block text-[10px] font-normal" style={{ color: '#38bdf8' }}>
-            {fmtView(r.applied)} paid, {fmtView(r.owed)} left
+          <span className="block text-[10px] font-normal" style={{ color: '#38bdf8' }} title={`${fmtView(r.applied)} paid so far`}>
+            {fmtView(r.owed)} left
           </span>
         )}
       </Td>
@@ -371,17 +385,18 @@ function LedgerTableRow({
       <Td align="right" mono color={r.net != null ? 'var(--c-profit)' : 'var(--c-text-3)'}>
         {r.net != null ? fmtView(r.net) : '--'}
       </Td>
-      <Td align="right" mono color="var(--c-text-3)">{formatDate(r.issueDate)}</Td>
+      <Td align="right" mono color="var(--c-text-3)">{day(r.issueDate)}</Td>
       <Td align="right" mono color={r.status === 'overdue' ? 'var(--c-loss)' : paid || isVoid ? 'var(--c-text-3)' : '#f59e0b'}>
-        {formatDate(r.dueDate)}
+        {day(r.dueDate)}
       </Td>
-      <Td align="right" mono color="var(--c-text-3)">{r.paidDate ? formatDate(r.paidDate) : '--'}</Td>
+      <Td align="right" mono color="var(--c-text-3)">{day(r.paidDate)}</Td>
       <Td><StatusDot status={r.status} /></Td>
       <Td align="right">
         <div className="flex gap-1.5 justify-end">
           {r.status === 'draft' && <MiniBtn tone="accent" onClick={() => onSend(r)}>Send</MiniBtn>}
-          {!paid && !isVoid && (
-            <MiniBtn tone="good" onClick={() => onPay(r)}>{r.partPaid ? 'Add payment' : 'Mark paid'}</MiniBtn>
+          {/* A draft's next step is sending it; money can still be recorded from Edit. */}
+          {!paid && !isVoid && r.status !== 'draft' && (
+            <MiniBtn tone="good" onClick={() => onPay(r)}>Mark paid</MiniBtn>
           )}
           <MiniBtn onClick={() => onEdit(r)} title="Edit, void, or change its payments">
             {isVoid ? 'Open' : 'Edit'}
