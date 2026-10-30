@@ -128,14 +128,18 @@ export async function fetchMetaCampaignStatus(ids: string[]): Promise<Map<string
   const token = process.env.META_ACCESS_TOKEN
   if (!token) throw new Error('META_ACCESS_TOKEN is not set')
   const out = new Map<string, string>()
-  if (!ids.length) return out
-  const params = new URLSearchParams({ ids: ids.join(','), fields: 'effective_status', access_token: token })
-  const res = await fetch(`https://graph.facebook.com/${META_API_VERSION}/?${params}`)
-  const body: any = await res.json()
-  if (!res.ok || body.error) {
-    throw new Error(body?.error?.message ? `Meta: ${body.error.message}` : `Meta returned ${res.status}`)
+  // One request per campaign. Meta retired the `ids=` batch lookup, and that
+  // one failure was stopping the whole spend sync; there are only a few
+  // campaigns, so asking one by one costs nothing.
+  for (const id of ids) {
+    const params = new URLSearchParams({ fields: 'effective_status', access_token: token })
+    const res = await fetch(`https://graph.facebook.com/${META_API_VERSION}/${encodeURIComponent(id)}?${params}`)
+    const body: any = await res.json()
+    if (!res.ok || body.error) {
+      throw new Error(body?.error?.message ? `Meta: ${body.error.message}` : `Meta returned ${res.status}`)
+    }
+    if (body.effective_status) out.set(id, String(body.effective_status))
   }
-  for (const id of ids) if (body[id]?.effective_status) out.set(id, String(body[id].effective_status))
   return out
 }
 
@@ -153,7 +157,11 @@ export async function fillQuietDays(since: string, until: string): Promise<numbe
   const linked = (await db.select().from(marketingCampaigns))
     .filter(c => c.externalSource === 'meta' && c.externalId)
   if (!linked.length) return 0
-  const status = await fetchMetaCampaignStatus(linked.map(c => c.externalId!))
+  // Without a status nothing can be called "switched off", so nothing is
+  // filled; that must never fail the spend sync itself.
+  let status: Map<string, string>
+  try { status = await fetchMetaCampaignStatus(linked.map(c => c.externalId!)) }
+  catch (e: any) { console.warn(`[adspend] campaign status unavailable: ${e?.message ?? e}`); return 0 }
 
   let filled = 0
   for (const c of linked) {
