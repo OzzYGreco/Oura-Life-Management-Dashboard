@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { useUrlState } from '../lib/useUrlState'
-import { Section } from '../../../components/ui/Section'
 import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { DateFilter, type Preset, presetRange } from '../../../components/shared/DateFilter'
@@ -8,6 +7,7 @@ import { Waterfall } from '../components/Waterfall'
 import { RecurringCosts } from '../components/RecurringCosts'
 import { OwnerPayPanel } from '../components/OwnerPayPanel'
 import { AdSpendStale } from '../components/AdSpendStale'
+import { Profitable, WhatWeCanTake, WhereItGoes, Fold, AdSpendBars } from '../components/MoneySections'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow, fmtMonth, fmtHours,
 } from '../components/primitives'
@@ -78,79 +78,21 @@ export function Money({
 
       <AdSpendStale stale={m.adStale} fmtView={fmtView} onLogAdSpend={onLogAdSpend} />
 
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'minmax(280px, 360px) 1fr' }}>
-        <Section label="Where the money went">
-          <Waterfall metrics={m} fmtView={fmtView} />
-        </Section>
+      {/* The three questions, in the order they get asked. */}
+      <Profitable m={m} fmtView={fmtView} periodLabel={periodLabel} />
 
-        <Section label="Month by month">
-          <TablePanel>
-            <table className="w-full">
-              <THead>
-                <Th>Month</Th><Th align="right">In</Th><Th align="right">Ads</Th><Th align="right">Tools</Th>
-                <Th align="right">Client</Th><Th align="right">Profit</Th><Th align="right">Margin</Th>
-                <Th align="right">Drawn</Th><Th align="right">Kept</Th>
-              </THead>
-              <tbody>
-                {pnlRows.length === 0 ? (
-                  <EmptyRow colSpan={9}>Nothing in this window.</EmptyRow>
-                ) : pnlRows.map(r => {
-                  const drawn = drawnByMonth.get(r.month) ?? 0
-                  const kept = r.netProfit - drawn
-                  return (
-                    <Row key={r.month}>
-                      <Td mono color="var(--c-text-2)">{fmtMonth(r.month)}</Td>
-                      <Td align="right" mono>{r.netVolume ? fmtView(r.netVolume) : '--'}</Td>
-                      <Td align="right" mono color="var(--c-text-3)">{r.adSpend ? fmtView(r.adSpend) : '--'}</Td>
-                      <Td align="right" mono color="var(--c-text-3)">{r.overheads ? fmtView(r.overheads) : '--'}</Td>
-                      <Td align="right" mono color="var(--c-text-3)">{r.clientCosts ? fmtView(r.clientCosts) : '--'}</Td>
-                      <Td align="right">
-                        <span className="num text-xs font-semibold" style={{ ...moneyCell(r.netProfit), ...pillCell }}>
-                          {fmtView(r.netProfit)}
-                        </span>
-                      </Td>
-                      <Td align="right" mono color="var(--c-text-3)">
-                        {r.netVolume ? `${r.marginPct.toFixed(0)}%` : '--'}
-                      </Td>
-                      <Td align="right" mono color={drawn ? 'var(--c-accent)' : 'var(--c-text-3)'}>
-                        {drawn ? fmtView(drawn) : '--'}
-                      </Td>
-                      <Td align="right" mono color={kept >= 0 ? 'var(--c-text-1)' : 'var(--c-loss)'}>
-                        {fmtView(kept)}
-                      </Td>
-                    </Row>
-                  )
-                })}
-              </tbody>
-              {pnlRows.length > 0 && (
-                <TotalRow>
-                  <Td>Total</Td>
-                  <Td align="right" mono>{fmtView(totals.net)}</Td>
-                  <Td align="right" mono>{fmtView(totals.ads)}</Td>
-                  <Td align="right" mono>{fmtView(totals.tools)}</Td>
-                  <Td align="right" mono>{fmtView(totals.client)}</Td>
-                  <Td align="right" mono color={totals.profit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}>
-                    {fmtView(totals.profit)}
-                  </Td>
-                  <Td align="right" mono>{totals.net ? `${Math.round((totals.profit / totals.net) * 100)}%` : '--'}</Td>
-                  <Td align="right" mono color="var(--c-accent)">{fmtView(totals.drawn)}</Td>
-                  <Td align="right" mono>{fmtView(totals.profit - totals.drawn)}</Td>
-                </TotalRow>
-              )}
-            </table>
-          </TablePanel>
-        </Section>
-      </div>
+      <WhatWeCanTake op={m.ownerPay} fmtView={fmtView} periodLabel={periodLabel}
+        onRecordDraw={onRecordDraw} onDeleteDraw={onDeleteDraw} onSettings={onSettings} />
 
-      <OwnerPayPanel
-        ownerPay={m.ownerPay} fmtView={fmtView}
-        periodLabel={preset === 'All' ? 'all time' : periodLabel.replace(/^in /, '')}
-        onRecordDraw={onRecordDraw} onDeleteDraw={onDeleteDraw} onSettings={onSettings}
-      />
+      <WhereItGoes m={m} expenses={expenses as any[]} campaigns={campaigns as any[]}
+        fmtView={fmtView} periodLabel={periodLabel} range={range} />
 
-      <Section label="Costs" count={fmtView(m.costs.total)}
-        action={<MiniBtn tone="accent" onClick={onAddCost}>+ Add cost</MiniBtn>}>
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
+      {/* Everything else, closed until asked for, each saying its answer while shut. */}
+      <div className="space-y-2.5">
+        <Fold id="costs" title="Costs in detail"
+          summary={`${fmtView(m.costs.total)} ${periodLabel} · ${(expenses as any[]).filter((e: any) => e.isRecurring && !e.recurringParentId).length} repeating`}
+          action={<MiniBtn tone="accent" onClick={onAddCost}>+ Add cost</MiniBtn>}>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
           <KpiCard label="Ad spend" value={fmtView(m.costs.adSpend)} color="var(--c-loss)"
             sub={m.costs.total ? `${Math.round((m.costs.adSpend / m.costs.total) * 100)}% of all costs` : undefined} />
           <KpiCard label="Tools and overheads" value={fmtView(m.costs.overheads)}
@@ -205,16 +147,16 @@ export function Money({
           Ad spend is pro-rated across each campaign's running days. Charging a campaign's whole
           lifetime spend to every month it touches is what used to make a profitable month read as a loss.
         </p>
-      </Section>
+        </Fold>
 
-      <Section label="Marketing" count={`${bizCampaigns.length} campaign${bizCampaigns.length === 1 ? '' : 's'}`}
-        action={
-          <>
+        <Fold id="marketing" title="Marketing"
+          summary={`${fmtView(m.costs.adSpend)} on ads ${periodLabel} · ${m.clients.cac ? `${fmtView(m.clients.cac)} per client won` : 'no clients won in this window'}`}
+          action={<>
             <MiniBtn tone="good" onClick={() => onLogAdSpend(null)}>Log ad spend</MiniBtn>
             <MiniBtn tone="accent" onClick={onNewCampaign}>+ New campaign</MiniBtn>
-          </>
-        }>
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
+          </>}>
+          <div className="mb-3"><AdSpendBars m={m} fmtView={fmtView} /></div>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
           <KpiCard label="Spent" value={fmtView(m.costs.adSpend)} sub={periodLabel} />
           <KpiCard label="Cost per client" value={m.clients.cac ? fmtView(m.clients.cac) : '--'}
             sub={m.clients.newInRange ? `${m.clients.newInRange} won ${periodLabel}` : 'no clients won in this window'} />
@@ -279,10 +221,82 @@ export function Money({
             be attribution. The new-work form now asks where a client came from.
           </p>
         )}
-      </Section>
+        </Fold>
 
-      <Section label="Delivery">
-        <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-3">
+        <Fold id="months" title="Month by month"
+          summary={`${pnlRows.length} months · ${fmtView(totals.profit)} profit · ${fmtView(totals.drawn)} drawn`}>
+          <TablePanel>
+            <table className="w-full">
+              <THead>
+                <Th>Month</Th><Th align="right">In</Th><Th align="right">Ads</Th><Th align="right">Tools</Th>
+                <Th align="right">Client</Th><Th align="right">Profit</Th><Th align="right">Margin</Th>
+                <Th align="right">Drawn</Th><Th align="right">Kept</Th>
+              </THead>
+              <tbody>
+                {pnlRows.length === 0 ? (
+                  <EmptyRow colSpan={9}>Nothing in this window.</EmptyRow>
+                ) : pnlRows.map(r => {
+                  const drawn = drawnByMonth.get(r.month) ?? 0
+                  const kept = r.netProfit - drawn
+                  return (
+                    <Row key={r.month}>
+                      <Td mono color="var(--c-text-2)">{fmtMonth(r.month)}</Td>
+                      <Td align="right" mono>{r.netVolume ? fmtView(r.netVolume) : '--'}</Td>
+                      <Td align="right" mono color="var(--c-text-3)">{r.adSpend ? fmtView(r.adSpend) : '--'}</Td>
+                      <Td align="right" mono color="var(--c-text-3)">{r.overheads ? fmtView(r.overheads) : '--'}</Td>
+                      <Td align="right" mono color="var(--c-text-3)">{r.clientCosts ? fmtView(r.clientCosts) : '--'}</Td>
+                      <Td align="right">
+                        <span className="num text-xs font-semibold" style={{ ...moneyCell(r.netProfit), ...pillCell }}>
+                          {fmtView(r.netProfit)}
+                        </span>
+                      </Td>
+                      <Td align="right" mono color="var(--c-text-3)">
+                        {r.netVolume ? `${r.marginPct.toFixed(0)}%` : '--'}
+                      </Td>
+                      <Td align="right" mono color={drawn ? 'var(--c-accent)' : 'var(--c-text-3)'}>
+                        {drawn ? fmtView(drawn) : '--'}
+                      </Td>
+                      <Td align="right" mono color={kept >= 0 ? 'var(--c-text-1)' : 'var(--c-loss)'}>
+                        {fmtView(kept)}
+                      </Td>
+                    </Row>
+                  )
+                })}
+              </tbody>
+              {pnlRows.length > 0 && (
+                <TotalRow>
+                  <Td>Total</Td>
+                  <Td align="right" mono>{fmtView(totals.net)}</Td>
+                  <Td align="right" mono>{fmtView(totals.ads)}</Td>
+                  <Td align="right" mono>{fmtView(totals.tools)}</Td>
+                  <Td align="right" mono>{fmtView(totals.client)}</Td>
+                  <Td align="right" mono color={totals.profit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}>
+                    {fmtView(totals.profit)}
+                  </Td>
+                  <Td align="right" mono>{totals.net ? `${Math.round((totals.profit / totals.net) * 100)}%` : '--'}</Td>
+                  <Td align="right" mono color="var(--c-accent)">{fmtView(totals.drawn)}</Td>
+                  <Td align="right" mono>{fmtView(totals.profit - totals.drawn)}</Td>
+                </TotalRow>
+              )}
+            </table>
+          </TablePanel>
+        </Fold>
+
+        <Fold id="ownerpay" title="Owner pay, every figure"
+          summary={`${fmtView(m.ownerPay.drawnAllTime)} taken all time · ${fmtView(m.ownerPay.retained)} kept in the business`}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'minmax(280px, 360px) 1fr' }}>
+            <Waterfall metrics={m} fmtView={fmtView} />
+            <OwnerPayPanel
+              ownerPay={m.ownerPay} fmtView={fmtView}
+              periodLabel={preset === 'All' ? 'all time' : periodLabel.replace(/^in /, '')}
+              onRecordDraw={onRecordDraw} onDeleteDraw={onDeleteDraw} onSettings={onSettings}
+            />
+          </div>
+        </Fold>
+
+        <Fold id="delivery" title="Delivery"
+          summary={`${m.work.launchedCount} websites launched · ${m.work.activeProjects} in progress${m.work.effectiveRate != null ? ` · ${fmtView(m.work.effectiveRate)}/h` : ''}`}>
+          <div className="grid grid-cols-2 xl:grid-cols-5 gap-3 mb-3">
           <KpiCard label="Websites launched" value={m.work.launchedCount} sub={`${m.work.activeProjects} in progress`} />
           <KpiCard label="Average build" value={m.work.avgBuildDays != null ? `${m.work.avgBuildDays.toFixed(0)} days` : '--'}
             sub={m.work.avgHoursPerBuild != null ? `${fmtHours(m.work.avgHoursPerBuild)} of logged time each` : undefined} />
@@ -331,7 +345,8 @@ export function Money({
             </tbody>
           </table>
         </TablePanel>
-      </Section>
+        </Fold>
+      </div>
     </div>
   )
 }
