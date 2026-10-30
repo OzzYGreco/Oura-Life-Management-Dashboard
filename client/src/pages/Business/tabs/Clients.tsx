@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useUrlState } from '../lib/useUrlState'
 import { Search } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
@@ -20,9 +21,9 @@ export function Clients({
   onNewClient: () => void
 }) {
   const { data: rows = [], isPending } = useClientRows()
-  const [q, setQ] = useState('')
+  const [q, setQ] = useUrlState('q', '')
   // Clients who left are history, not the working list.
-  const [status, setStatus] = useState<(typeof STATUSES)[number]>('active')
+  const [status, setStatus] = useUrlState<(typeof STATUSES)[number]>('status', 'active')
   const [sort, setSort] = useState<SortKey>('mrr')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
 

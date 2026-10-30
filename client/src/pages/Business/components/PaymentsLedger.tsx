@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
+import { useUrlState } from '../lib/useUrlState'
 import { Search } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow, Pill } from './primitives'
@@ -44,8 +45,8 @@ export function PaymentsLedger({ fmtView, onOpenClient }: { fmtView: FmtView; on
   const unignore = useUnignorePayment()
   const removeAlloc = useRemoveAllocation()
 
-  const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]['key']>('all')
+  const [q, setQ] = useUrlState('q', '')
+  const [filter, setFilter] = useUrlState<(typeof FILTERS)[number]['key']>('show', 'all')
   const [open, setOpen] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 

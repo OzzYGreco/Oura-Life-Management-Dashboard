@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
+import { useUrlState } from '../lib/useUrlState'
 import { Search, ChevronRight, ChevronDown } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import {
@@ -45,9 +46,9 @@ export function InvoiceLedger({
   onSend: (row: LedgerRow) => void
   onNewInvoice: () => void
 }) {
-  const [q, setQ] = useState('')
-  const [status, setStatus] = useState<(typeof STATUSES)[number]>('all')
-  const [kind, setKind] = useState<(typeof KINDS)[number]['key']>('all')
+  const [q, setQ] = useUrlState('q', '')
+  const [status, setStatus] = useUrlState<(typeof STATUSES)[number]>('status', 'all')
+  const [kind, setKind] = useUrlState<(typeof KINDS)[number]['key']>('kind', 'all')
   const [sort, setSort] = useState<SortKey>('issueDate')
   const [dir, setDir] = useState<'asc' | 'desc'>('desc')
   /**

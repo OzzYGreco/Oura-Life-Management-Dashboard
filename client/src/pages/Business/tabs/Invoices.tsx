@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useUrlState } from '../lib/useUrlState'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { DateFilter, type Preset, presetRange } from '../../../components/shared/DateFilter'
 import { InvoiceLedger } from '../components/InvoiceLedger'
@@ -10,9 +11,14 @@ import type { LedgerRow, Retainer } from '../lib/types'
 import type { RetainerAction } from '../components/RetainerTable'
 import type { FmtView } from '../../../hooks/useFmtView'
 
+export type InvoicesView = 'ledger' | 'payments' | 'retainers'
+
 export function Invoices({
-  fmtView, onPay, onOpenClient, onEdit, onSend, onNewInvoice, onRetainerAction, onNewRetainer,
+  view, onView, fmtView, onPay, onOpenClient, onEdit, onSend, onNewInvoice, onRetainerAction, onNewRetainer,
 }: {
+  /** From the address: /business/invoices, /payments or /retainers. */
+  view: InvoicesView
+  onView: (v: InvoicesView) => void
   fmtView: FmtView
   onPay: (row: LedgerRow) => void
   onOpenClient: (id: number) => void
@@ -22,10 +28,9 @@ export function Invoices({
   onRetainerAction: (r: Retainer, action: RetainerAction) => void
   onNewRetainer: () => void
 }) {
-  const [view, setView] = useState<'ledger' | 'payments' | 'retainers'>('ledger')
-  const [preset, setPreset] = useState<Preset>('All')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [preset, setPreset] = useUrlState<Preset>('range', 'All')
+  const [customFrom, setCustomFrom] = useUrlState('from', '')
+  const [customTo, setCustomTo] = useUrlState('to', '')
 
   const range = useMemo(() => (
     preset === 'All' ? {}
@@ -50,7 +55,7 @@ export function Invoices({
             <button
               key={v}
               type="button"
-              onClick={() => setView(v)}
+              onClick={() => onView(v)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
               style={view === v
                 ? {

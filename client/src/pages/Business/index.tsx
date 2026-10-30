@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Plus, ChevronDown } from 'lucide-react'
 import { PageShell } from '../../components/layout/PageShell'
 import { Tabs } from '../../components/ui/Tabs'
@@ -11,7 +12,7 @@ import { useRetainerLifecycle, useSendInvoice, useDeleteDraw, useProjects, useBu
 import { Overview } from './tabs/Overview'
 import { Clients } from './tabs/Clients'
 import { ClientDetail } from './tabs/ClientDetail'
-import { Invoices } from './tabs/Invoices'
+import { Invoices, type InvoicesView } from './tabs/Invoices'
 import { Money } from './tabs/Money'
 
 import { NewWorkModal } from './modals/NewWorkModal'
@@ -36,6 +37,10 @@ const TABS = [
 
 type Tab = 'overview' | 'clients' | 'invoices' | 'money'
 
+/** Invoices, Payments and Retainers are three views of one tab, each with its own address. */
+const INVOICE_VIEWS: Record<string, InvoicesView> = { invoices: 'ledger', payments: 'payments', retainers: 'retainers' }
+const VIEW_PATH: Record<InvoicesView, string> = { ledger: 'invoices', payments: 'payments', retainers: 'retainers' }
+
 /**
  * Business.
  *
@@ -45,8 +50,19 @@ type Tab = 'overview' | 'clients' | 'invoices' | 'money'
  * every row action hidden behind a hover.
  */
 export function BusinessPage() {
-  const [tab, setTab] = useState<Tab>('overview')
-  const [openClientId, setOpenClientId] = useState<number | null>(null)
+  // Where you are is the address, not memory: /business/clients/12, and Back,
+  // Forward and refresh all land on the same view with the same filters.
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const parts = pathname.replace(/^\/business\/?/, '').split('/').filter(Boolean)
+  const section = parts[0] ?? ''
+  const tab: Tab = section === 'clients' ? 'clients'
+    : section in INVOICE_VIEWS ? 'invoices'
+    : section === 'money' ? 'money'
+    : 'overview'
+  const invoicesView: InvoicesView = INVOICE_VIEWS[section] ?? 'ledger'
+  const openClientId = section === 'clients' && parts[1] ? Number(parts[1]) : null
+  const setTab = (t: Tab) => navigate(t === 'overview' ? '/business' : `/business/${t}`)
   const { fmtView } = useFmtView('GBP', 'business')
   const { settings } = useFinanceSettings()
 
@@ -88,7 +104,7 @@ export function BusinessPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adSpend, setAdSpend] = useState<{ open: boolean; campaignId?: number | null; range?: { from: string; to: string } | null }>({ open: false })
 
-  const openClient = (id: number) => { setOpenClientId(id); setTab('clients') }
+  const openClient = (id: number) => navigate(`/business/clients/${id}`)
 
   /** Invoicing an unbilled job from the queue: preselect its client and project. */
   const invoiceProject = (projectId: number) => {
@@ -108,7 +124,7 @@ export function BusinessPage() {
       action={
         <div className="flex items-center gap-2">
           <CurrencySelector pageKey="business" defaultCurrency="GBP" />
-          <Tabs tabs={TABS} active={tab} onChange={t => { setTab(t as Tab); if (t !== 'clients') setOpenClientId(null) }} />
+          <Tabs tabs={TABS} active={tab} onChange={t => setTab(t as Tab)} />
           <NewMenu
             onNewWork={() => setNewWork(true)}
             onNewClient={() => setClientModal({ open: true })}
@@ -139,7 +155,7 @@ export function BusinessPage() {
         <ClientDetail
           clientId={openClientId}
           fmtView={fmtView}
-          onBack={() => setOpenClientId(null)}
+          onBack={() => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/business/clients'))}
           onEdit={client => setClientModal({ open: true, client })}
           onAddRetainer={clientId => setRetainerModal({ open: true, clientId })}
           onAddProject={clientId => setProjectModal({ open: true, clientId })}
@@ -158,13 +174,15 @@ export function BusinessPage() {
       ) : (
         <Clients
           fmtView={fmtView}
-          onOpenClient={setOpenClientId}
+          onOpenClient={openClient}
           onNewClient={() => setClientModal({ open: true })}
         />
       ))}
 
       {tab === 'invoices' && (
         <Invoices
+          view={invoicesView}
+          onView={v => navigate(`/business/${VIEW_PATH[v]}`)}
           fmtView={fmtView}
           onPay={setPayRow}
           onOpenClient={openClient}

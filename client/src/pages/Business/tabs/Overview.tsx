@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useUrlState } from '../lib/useUrlState'
 import { Section } from '../../../components/ui/Section'
 import { KpiCard } from '../../../components/ui/KpiCard'
 import { PageLoader } from '../../../components/ui/Spinner'
@@ -31,9 +32,9 @@ export function Overview({
   onSetUpRetainer: (clientId: number, amount: number) => void
   onAssignCost: (expenseId: number) => void
 }) {
-  const [preset, setPreset] = useState<Preset>('MTD')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [preset, setPreset] = useUrlState<Preset>('range', 'MTD')
+  const [customFrom, setCustomFrom] = useUrlState('from', '')
+  const [customTo, setCustomTo] = useUrlState('to', '')
 
   const range = useMemo(() => (
     preset === 'All' ? {}
