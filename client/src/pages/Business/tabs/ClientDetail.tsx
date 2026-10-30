@@ -57,6 +57,10 @@ export function ClientDetail({
   const churned = client.status === 'churned'
   const voidCount = everyInvoice.filter((i: any) => i.status === 'void').length
   const invoices = everyInvoice.filter((i: any) => showVoid || i.status !== 'void')
+  // Bills voided only because the client left. Still real debts: if they pay,
+  // the same invoice is marked paid, no new one raised.
+  const leftDebts = everyInvoice.filter((i: any) =>
+    i.status === 'void' && /client left|written off/i.test(i.voidReason ?? ''))
   const today = new Date().toISOString().slice(0, 10)
 
   return (
@@ -101,7 +105,7 @@ export function ClientDetail({
           style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
           Left on <b className="num">{client.churnedAt ? formatDate(client.churnedAt) : 'an unknown date'}</b>
           {client.churnReason ? <>: {client.churnReason}</> : null}. Their retainers are ended and nothing new is billed.
-          Anything still owed stays in Outstanding, and everything voided can be restored with "They are back".
+          Anything still owed stays in Outstanding. If they settle a voided bill, mark it paid below: the same invoice is paid, no new one raised.
         </div>
       )}
 
@@ -233,6 +237,41 @@ export function ClientDetail({
           </table>
         </TablePanel>
       </Section>
+
+      {/* ── Debts voided when they left ──────────────────────────────────── */}
+      {leftDebts.length > 0 && (
+        <Section label="Unpaid when they left" count={fmtView(leftDebts.reduce((s: number, i: any) => s + i.amount, 0))}>
+          <TablePanel>
+            <table className="w-full">
+              <THead>
+                <Th>#</Th><Th>What</Th><Th align="right">Amount</Th><Th align="right">Issued</Th><Th>Why voided</Th><Th />
+              </THead>
+              <tbody>
+                {leftDebts.map((i: any) => (
+                  <Row key={i.id}>
+                    <Td mono color="var(--c-text-3)">{i.invoiceNumber}</Td>
+                    <Td color="var(--c-text-2)">{i.serviceName ?? i.notes ?? '--'}</Td>
+                    <Td align="right" mono className="font-semibold">{fmtView(i.amount)}</Td>
+                    <Td align="right" mono color="var(--c-text-3)">{formatDate(i.issueDate)}</Td>
+                    <Td color="var(--c-text-3)">{i.voidReason}</Td>
+                    <Td align="right">
+                      <div className="flex gap-1.5 justify-end">
+                        <MiniBtn tone="good" onClick={() => onPay({ id: i.id, invoiceNumber: i.invoiceNumber, clientName: client.name })}>
+                          Mark paid
+                        </MiniBtn>
+                        <MiniBtn onClick={() => onEditInvoice(i.id)}>Open</MiniBtn>
+                      </div>
+                    </Td>
+                  </Row>
+                ))}
+              </tbody>
+            </table>
+          </TablePanel>
+          <p className="text-[11px] mt-2" style={{ color: 'var(--c-text-3)' }}>
+            Not counted as owed while they are gone. If they settle up, Mark paid brings the same invoice back as paid.
+          </p>
+        </Section>
+      )}
 
       {/* ── Invoices ─────────────────────────────────────────────────────── */}
       <Section label="Invoices" count={invoices.length || undefined}

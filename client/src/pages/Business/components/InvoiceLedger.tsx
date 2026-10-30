@@ -395,7 +395,8 @@ function LedgerTableRow({
         <div className="flex gap-1.5 justify-end">
           {r.status === 'draft' && <MiniBtn tone="accent" onClick={() => onSend(r)}>Send</MiniBtn>}
           {/* A draft's next step is sending it; money can still be recorded from Edit. */}
-          {!paid && !isVoid && r.status !== 'draft' && (
+          {/* A void debt can still be paid: a client who left settling up. */}
+          {!paid && r.status !== 'draft' && (
             <MiniBtn tone="good" onClick={() => onPay(r)}>Mark paid</MiniBtn>
           )}
           <MiniBtn onClick={() => onEdit(r)} title="Edit, void, or change its payments">

@@ -69,6 +69,14 @@ export function PayInvoiceModal({
           </span>
         </div>
 
+        {detail?.status === 'void' && (
+          <div className="text-[11px] px-3 py-2 rounded-lg"
+            style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: 'var(--c-text-2)' }}>
+            This invoice was voided{detail.voidReason ? ` (${detail.voidReason.toLowerCase()})` : ''}. Recording the payment
+            brings it back as paid, under the same number. No new invoice is raised.
+          </div>
+        )}
+
         {detail && detail.allocations.length > 0 && (
           <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
             {detail.allocations.map((a, i) => (
