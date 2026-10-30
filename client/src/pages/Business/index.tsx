@@ -109,7 +109,7 @@ export function BusinessPage() {
   const [noteModal, setNoteModal] = useState<{ open: boolean; clientId: number | null; note?: any }>({ open: false, clientId: null })
   const [campaignModal, setCampaignModal] = useState<{ open: boolean; campaign?: any }>({ open: false })
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [adSpend, setAdSpend] = useState<{ open: boolean; campaignId?: number | null; range?: { from: string; to: string } | null }>({ open: false })
+  const [adSpend, setAdSpend] = useState<{ open: boolean; campaignId?: number | null; range?: { from: string; to: string; fill?: boolean } | null }>({ open: false })
 
   const openClient = (id: number) => navigate(`/business/clients/${id}`)
 
@@ -212,7 +212,6 @@ export function BusinessPage() {
           ownerPayOpts={ownerPayOpts}
           onRecordDraw={() => setDrawOpen(true)}
           onDeleteDraw={id => deleteDraw.mutate(id)}
-          onAddCost={() => setCostModal({ open: true })}
           onEditCost={expense => setCostModal({ open: true, expense })}
           onNewCampaign={() => setCampaignModal({ open: true })}
           onEditCampaign={campaign => setCampaignModal({ open: true, campaign })}

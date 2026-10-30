@@ -179,7 +179,7 @@ function useBusinessMutation<TArgs>(fn: (args: TArgs) => Promise<any>) {
         'projects-active', 'business-needs', 'owner-pay', 'invoices', 'clients',
         'projects', 'dashboard', 'finance-summary', 'income-streams', 'cashflow',
         'expenses', 'time-entries-all', 'campaigns', 'campaign-spend', 'ad-spend-status', 'payment-status', 'payments', 'payments-unassigned',
-        'payment-options', 'meeting-notes', 'comeback',
+        'payment-options', 'meeting-notes', 'comeback', 'finance-expenses', 'finance-recurring',
       ]) qc.invalidateQueries({ queryKey: [key] })
     },
   })
@@ -313,6 +313,26 @@ export function useClientPaymentPreview(clientId: number | null, body: ClientPay
 export function useRecordClientPayment() {
   return useBusinessMutation(({ clientId, ...body }: { clientId: number } & ClientPaymentBody) =>
     api.post(`/api/business/clients/${clientId}/payments`, body).then(r => r.data as ClientPaymentPlan))
+}
+
+// ─── Costs, from the sheet ───────────────────────────────────────────────────
+//
+// The Finances hooks refresh the Finances page only, so a cost typed in on the
+// Business tab left every business figure stale until a reload. These go
+// through the business mutation, which refreshes both.
+
+export function useSaveCost() {
+  return useBusinessMutation(({ id, ...body }: { id?: number; [k: string]: any }) =>
+    (id ? api.put(`/api/finance/expenses/${id}`, body) : api.post('/api/finance/expenses', body)).then(r => r.data))
+}
+
+export function useSaveCampaign() {
+  return useBusinessMutation(({ id, ...body }: { id: number; [k: string]: any }) =>
+    api.put(`/api/business/campaigns/${id}`, body).then(r => r.data))
+}
+
+export function useDeleteCost() {
+  return useBusinessMutation((id: number) => api.delete(`/api/finance/expenses/${id}`))
 }
 
 export function useUpdateRetainer() {
