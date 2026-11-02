@@ -841,6 +841,15 @@ export function retainerGaps(d: BusinessData, on = localToday()) {
     const live = d.retainers.filter(r =>
       r.clientId === c.id && r.status === 'active' && (!r.endDate || r.endDate > on))
     const liveTotal = live.reduce((s, r) => s + toMonthly(r.amount, r.frequency), 0)
+    // Every price any of their retainers has ever had, ended ones included.
+    // Notes are written when the deal is agreed and never kept up: a client who
+    // later moved from £99 SEO to £20 hosting, or whose £80 went to £99 and back,
+    // still has the old figure in their notes. A price that was set up once and
+    // then changed or cancelled in Oura was a decision, not a fee that slipped.
+    const everMonthly = d.retainers.filter(r => r.clientId === c.id).flatMap(r => {
+      const own = d.changes.filter(ch => ch.retainerId === r.id)
+      return [r.amount, ...own.flatMap(ch => [ch.oldAmount, ch.newAmount])].map(a => toMonthly(a, r.frequency))
+    })
 
     priceRe.lastIndex = 0
     let match: RegExpExecArray | null
@@ -853,6 +862,8 @@ export function retainerGaps(d: BusinessData, on = localToday()) {
 
       // Already covered by a live retainer at (roughly) this price - nothing to flag.
       if (live.some(r => Math.abs(toMonthly(r.amount, r.frequency) - monthly) < 0.01)) continue
+      // Or it was set up at this price at some point, and has since moved on.
+      if (everMonthly.some(m => Math.abs(m - monthly) < 0.01)) continue
       // Or the client's total already meets it (e.g. split across two retainers).
       if (liveTotal >= monthly - 0.01 && live.length > 0 && gaps.every(g => g.clientId !== c.id)) continue
 
@@ -1266,6 +1277,10 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
     const prev = latestBySub.get(p.subscriptionId)
     if (!prev || p.paidDate > prev.paidDate) latestBySub.set(p.subscriptionId, p)
   }
+  // Which retainer each payment paid for, if any.
+  const retainerOfPayment = new Map<number, number>()
+  for (const r of d.receipts) if (r.paymentId != null && r.retainerId != null) retainerOfPayment.set(r.paymentId, r.retainerId)
+
   for (const p of latestBySub.values()) {
     const clientId = p.matchedClientId
     if (!clientId) continue                       // still in the payment queue, which says this already
@@ -1273,6 +1288,13 @@ export function needsYou(d: BusinessData, today = localToday()): NeedRow[] {
     const interval = p.planIntervalDays ?? 30
     if (days(p.paidDate, today) > interval * 1.5) continue
     if (d.clients.find(c => c.id === clientId)?.status === 'churned') continue
+
+    // Its latest charge paid a retainer invoice, so the subscription is in Oura.
+    // Comparing only the price against today's active retainers got this wrong
+    // twice: a subscription replaced by a new one at a different price (the old
+    // one's last charge no longer matched the current retainer), and one whose
+    // retainer was deliberately cancelled when the client moved to another plan.
+    if (retainerOfPayment.has(p.id)) continue
 
     const plan = p.planAmount ?? p.amountGross
     const covered = d.retainers.some(r =>
