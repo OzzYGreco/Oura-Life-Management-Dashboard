@@ -428,13 +428,22 @@ function normalise(s: string): string {
     .trim()
 }
 
-/** Share of the shorter name's words that appear in the longer one. */
+/**
+ * Share of the shorter name's words that appear in the longer one.
+ *
+ * One shared word is only a match when neither name has anything else in it.
+ * Dividing by the shorter name alone scored payer "Sam Carter" as a 100%
+ * match for a client stored as just "Sam": a shared first name. With no other
+ * Sam on the books that was the only candidate, so the payment was suggested
+ * for, and set up as a retainer on, a different person entirely.
+ */
 function nameOverlap(a: string, b: string): number {
   const A = new Set(normalise(a).split(' ').filter(w => w.length > 2))
   const B = new Set(normalise(b).split(' ').filter(w => w.length > 2))
   if (!A.size || !B.size) return 0
   let hits = 0
   for (const w of A) if (B.has(w)) hits++
+  if (hits === 1 && Math.max(A.size, B.size) > 1) return 0
   return hits / Math.min(A.size, B.size)
 }
 

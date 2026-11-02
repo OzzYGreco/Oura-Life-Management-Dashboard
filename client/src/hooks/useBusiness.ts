@@ -402,6 +402,36 @@ export function useDeleteRetainer() {
   return useBusinessMutation((id: number) => api.delete(`/api/business/retainers/${id}`))
 }
 
+/** What moving a retainer to another client takes with it. */
+export interface RetainerMovePlan {
+  retainer: { id: number; name: string }
+  from: { id: number; name: string }
+  to: { id: number; name: string }
+  invoices: { id: number; invoiceNumber: string; amount: number; status: string }[]
+  payments: { id: number; amount: number; paidDate: string; payerName: string | null }[]
+  movesStripeCustomer: boolean
+  /** The target's own live retainers for the same plan: moving this in would bill them twice. */
+  duplicates: {
+    id: number; name: string; amount: number; frequency: string; startDate: string
+    invoices: { id: number; invoiceNumber: string; amount: number; status: string }[]
+    removable: boolean
+  }[]
+}
+
+export function useRetainerMovePreview(id: number | null, clientId: number | null) {
+  return useQuery<RetainerMovePlan>({
+    queryKey: ['retainer-move-preview', id, clientId],
+    queryFn: () => api.post(`/api/business/retainers/${id}/move`, { clientId, dryRun: true }).then(r => r.data),
+    enabled: !!id && !!clientId,
+    retry: false,
+  })
+}
+
+export function useMoveRetainer() {
+  return useBusinessMutation(({ id, clientId, replaceIds }: { id: number; clientId: number; replaceIds?: number[] }) =>
+    api.post(`/api/business/retainers/${id}/move`, { clientId, replaceIds }).then(r => r.data as RetainerMovePlan))
+}
+
 // ─── Client lifecycle ────────────────────────────────────────────────────────
 
 export interface DropPlan {

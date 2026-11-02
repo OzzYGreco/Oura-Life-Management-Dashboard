@@ -5,6 +5,7 @@ import { Input } from '../../../components/ui/Input'
 import { Select } from '../../../components/ui/Select'
 import {
   useServices, useUpdateRetainer, useChangeRetainerPrice, usePricePreview, useDeleteRetainer,
+  useClients, useRetainerMovePreview, useMoveRetainer,
   useDropPreview, useDropClient, useComeback, useReactivateClient,
 } from '../../../hooks/useBusiness'
 import type { PriceBody } from '../../../hooks/useBusiness'
@@ -65,6 +66,8 @@ export function RetainerEditModal({
   const update = useUpdateRetainer()
   const changePrice = useChangeRetainerPrice()
   const remove = useDeleteRetainer()
+  const { data: clients = [] } = useClients()
+  const move = useMoveRetainer()
 
   const [f, setF] = useState<any>({})
   const [price, setPrice] = useState('')
@@ -73,6 +76,12 @@ export function RetainerEditModal({
   const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const [moveTo, setMoveTo] = useState('')
+  /** Look-alikes the user chose to keep. Every removable one goes unless unticked. */
+  const [keepIds, setKeepIds] = useState<number[]>([])
+  const { data: movePlan, error: moveError, isFetching: movePlanLoading } =
+    useRetainerMovePreview(moving ? retainer?.id ?? null : null, moveTo ? Number(moveTo) : null)
 
   useEffect(() => {
     if (!retainer) return
@@ -92,6 +101,9 @@ export function RetainerEditModal({
     setReason('')
     setError(null)
     setConfirmDelete(false)
+    setMoving(false)
+    setMoveTo('')
+    setKeepIds([])
   }, [retainer])
 
   const newAmount = Number(price) || 0
@@ -266,9 +278,79 @@ export function RetainerEditModal({
           </div>
         )}
 
+        {/* ── Set up on the wrong client ──────────────────────────────── */}
+        {moving && (
+          <div className="rounded-lg px-3.5 py-3 space-y-2.5"
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)' }}>
+            <Label>Move to another client</Label>
+            <Select id="re-move-to" label="The client it belongs to" value={moveTo}
+              onChange={e => setMoveTo(e.target.value)} placeholder="Pick a client"
+              options={(clients as any[])
+                .filter(c => c.id !== retainer.clientId && c.status !== 'lead')
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map(c => ({ value: String(c.id), label: c.company ? `${c.name} (${c.company})` : c.name }))} />
+            {moveTo && (moveError ? (
+              <Note tone="bad">{(moveError as any)?.response?.data?.error ?? 'It cannot be moved'}</Note>
+            ) : !movePlan ? (
+              <Note>{movePlanLoading ? 'Working out what moves with it...' : ' '}</Note>
+            ) : (
+              <Note>
+                {movePlan.retainer.name} moves from <b>{movePlan.from.name}</b> to <b>{movePlan.to.name}</b>
+                {movePlan.invoices.length
+                  ? <>, with {movePlan.invoices.length === 1 ? 'its invoice' : 'its invoices'} {movePlan.invoices.map(i => i.invoiceNumber).join(', ')}</>
+                  : null}
+                {movePlan.payments.length
+                  ? <> and the {movePlan.payments.length === 1 ? 'payment' : 'payments'} that paid {movePlan.invoices.length === 1 ? 'it' : 'them'}{' '}
+                    ({movePlan.payments.map(p => `${fmtView(p.amount)} on ${formatDate(p.paidDate)}`).join(', ')})</>
+                  : null}.
+                {movePlan.movesStripeCustomer && <> Their Stripe customer moves too, so future renewals land on {movePlan.to.name}.</>}
+                {' '}Nothing is re-priced or re-issued.
+              </Note>
+            ))}
+            {movePlan && movePlan.duplicates.length > 0 && (
+              <div className="space-y-1.5">
+                <Note tone="warn">
+                  {movePlan.to.name} already has {movePlan.duplicates.length === 1 ? 'this plan' : 'plans like this'}.
+                  Moving this one in without removing {movePlan.duplicates.length === 1 ? 'it' : 'them'} would bill them twice.
+                </Note>
+                {movePlan.duplicates.map(d => d.removable ? (
+                  <label key={d.id} htmlFor={`re-dup-${d.id}`} className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
+                    <input id={`re-dup-${d.id}`} type="checkbox" checked={!keepIds.includes(d.id)}
+                      onChange={e => setKeepIds(e.target.checked ? keepIds.filter(x => x !== d.id) : [...keepIds, d.id])}
+                      className="w-4 h-4 mt-0.5 accent-indigo-500" />
+                    <span>
+                      Remove their {d.name} <span className="num">{fmtView(d.amount)}</span>, started {formatDate(d.startDate)}
+                      {d.invoices.length ? <> and its unpaid {d.invoices.map(i => i.invoiceNumber).join(', ')}</> : null}.
+                      It never took any money.
+                    </span>
+                  </label>
+                ) : (
+                  <Note key={d.id} tone="bad">
+                    Their {d.name} <span className="num">{fmtView(d.amount)}</span> has money on it, so it stays. Cancel it
+                    yourself after the move if it is the same plan.
+                  </Note>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => { setMoving(false); setMoveTo('') }}>Never mind</Button>
+              <Button size="sm" disabled={!movePlan || move.isPending} onClick={async () => {
+                setError(null)
+                const replaceIds = movePlan!.duplicates.filter(d => d.removable && !keepIds.includes(d.id)).map(d => d.id)
+                try { await move.mutateAsync({ id: retainer.id, clientId: Number(moveTo), replaceIds }); onClose() }
+                catch (e: any) { setError(e?.response?.data?.error ?? 'Could not move it') }
+              }}>{move.isPending ? 'Moving...' : 'Move it'}</Button>
+            </div>
+          </div>
+        )}
+
         {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
 
         <div className="flex justify-between gap-2 pt-1">
+          <div className="flex items-center gap-2">
+          {!moving && !confirmDelete && (
+            <Button variant="ghost" size="sm" onClick={() => setMoving(true)}>Wrong client?</Button>
+          )}
           {confirmDelete ? (
             <span className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--c-loss)' }}>
               Delete it? Only works if it never billed.
@@ -281,6 +363,7 @@ export function RetainerEditModal({
           ) : (
             <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>Delete</Button>
           )}
+          </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button onClick={save} disabled={saving || (priceChanged && !plan)}>{saving ? 'Saving...' : 'Save'}</Button>

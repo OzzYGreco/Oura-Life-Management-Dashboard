@@ -69,7 +69,7 @@ export function PaymentsToAssign({ fmtView }: { fmtView: FmtView }) {
                   <MiniBtn tone={p.matchedClientId && !isOpen ? 'good' : 'default'}
                     onClick={() => setOpenRow(isOpen ? null : p.id)}>
                     {isOpen ? 'Close' : p.matchedClientId
-                      ? `Yes, ${String(p.suggestedClientName ?? '').split(' ')[0]}...`
+                      ? `Yes, ${p.suggestedClientName ?? ''}`
                       : 'Pick a client'}
                   </MiniBtn>
                   <MiniBtn tone="warn" onClick={() => ignore.mutate(p.id)} title="Not business income">
