@@ -7,9 +7,9 @@ import {
   businessRetainers, businessRetainerChanges, businessServices,
   businessOwners, businessOwnerDraws,
   financeIncome, financeExpenses, marketingCampaigns, marketingSpendDaily, stripePayments,
-  businessPaymentAllocations, businessEvents,
+  businessPaymentAllocations, businessEvents, stripeFailedCharges,
 } from '../db/schema'
-import { eq, and, gte, lte, like, or, inArray, sql, desc, ne } from 'drizzle-orm'
+import { eq, and, gte, lte, like, or, inArray, notInArray, sql, desc, ne } from 'drizzle-orm'
 import { localToday } from '../lib/date'
 import { advance, addDays } from '../lib/recurrence'
 import { createInvoiceNumberAllocator, nextInvoiceNumber } from '../lib/invoiceNumbers'
@@ -1547,6 +1547,142 @@ router.delete('/retainers/:id', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/**
+ * Move a retainer to the client it really belongs to.
+ *
+ * For the slip of picking the wrong one of two clients with the same name.
+ * Everything the retainer brought with it goes too, so nothing is left behind
+ * on the wrong client: its invoices, the Stripe payments that settled them,
+ * failed charges on the same subscription, and the Stripe customer id that was
+ * learned from those payments. Without the last one, the next renewal would be
+ * matched straight back to the wrong client.
+ *
+ * Refused when a payment also settled an invoice that is not moving, because
+ * then the payment belongs to both clients and there is no single right answer.
+ */
+router.post('/retainers/:id/move', async (req, res, next) => {
+  try {
+    const body = parse(z.object({
+      clientId: z.number().int(),
+      /** Remove the target's own copy of this plan, which this one replaces. */
+      replaceIds: z.array(z.number().int()).optional(),
+      dryRun:   z.boolean().optional(),
+    }), req.body)
+    const retainerId = id(req.params.id)
+    const [retainer] = await db.select().from(businessRetainers).where(eq(businessRetainers.id, retainerId))
+    if (!retainer) return res.status(404).json({ error: 'No such retainer' })
+    if (retainer.clientId === body.clientId) return res.status(400).json({ error: 'It is already on that client' })
+    const [from] = await db.select().from(businessClients).where(eq(businessClients.id, retainer.clientId))
+    const [to] = await db.select().from(businessClients).where(eq(businessClients.id, body.clientId))
+    if (!to) return res.status(404).json({ error: 'No such client' })
+
+    const invoices = await db.select().from(businessInvoices).where(eq(businessInvoices.retainerId, retainerId))
+    const invoiceIds = invoices.map(i => i.id)
+    const allocations = invoiceIds.length
+      ? await db.select().from(businessPaymentAllocations).where(inArray(businessPaymentAllocations.invoiceId, invoiceIds))
+      : []
+    const paymentIds = [...new Set(allocations.map(a => a.paymentId).filter((p): p is number => p != null))]
+    const payments = paymentIds.length
+      ? await db.select().from(stripePayments).where(inArray(stripePayments.id, paymentIds))
+      : []
+
+    if (paymentIds.length) {
+      const elsewhere = await db.select().from(businessPaymentAllocations).where(and(
+        inArray(businessPaymentAllocations.paymentId, paymentIds),
+        notInArray(businessPaymentAllocations.invoiceId, invoiceIds),
+      ))
+      if (elsewhere.length) {
+        return res.status(409).json({
+          error: 'A payment on this retainer also paid another of their invoices. Unassign that payment first, then move the retainer.',
+        })
+      }
+    }
+
+    // The customer id goes with the payments, unless the old client still has
+    // other payments of its own from that customer.
+    const customerIds = [...new Set(payments.map(p => p.stripeCustomerId).filter((c): c is string => !!c))]
+    const keptByOld = new Set<string>()
+    for (const cid of customerIds) {
+      const [other] = await db.select({ id: stripePayments.id }).from(stripePayments).where(and(
+        eq(stripePayments.stripeCustomerId, cid),
+        eq(stripePayments.matchedClientId, retainer.clientId),
+        notInArray(stripePayments.id, paymentIds),
+      )).limit(1)
+      if (other) keptByOld.add(cid)
+    }
+    const movingCustomers = customerIds.filter(c => !keptByOld.has(c))
+    const subscriptions = [...new Set(payments.map(p => p.subscriptionId).filter((s): s is string => !!s))]
+
+    // The usual way this mistake happens: the payment went on the wrong client,
+    // so the right one was given the same plan by hand. Moving the real one
+    // across would leave them with two, billing twice. Each look-alike is
+    // listed, and can go in the same step when it never took any money.
+    const lookAlikes = (await db.select().from(businessRetainers).where(and(
+      eq(businessRetainers.clientId, to.id), ne(businessRetainers.status, 'cancelled'),
+    ))).filter(r => r.frequency === retainer.frequency
+      && (round2(r.amount) === round2(retainer.amount) || (r.serviceId != null && r.serviceId === retainer.serviceId)))
+    const duplicates = []
+    for (const r of lookAlikes) {
+      const theirs = await db.select().from(businessInvoices).where(eq(businessInvoices.retainerId, r.id))
+      const live = theirs.filter(i => i.status !== 'void')
+      const withMoney = live.length
+        ? await db.select({ id: businessPaymentAllocations.id }).from(businessPaymentAllocations)
+          .where(inArray(businessPaymentAllocations.invoiceId, live.map(i => i.id))).limit(1)
+        : []
+      duplicates.push({
+        id: r.id, name: r.name, amount: r.amount, frequency: r.frequency, startDate: r.startDate,
+        invoices: live.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, status: i.status })),
+        /** Only one that never collected anything can be removed: anything else is real history. */
+        removable: withMoney.length === 0 && live.every(i => i.status !== 'paid'),
+      })
+    }
+    const replace = duplicates.filter(d => body.replaceIds?.includes(d.id))
+    if (replace.some(d => !d.removable)) {
+      return res.status(409).json({ error: 'That retainer has money on it, so it cannot be removed here. Cancel it instead.' })
+    }
+
+    const plan = {
+      retainer: { id: retainer.id, name: retainer.name },
+      from: { id: retainer.clientId, name: from?.name ?? 'Unknown' },
+      to:   { id: to.id, name: to.name },
+      invoices: invoices.map(i => ({ id: i.id, invoiceNumber: i.invoiceNumber, amount: i.amount, status: i.status })),
+      payments: payments.map(p => ({ id: p.id, amount: p.amountGross, paidDate: p.paidDate, payerName: p.payerName })),
+      movesStripeCustomer: movingCustomers.length > 0,
+      duplicates,
+    }
+    if (body.dryRun) return res.json(plan)
+
+    db.transaction(tx => {
+      reactivateIfChurned(tx, to.id)
+      for (const d of replace) {
+        tx.delete(businessInvoices).where(eq(businessInvoices.retainerId, d.id)).run()
+        tx.delete(businessRetainerChanges).where(eq(businessRetainerChanges.retainerId, d.id)).run()
+        tx.delete(businessRetainers).where(eq(businessRetainers.id, d.id)).run()
+        logEvent(tx, to.id, 'moved', `${d.name} set up by hand removed: replaced by the one moved in`
+          + (d.invoices.length ? ` (${d.invoices.map(i => i.invoiceNumber).join(', ')} removed)` : ''), { retainerId: d.id })
+      }
+      tx.update(businessRetainers).set({ clientId: to.id, updatedAt: new Date().toISOString() })
+        .where(eq(businessRetainers.id, retainerId)).run()
+      if (invoiceIds.length) {
+        tx.update(businessInvoices).set({ clientId: to.id }).where(inArray(businessInvoices.id, invoiceIds)).run()
+      }
+      if (paymentIds.length) {
+        tx.update(stripePayments).set({ matchedClientId: to.id }).where(inArray(stripePayments.id, paymentIds)).run()
+      }
+      if (subscriptions.length) {
+        tx.update(stripeFailedCharges).set({ clientId: to.id }).where(and(
+          inArray(stripeFailedCharges.subscriptionId, subscriptions), eq(stripeFailedCharges.clientId, retainer.clientId))).run()
+      }
+      for (const cid of movingCustomers) learnCustomerTx(tx, to.id, cid)
+      const summary = `${retainer.name} moved from ${plan.from.name} to ${to.name}`
+      logEvent(tx, retainer.clientId, 'moved', summary, { retainerId, toClientId: to.id })
+      logEvent(tx, to.id, 'moved', summary, { retainerId, fromClientId: retainer.clientId })
+    })
+    invalidate()
+    res.json(plan)
+  } catch (e) { next(e) }
+})
+
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
 const invoiceSchema = z.object({
@@ -2434,9 +2570,12 @@ router.get('/payments/unassigned', async (_req, res, next) => {
     res.json({
       payments: rows.map(p => ({
         ...p,
-        suggestedClientName: p.matchedClientId
-          ? clients.find(c => c.id === p.matchedClientId)?.name ?? null
-          : null,
+        // With the company, because two clients can share a name ("Sam" and
+        // "Sam") and the suggestion has to say which one it means.
+        suggestedClientName: (() => {
+          const c = p.matchedClientId ? clients.find(x => x.id === p.matchedClientId) : null
+          return c ? (c.company ? `${c.name} (${c.company})` : c.name) : null
+        })(),
       })),
       /** Invoices Stripe money already covers in full. */
       takenInvoiceIds: [...taken],
