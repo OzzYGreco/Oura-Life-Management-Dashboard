@@ -11,6 +11,9 @@ import { hoverCard } from '../components/charts'
 import { NeedsYou, type DismissHow } from '../components/NeedsYou'
 import { PaymentsToAssign } from '../components/PaymentsToAssign'
 import { MiniBtn, Pill, fmtHours } from '../components/primitives'
+import { useIsNext } from '../../../skins/isNext'
+import { AtAGlance } from '../components/AtAGlance'
+import { Sparkline } from '../../../components/ui/Sparkline'
 import {
   useBusinessMetrics, useNeeds, useActiveProjects, usePayInvoice, useUnpayInvoice, useSendInvoice, useVoidInvoice,
   useSaveProject, useHoldInvoice, useSettleInvoice, useSaveCost, useDismissFailedCharges,
@@ -51,6 +54,8 @@ export function Overview({
   ), [preset, customFrom, customTo])
 
   const { data: m, isPending } = useBusinessMetrics(range, ownerPayOpts)
+  // Safe to draw is a running balance, so the figure to act on is all time, whatever the range.
+  const { data: allTime } = useBusinessMetrics({}, ownerPayOpts)
   const { data: allNeeds = [] } = useNeeds()
   const navigate = useNavigate()
   const saveProject = useSaveProject()
@@ -141,15 +146,26 @@ export function Overview({
     }
   }
 
+  const nx = useIsNext()
   if (isPending || !m) return <PageLoader />
 
   const periodLabel = preset === 'Custom' ? 'selected range' : (PERIOD_LABEL[preset] ?? 'this period')
   const op = m.ownerPay
+  const safeAll = allTime?.ownerPay.safeToDraw ?? op.safeToDraw
+  // Who owes, by how late: the buckets the metrics already work out.
+  const aging = [
+    { k: 'not due', v: m.ar.current, c: 'var(--c-text-3)' },
+    { k: '1–30 days', v: m.ar.d1_30, c: 'var(--c-warn)' },
+    { k: '31–60 days', v: m.ar.d31_60, c: '#f0883e' },
+    { k: '61–90 days', v: m.ar.d61_90, c: 'var(--c-loss)' },
+    { k: '90+ days', v: m.ar.d90plus, c: 'var(--c-loss)' },
+  ].filter(b => b.v > 0)
+  const agingText = aging.map(b => `${fmtView(b.v)} ${b.k === 'not due' ? 'not due yet' : `${b.k} late`}`).join(', ')
   const prevMonth = m.volume.byMonth.at(-2)
   const lastMonthNet = prevMonth?.net ?? 0
 
   return (
-    <div className="space-y-8">
+    <div className={nx ? 'bz-over' : 'space-y-8'}>
       <DateFilter
         preset={preset} onPreset={setPreset}
         customFrom={customFrom} onCustomFrom={setCustomFrom}
@@ -171,11 +187,42 @@ export function Overview({
       */}
       <Question q="How is the business doing?"
         answer={<>
-          <b className="num" style={{ color: 'var(--c-accent)' }}>{fmtView(m.mrr.current)}/mo</b> recurring
+          <b className="num" style={{ color: nx ? 'var(--c-text-1)' : 'var(--c-accent)' }}>{fmtView(m.mrr.current)}/mo</b> recurring
           {m.mrr.netNewThisMonth ? <> ({m.mrr.netNewThisMonth > 0 ? 'up' : 'down'} {fmtView(Math.abs(m.mrr.netNewThisMonth))} this month)</> : null},{' '}
           <b className="num" style={{ color: m.pnl.netProfit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>{fmtView(m.pnl.netProfit)}</b> profit {periodLabel}
           {m.ar.total ? <>, and <b className="num" style={{ color: '#f59e0b' }}>{fmtView(m.ar.total)}</b> still owed</> : <>, and nobody owes you</>}.
         </>}>
+        {nx ? (
+          <div className="bz-kgrid">
+            {([
+              { k: 'mrr', label: 'Recurring (MRR)', value: <>{fmtView(m.mrr.current)}<small>/mo</small></>, big: true, spark: m.mrr.movement.map(r => r.endingMrr), sparkColor: 'var(--k-ink2)', go: '/business/retainers',
+                sub: `${m.mrr.activeCount} active retainer${m.mrr.activeCount === 1 ? '' : 's'}${m.mrr.netNewThisMonth ? `, ${m.mrr.netNewThisMonth > 0 ? '+' : ''}${fmtView(m.mrr.netNewThisMonth)} this month` : ''}` },
+              { k: 'net', label: 'Net volume', value: fmtView(m.pnl.netVolume), big: true, color: 'var(--c-profit)', spark: m.volume.byMonth.map(r => r.net), sparkColor: 'var(--k-good)', go: '/business/money',
+                sub: m.pnl.fees || m.pnl.refunds ? `after ${fmtView(m.pnl.fees)} fees and ${fmtView(m.pnl.refunds)} refunds` : 'no fees or refunds recorded' },
+              { k: 'profit', label: 'Net profit', value: fmtView(m.pnl.netProfit), big: true, color: m.pnl.netProfit >= 0 ? 'var(--c-profit)' : 'var(--c-loss)', spark: m.pnlByMonth.map(r => r.netProfit), sparkColor: 'var(--k-good)', go: '/business/money',
+                sub: `${m.pnl.marginPct.toFixed(1)}% margin ${periodLabel}` },
+              { k: 'gross', label: 'Gross volume', value: fmtView(m.pnl.grossVolume), go: '/business/money',
+                sub: `${m.volume.invoiceCount} invoice${m.volume.invoiceCount === 1 ? '' : 's'} ${periodLabel}${lastMonthNet ? `, last month ${fmtView(lastMonthNet)}` : ''}` },
+              { k: 'owed', label: 'Outstanding', value: fmtView(m.ar.total), color: m.ar.overdueCount ? 'var(--c-loss)' : m.ar.total ? 'var(--c-warn)' : 'var(--c-text-2)', go: '/business/invoices?status=open',
+                sub: m.ar.total ? `${m.ar.count} unpaid: ${agingText}` : 'everyone has paid',
+                extra: m.ar.total > 0 ? <span className="bz-aging" aria-hidden>{aging.map(b => <i key={b.k} style={{ flex: b.v, background: b.c }} />)}</span> : null },
+              { k: 'draw', label: 'Safe to draw, all time', value: fmtView(Math.max(safeAll, 0)), color: safeAll > 0 ? 'var(--c-profit)' : 'var(--c-text-1)', go: '/business/money',
+                sub: `this month ${fmtView(Math.max(op.safeToDraw, 0))}, ${[op.taxReserveEnabled ? `after ${op.taxRatePct}% tax` : 'no tax held back', op.bufferMonths > 0 ? `${op.bufferMonths}-month buffer` : 'no buffer'].join(' and a ')}` },
+              { k: 'pay', label: "Owner's pay", value: fmtView(op.drawnPeriod), go: '/business/money',
+                sub: op.owners.length ? `${op.owners.map(o => `${o.name.split(' ')[0]} ${fmtView(o.period)}`).join(', ')}, ${fmtView(op.drawnAllTime)} all time` : 'no partners set up' },
+              { k: 'clients', label: 'Active clients', value: m.clients.active, go: '/business/clients', sub: `${m.clients.newInRange} won ${periodLabel}` },
+              { k: 'avg', label: 'Average client', value: <>{fmtView(m.mrr.arpa)}<small>/mo</small></>, go: '/business/retainers', sub: `across ${m.mrr.activeCount} retainers` },
+            ] as { k: string; label: string; value: React.ReactNode; sub: string; big?: boolean; color?: string; spark?: number[]; sparkColor?: string; go: string; extra?: React.ReactNode }[]).map(f => (
+              <button key={f.k} type="button" className={f.big ? 'big' : ''} onClick={() => navigate(f.go)}>
+                <span className="l">{f.label}</span>
+                <b className="v num" style={{ color: f.color }}>{f.value}</b>
+                <span className="s">{f.sub}</span>
+                {f.extra}
+                {f.spark && f.spark.some(v => v !== 0) && <span className="sp"><Sparkline points={f.spark} color={f.sparkColor ?? 'var(--k-ink2)'} height={26} /></span>}
+              </button>
+            ))}
+          </div>
+        ) : <>
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
           <KpiCard spark={m.mrr.movement.map(r => r.endingMrr)} sparkColor="#818cf8" onClick={() => navigate('/business/retainers')} hero label="MRR" value={`${fmtView(m.mrr.current)}/mo`} color="var(--c-accent)"
             sub={`${m.mrr.activeCount} active retainer${m.mrr.activeCount === 1 ? '' : 's'}${
@@ -200,11 +247,11 @@ export function Overview({
           <KpiCard onClick={() => navigate('/business/invoices?status=open')} label="Outstanding" value={fmtView(m.ar.total)}
             color={m.ar.overdueCount ? 'var(--c-loss)' : m.ar.total ? '#f59e0b' : 'var(--c-text-2)'}
             sub={m.ar.total
-              ? `${m.ar.count} unpaid · ${m.ar.overdueCount ? `${m.ar.overdueCount} overdue` : 'none overdue'}`
+              ? `${m.ar.count} unpaid · ${agingText}`
               : 'everyone has paid'} />
-          <KpiCard onClick={() => navigate('/business/money')} label="Safe to draw" value={fmtView(Math.max(op.safeToDraw, 0))}
-            color={op.safeToDraw >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}
-            sub={[
+          <KpiCard onClick={() => navigate('/business/money')} label="Safe to draw, all time" value={fmtView(Math.max(safeAll, 0))}
+            color={safeAll >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'}
+            sub={`this month ${fmtView(Math.max(op.safeToDraw, 0))} · ` + [
               op.taxReserveEnabled ? `after ${op.taxRatePct}% tax` : 'no tax held back',
               op.bufferMonths > 0 ? `${op.bufferMonths}-month buffer` : 'no buffer',
             ].join(' and a ')} />
@@ -213,6 +260,8 @@ export function Overview({
           <KpiCard onClick={() => navigate('/business/retainers')} label="Average client" value={`${fmtView(m.mrr.arpa)}/mo`}
             sub={`across ${m.mrr.activeCount} retainers`} />
         </div>
+        </>}
+        <AtAGlance fmtView={fmtView} />
       </Question>
 
       <Question q="Is money coming in?"

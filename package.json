@@ -3,10 +3,17 @@
   "private": true,
   "scripts": {
     "postinstall": "npm install --prefix client && npm install --prefix server",
-    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "dev": "bash scripts/oura-app.sh stop; concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm run build --prefix client",
     "db:generate": "npm run db:generate --prefix server",
-    "db:migrate": "npm run db:migrate --prefix server"
+    "db:migrate": "npm run db:migrate --prefix server",
+    "app:install": "bash scripts/oura-app.sh install",
+    "app:restart": "bash scripts/oura-app.sh restart",
+    "app:start": "bash scripts/oura-app.sh start",
+    "app:stop": "bash scripts/oura-app.sh stop",
+    "app:logs": "bash scripts/oura-app.sh logs",
+    "app:uninstall": "bash scripts/oura-app.sh uninstall",
+    "notifier:build": "bash native/notifier/build.sh"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

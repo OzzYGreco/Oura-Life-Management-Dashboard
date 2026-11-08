@@ -1,0 +1,95 @@
+/* Business in the redesign: the owner's narrated layout, in the new style.
+   Every class here is set only on the Next skin (see useIsNext). */
+
+.bz { --bz-gap: 40px; }
+/* No spaced-out capitals: section eyebrows, labels and table heads read in sentence case. */
+.bz .uppercase { text-transform: none; letter-spacing: 0 !important; font-size: 12px !important; font-weight: 500 !important; }
+.bz .tracking-widest, .bz [class*="tracking-["] { letter-spacing: 0 !important; }
+.bz th { font-size: 12px !important; font-weight: 500 !important; color: var(--k-mute) !important; }
+
+.bz-over { display: flex; flex-direction: column; gap: 48px; }
+.bz-dates { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bz-custom { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--k-mute); }
+.bz-custom input { height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--k-line2); background: rgb(var(--k-fg) / .03); color: var(--k-ink); font-family: var(--k-font); font-size: 12.5px; color-scheme: dark; }
+
+/* A narrated question: the question, its one-line answer, then the figures. */
+.bz-q > .hd { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.bz-q h2 { margin: 0; font-family: var(--k-display); font-size: 22px; font-weight: 600; letter-spacing: -.01em; color: var(--k-ink); }
+.bz-q p { margin: 4px 0 0; font-size: 15px; color: var(--k-ink2); max-width: 80ch; }
+.bz-q p b { font-weight: 600; }
+.bz-q .act { display: flex; gap: 6px; }
+
+/* The nine figures: one card, a 3x3 grid split by hairlines; the top row is the point of the page. */
+.bz-kgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--k-card); border-radius: 20px; box-shadow: 0 0 0 1px var(--k-line), 0 30px 60px -40px rgba(0,0,0,.8); overflow: hidden; }
+.bz-kgrid > button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; padding: 18px 22px; text-align: left; border-left: 1px solid var(--k-line); border-top: 1px solid var(--k-line); transition-property: background-color; transition-duration: .15s; }
+.bz-kgrid > button:nth-child(3n+1) { border-left: 0; }
+.bz-kgrid > button:nth-child(-n+3) { border-top: 0; }
+@media (hover: hover) { .bz-kgrid > button:hover { background: rgb(var(--k-fg) / .025); } }
+.bz-kgrid .l { font-size: 12px; color: var(--k-mute); }
+.bz-kgrid .v { font-family: var(--k-round); font-size: 24px; line-height: 1.1; font-weight: 600; letter-spacing: -.01em; color: var(--k-ink); white-space: nowrap; }
+.bz-kgrid .big .v { font-size: 36px; }
+.bz-kgrid .v small { font-size: 15px; font-weight: 400; color: var(--k-mute); margin-left: 1px; }
+.bz-kgrid .s { font-size: 12px; color: var(--k-mute); line-height: 1.35; }
+.bz-kgrid .sp { display: block; width: 100%; margin-top: 10px; }
+@media (max-width: 900px) { .bz-kgrid { grid-template-columns: minmax(0, 1fr); } .bz-kgrid > button { border-left: 0 !important; border-top: 1px solid var(--k-line) !important; } .bz-kgrid > button:first-child { border-top: 0 !important; } }
+
+.bz-chart { padding-top: 6px; }
+
+/* Needs you: Chase, Send, Fix as three columns on hairlines, not boxes. */
+.bz-needs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--bz-gap); }
+.bz-need { display: flex; flex-direction: column; min-width: 0; border-top: 1px solid var(--k-line2); }
+.bz-need > div:first-child { padding: 12px 0 10px !important; border-bottom: 1px solid var(--k-line) !important; }
+.bz-need > div:first-child .text-xs { font-size: 15px !important; font-weight: 600 !important; }
+.bz-need > div:not(:first-child) { padding-left: 0 !important; padding-right: 0 !important; padding-top: 10px !important; padding-bottom: 10px !important; }
+.bz-need > p { text-align: left !important; padding-left: 0 !important; }
+.bz-clear { padding: 14px 0; border-top: 1px solid var(--k-line); font-size: 14px; color: var(--k-ink2); }
+@media (max-width: 1100px) { .bz-needs { grid-template-columns: minmax(0, 1fr); row-gap: 24px; } }
+
+/* Folds: a header line you click, its answer beside it, the body below. No box. */
+.bz-fold { border-top: 1px solid var(--k-line); }
+.bz-fold:last-child { border-bottom: 1px solid var(--k-line); }
+.bz-fold > .hd { display: flex; align-items: center; gap: 12px; padding: 14px 0; flex-wrap: wrap; }
+.bz-fold > .hd > button { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; text-align: left; }
+.bz-fold > .hd > button svg { align-self: center; color: var(--k-mute); }
+.bz-fold b { font-size: 15px; font-weight: 600; color: var(--k-ink); white-space: nowrap; }
+.bz-fold > .hd > button span { font-size: 13px; color: var(--k-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bz-fold > .bd { padding: 4px 0 20px; }
+
+.bz-fig { display: flex; flex-direction: column; gap: 3px; padding: 14px 0; border-top: 1px solid var(--k-line); min-width: 0; }
+.bz-fig .l { font-size: 12px; color: var(--k-mute); }
+.bz-fig .v { font-family: var(--k-round); font-size: 24px; line-height: 1.1; font-weight: 600; letter-spacing: -.01em; }
+.bz-fig .s { font-size: 12px; color: var(--k-mute); }
+
+/* Tables sit on space and hairlines. */
+.bz-table { border-top: 1px solid var(--k-line); }
+.bz-table td { font-size: 13.5px; }
+
+.bz-mini { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 12.5px; font-weight: 500; white-space: nowrap; color: var(--k-ink); background: rgb(var(--k-fg) / .05); box-shadow: inset 0 0 0 1px var(--k-line2); transition-property: background-color, scale; transition-duration: .15s; transition-timing-function: ease-out; }
+.bz-mini.good { color: var(--k-good); background: var(--k-good-d); box-shadow: none; }
+.bz-mini.warn { color: var(--k-warn); background: var(--k-warn-d); box-shadow: none; }
+.bz-mini.danger { color: var(--k-bad); background: var(--k-bad-d); box-shadow: none; }
+.bz-mini.accent { color: var(--k-on-acc); background: var(--k-acc); box-shadow: none; font-weight: 600; }
+.bz-mini:disabled { opacity: .4; cursor: not-allowed; }
+.bz-mini:not(:disabled):active { scale: .96; }
+@media (hover: hover) { .bz-mini:not(:disabled):hover { filter: brightness(1.15); } }
+.bz-pill { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; font-weight: 500; }
+
+/* Clickable tiles (websites in progress): no lift, no purple glow. */
+.bz [class*="hover:-translate-y-px"]:hover { transform: none !important; }
+.bz [class*="hover:border-[rgba(129,140,248"]:hover { border-color: var(--k-line2) !important; box-shadow: none !important; }
+
+/* Owed by age: one thin bar, coloured by how late. */
+.bz-aging { display: flex; gap: 2px; width: 100%; height: 6px; margin-top: 8px; border-radius: 3px; overflow: hidden; }
+.bz-aging i { display: block; height: 100%; }
+
+/* At a glance: three facts under the figures, on the same three columns. */
+.bz-glance { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; }
+.bz-glance > div { display: flex; flex-direction: column; gap: 3px; padding: 14px 22px; border-left: 1px solid var(--k-line); min-width: 0; }
+.bz-glance > div:first-child { border-left: 0; }
+.bz-glance .l { font-size: 12px; color: var(--k-mute); }
+.bz-glance .v { font-size: 17px; font-weight: 600; color: var(--k-ink); }
+.bz-glance .s { font-size: 12.5px; color: var(--k-ink2); }
+.bz-glance .a { margin-top: 6px; }
+.bz-lnk { font-size: 12.5px; color: var(--k-ink2); text-decoration: underline; text-underline-offset: 2px; }
+@media (hover: hover) { .bz-lnk:hover { color: var(--k-ink); } }
+@media (max-width: 900px) { .bz-glance { grid-template-columns: minmax(0, 1fr); } .bz-glance > div { border-left: 0; border-top: 1px solid var(--k-line); } }

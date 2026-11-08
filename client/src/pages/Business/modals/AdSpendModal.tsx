@@ -207,7 +207,7 @@ export function AdSpendModal({
                 <button key={k} type="button" onClick={() => setHow(k)}
                   className="px-3 py-1.5 rounded-lg text-[11px] font-semibold"
                   style={how === k
-                    ? { background: 'var(--c-accent)', color: '#fff' }
+                    ? { background: 'var(--c-accent)', color: 'var(--c-on-accent)' }
                     : { background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
                   {label}
                 </button>

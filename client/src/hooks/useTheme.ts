@@ -1,23 +1,9 @@
-import { useState, useEffect } from 'react'
-
-type Theme = 'dark' | 'light'
-
+/**
+ * Light or dark now belongs to the active skin (see skins/core.tsx), which
+ * sets `data-skin` and the `light` class on <html>. This hook stays so older
+ * callers compile; it reports the current appearance and never changes it.
+ */
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>(() => {
-    return (localStorage.getItem('oura-theme') as Theme) || 'dark'
-  })
-
-  useEffect(() => {
-    const root = document.documentElement
-    if (theme === 'light') {
-      root.classList.add('light')
-    } else {
-      root.classList.remove('light')
-    }
-    localStorage.setItem('oura-theme', theme)
-  }, [theme])
-
-  const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark')
-
-  return { theme, toggle }
+  const theme: 'dark' | 'light' = document.documentElement.classList.contains('light') ? 'light' : 'dark'
+  return { theme, toggle: () => {} }
 }

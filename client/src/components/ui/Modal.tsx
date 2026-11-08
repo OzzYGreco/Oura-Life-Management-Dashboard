@@ -8,7 +8,7 @@ interface ModalProps {
   onClose: () => void
   title: React.ReactNode
   children: React.ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 }
 
 export function Modal({ open, onClose, title, children, size = 'md' }: ModalProps) {
@@ -26,7 +26,7 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
       <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(10px)' }} onClick={onClose} />
       <div
         className={cn('relative flex flex-col max-h-[90vh] w-full rounded-2xl overflow-hidden', {
-          'max-w-sm': size === 'sm', 'max-w-lg': size === 'md', 'max-w-2xl': size === 'lg', 'max-w-4xl': size === 'xl',
+          'max-w-sm': size === 'sm', 'max-w-lg': size === 'md', 'max-w-2xl': size === 'lg', 'max-w-4xl': size === 'xl', 'max-w-6xl': size === '2xl',
         })}
         style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', boxShadow: 'var(--c-shadow-modal)' }}
       >

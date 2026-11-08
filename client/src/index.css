@@ -1,101 +1,119 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─── DARK THEME (default) ────────────────────────────────── */
+/*
+ * macOS semantic colours. Appearance follows the system (useTheme mirrors
+ * prefers-color-scheme onto the `.light` class), there is no in-app switch.
+ * Variable names are kept from the old theme so every page adopts them.
+ *
+ * Colour means one thing each: accent = interactive / selected,
+ * profit = money made / good news, loss = money lost / broken,
+ * warn = needs attention. Text-safe variants are used in light mode
+ * (Apple's increased-contrast system colours) so small figures pass 4.5:1.
+ */
+
+/* ─── DARK (default until useTheme reads the system) ─────────────── */
 :root {
   color-scheme: dark;
 
-  --c-bg-primary:    #09090f;
-  --c-bg-secondary:  #0e0e1a;
-  --c-bg-card:       #13131f;
-  --c-bg-elevated:   #181828;
-  --c-bg-input:      rgba(255,255,255,0.04);
-  --c-bg-hover:      rgba(255,255,255,0.04);
+  --c-bg-primary:    #1e1e20;   /* window / content background */
+  --c-bg-secondary:  #252527;
+  --c-bg-card:       #2a2a2d;   /* grouped section box */
+  --c-bg-elevated:   #333336;   /* popovers, menus, sheets */
+  --c-bg-input:      rgba(255,255,255,0.06);
+  --c-bg-hover:      rgba(255,255,255,0.06);
+  --c-bg-selected:   rgba(255,255,255,0.10);
 
-  --c-border:        rgba(255,255,255,0.07);
-  --c-border-subtle: rgba(255,255,255,0.04);
-  --c-border-mid:    rgba(255,255,255,0.09);
-  --c-border-strong: rgba(255,255,255,0.13);
+  --c-border:        rgba(255,255,255,0.09);
+  --c-border-subtle: rgba(255,255,255,0.05);
+  --c-border-mid:    rgba(255,255,255,0.13);
+  --c-border-strong: rgba(255,255,255,0.20);
 
-  --c-text-1:   #eeeef5;
-  --c-text-2:   #8b8baa;
-  --c-text-3:   #4b4b6b;
+  --c-text-1:   rgba(255,255,255,0.90);
+  --c-text-2:   rgba(255,255,255,0.58);
+  --c-text-3:   rgba(255,255,255,0.40);
 
-  --c-accent:   #818cf8;
-  --c-accent-2: #a78bfa;
+  --c-accent:   #0a84ff;
+  --c-accent-2: #0a84ff;
+  --c-on-accent: #ffffff;
+  --c-seg-on: #5b5b60;
+  --c-seg-on-shadow: 0 0.5px 1px rgba(0,0,0,0.3);
 
-  --c-profit: #34d399;
-  --c-loss:   #f87171;
+  --c-profit: #30d158;
+  --c-loss:   #ff453a;
+  --c-warn:   #ff9f0a;
 
-  --c-sidebar-bg:     linear-gradient(180deg, #0e0e1a 0%, #09090f 100%);
-  --c-sidebar-border: rgba(255,255,255,0.05);
-  --c-topbar-bg:      rgba(14,14,26,0.85);
-  --c-topbar-border:  rgba(255,255,255,0.05);
+  --c-sidebar-bg:     rgba(44,44,47,0.72);
+  --c-sidebar-border: rgba(255,255,255,0.08);
+  --c-topbar-bg:      rgba(30,30,32,0.82);
+  --c-topbar-border:  rgba(255,255,255,0.08);
 
-  --c-shadow-card:  0 1px 3px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03);
-  --c-shadow-hover: 0 4px 24px rgba(99,102,241,0.12), 0 0 0 1px rgba(255,255,255,0.1);
-  --c-shadow-modal: 0 25px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.07), 0 0 80px rgba(99,102,241,0.05);
-  --c-shadow-btn:   0 4px 15px rgba(99,102,241,0.25), inset 0 1px 0 rgba(255,255,255,0.15);
+  --c-shadow-card:  0 0 0 0.5px rgba(255,255,255,0.06);
+  --c-shadow-hover: 0 0 0 0.5px rgba(255,255,255,0.14);
+  --c-shadow-modal: 0 24px 60px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,255,255,0.12);
+  --c-shadow-btn:   none;
+  --c-shadow-sidebar: 0 0 0 0.5px rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.25);
 
-  --c-scrollbar: rgba(255,255,255,0.1);
-  --c-chart-grid:       rgba(255,255,255,0.06);
-  --c-chart-tooltip-bg: #13131f;
-  --c-chart-tick:       #4b4b6b;
+  --c-scrollbar: rgba(255,255,255,0.18);
+  --c-chart-grid:       rgba(255,255,255,0.07);
+  --c-chart-tooltip-bg: #333336;
+  --c-chart-tick:       rgba(255,255,255,0.40);
 
-  --c-body-gradient:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(99,102,241,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(167,139,250,0.05) 0%, transparent 60%);
+  --c-body-gradient: none;
 }
 
-/* ─── LIGHT THEME ─────────────────────────────────────────── */
+/* ─── LIGHT ─────────────────────────────────────────────────────── */
 :root.light {
   color-scheme: light;
 
-  --c-bg-primary:   #f0f0f8;
-  --c-bg-secondary: #e6e6f2;
+  --c-bg-primary:   #f5f5f7;
+  --c-bg-secondary: #ececef;
   --c-bg-card:      #ffffff;
-  --c-bg-elevated:  #fafafa;
-  --c-bg-input:     rgba(0,0,0,0.03);
-  --c-bg-hover:     rgba(0,0,0,0.04);
+  --c-bg-elevated:  #ffffff;
+  --c-bg-input:     rgba(0,0,0,0.045);
+  --c-bg-hover:     rgba(0,0,0,0.045);
+  --c-bg-selected:  rgba(0,0,0,0.08);
 
-  --c-border:        rgba(0,0,0,0.08);
-  --c-border-subtle: rgba(0,0,0,0.04);
-  --c-border-mid:    rgba(0,0,0,0.1);
-  --c-border-strong: rgba(0,0,0,0.15);
+  --c-border:        rgba(0,0,0,0.10);
+  --c-border-subtle: rgba(0,0,0,0.06);
+  --c-border-mid:    rgba(0,0,0,0.14);
+  --c-border-strong: rgba(0,0,0,0.22);
 
-  --c-text-1:   #1a1a2e;
-  --c-text-2:   #54547a;
-  --c-text-3:   #9090b8;
+  --c-text-1:   rgba(0,0,0,0.86);
+  --c-text-2:   rgba(0,0,0,0.56);
+  --c-text-3:   rgba(0,0,0,0.42);
 
-  --c-accent:   #6366f1;
-  --c-accent-2: #8b5cf6;
+  --c-accent:   #007aff;
+  --c-accent-2: #007aff;
+  --c-on-accent: #ffffff;
+  --c-seg-on: #ffffff;
+  --c-seg-on-shadow: 0 0 0 0.5px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.12);
 
-  --c-profit: #047857;
-  --c-loss:   #b91c1c;
+  --c-profit: #248a3d;
+  --c-loss:   #d70015;
+  --c-warn:   #b25000;
 
-  --c-sidebar-bg:     linear-gradient(180deg, #e6e6f2 0%, #f0f0f8 100%);
-  --c-sidebar-border: rgba(0,0,0,0.07);
-  --c-topbar-bg:      rgba(240,240,248,0.88);
-  --c-topbar-border:  rgba(0,0,0,0.07);
+  --c-sidebar-bg:     rgba(236,236,240,0.78);
+  --c-sidebar-border: rgba(0,0,0,0.08);
+  --c-topbar-bg:      rgba(245,245,247,0.85);
+  --c-topbar-border:  rgba(0,0,0,0.08);
 
-  --c-shadow-card:  0 1px 4px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.06);
-  --c-shadow-hover: 0 6px 24px rgba(99,102,241,0.12), 0 0 0 1px rgba(99,102,241,0.15);
-  --c-shadow-modal: 0 25px 60px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.09);
-  --c-shadow-btn:   0 4px 15px rgba(99,102,241,0.25), inset 0 1px 0 rgba(255,255,255,0.3);
+  --c-shadow-card:  0 0 0 0.5px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+  --c-shadow-hover: 0 0 0 0.5px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+  --c-shadow-modal: 0 24px 60px rgba(0,0,0,0.18), 0 0 0 0.5px rgba(0,0,0,0.10);
+  --c-shadow-btn:   none;
+  --c-shadow-sidebar: 0 0 0 0.5px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
 
-  --c-scrollbar: rgba(0,0,0,0.15);
+  --c-scrollbar: rgba(0,0,0,0.2);
   --c-chart-grid:       rgba(0,0,0,0.07);
   --c-chart-tooltip-bg: #ffffff;
-  --c-chart-tick:       #9090b8;
+  --c-chart-tick:       rgba(0,0,0,0.42);
 
-  --c-body-gradient:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(99,102,241,0.05) 0%, transparent 60%);
+  --c-body-gradient: none;
 }
 
-/* ─── BASE ────────────────────────────────────────────────── */
+/* ─── BASE ────────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 
 html { height: 100%; }
@@ -105,33 +123,55 @@ body {
   margin: 0;
   padding: 0;
   background-color: var(--c-bg-primary);
-  background-image: var(--c-body-gradient);
   color: var(--c-text-1);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  font-size: 13px;
+  letter-spacing: -0.003em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 #root { height: 100%; }
 
-/* ─── SCROLLBAR ───────────────────────────────────────────── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--c-scrollbar); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { opacity: 0.8; }
+:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; border-radius: 4px; }
 
-/* ─── UTILITIES ───────────────────────────────────────────── */
-.num { font-family: 'JetBrains Mono', monospace; }
+/* ─── SCROLLBAR (overlay style, like macOS) ───────────────────── */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--c-scrollbar); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+
+/* ─── UTILITIES ───────────────────────────────────────────────── */
+/* Figures: SF Pro with tabular digits, as in Stocks and Numbers. */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; letter-spacing: -0.01em; }
 
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
 
-.gradient-text {
-  background: linear-gradient(135deg, var(--c-accent), var(--c-accent-2));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+/* Retired decoration: kept as plain styles so old markup stays legible. */
+.gradient-text { color: var(--c-text-1); }
+.progress-gradient { background: var(--c-accent); }
+
+/* Window material for the sidebar and toolbar. */
+.material {
+  background: var(--c-sidebar-bg);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
 }
 
-.progress-gradient { background: linear-gradient(90deg, var(--c-accent), var(--c-accent-2)); }
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .material { background: var(--c-bg-secondary); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* The Arete wordmark: Bodoni caps, wide-set, beside the gem mark. Bodoni 72 ships with macOS. */
+.arete-brand { display: inline-flex; align-items: center; gap: .6em; line-height: 1; white-space: nowrap; }
+.arete-brand svg { flex-shrink: 0; display: block; }
+.arete-word { font-family: "Bodoni Moda", "Bodoni 72", Didot, "Bodoni MT", serif; font-weight: 500; font-size: 17px; letter-spacing: .24em; color: var(--c-text-1, #ECEFF4); transform: translateY(.04em); }
+.ln-brand .arete-word, .th-brand .arete-word { font-size: 14px; }

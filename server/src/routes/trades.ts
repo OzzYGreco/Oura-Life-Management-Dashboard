@@ -1,46 +1,15 @@
 import { Router } from 'express'
 import { db } from '../db'
-import { trades, tradeScreenshots } from '../db/schema'
+import { trades, tradeScreenshots, tradingSetups, tradeExcursions } from '../db/schema'
+import { fillExcursions, pendingExcursions, excursionsRunning } from '../lib/excursions'
 import { eq, and, gte, lte, desc, sql } from 'drizzle-orm'
 import { screenshotUpload } from '../middleware/upload'
 import path from 'path'
 import fs from 'fs'
+import { computeTradeFields } from '../lib/tradeMath'
+import { ensureSetup } from './tradingSetups'
 
 const router = Router()
-
-function computeTradeFields(data: {
-  entryPrice?: number | null
-  exitPrice?: number | null
-  size?: number | null
-  direction?: string | null
-  riskDollars?: number | null
-  netPnl?: number | null   // actual broker P&L (after fees/slippage); used for R:R and deviation
-}) {
-  const { entryPrice, exitPrice, size, direction, riskDollars, netPnl: incomingNetPnl } = data
-  let realizedPnl: number | null = null
-  let deviationPct: number | null = null
-  let rrRatio: number | null = null
-
-  if (entryPrice != null && exitPrice != null && size != null && direction) {
-    const mult = direction === 'Long' ? 1 : -1
-    realizedPnl = (exitPrice - entryPrice) * size * mult
-  }
-
-  // Prefer netPnl (broker actual) for ratio calculations; fall back to gross realizedPnl
-  const pnlForRatios = incomingNetPnl ?? realizedPnl
-
-  if (pnlForRatios != null && riskDollars != null && riskDollars > 0) {
-    rrRatio = pnlForRatios / riskDollars
-    // Deviation: 0 on wins or losses within planned risk;
-    // positive % only when the trade lost MORE than the planned risk amount.
-    const absPnl = Math.abs(pnlForRatios)
-    deviationPct = pnlForRatios >= 0 || absPnl <= riskDollars
-      ? 0
-      : (absPnl - riskDollars) / riskDollars * 100
-  }
-
-  return { realizedPnl, deviationPct, rrRatio }
-}
 
 router.get('/', async (req, res, next) => {
   try {
@@ -71,28 +40,29 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const computed = computeTradeFields(req.body)
-    const [row] = await db.insert(trades).values({ ...req.body, ...computed }).returning()
+    const riskSource = req.body.riskDollars != null && req.body.riskDollars !== '' ? 'user' : null
+    ensureSetup(req.body.setupLabel)
+    // A trade typed in by hand is reviewed as it is written.
+    const [row] = await db.insert(trades).values({ ...req.body, ...computed, riskSource, reviewedAt: new Date().toISOString() }).returning()
     res.status(201).json(row)
   } catch (e) { next(e) }
 })
 
+/** The setup picker: active setups, most recently used first. */
 router.get('/setup-labels', async (req, res, next) => {
   try {
-    const rows = await db
-      .selectDistinct({ label: trades.setupLabel })
-      .from(trades)
-      .where(sql`${trades.setupLabel} IS NOT NULL AND ${trades.setupLabel} != ''`)
-      .orderBy(trades.setupLabel)
-    res.json(rows.map(r => r.label).filter(Boolean))
+    const rows = db.select({ name: tradingSetups.name, last: sql<string | null>`(select max(date) from trades where setup_label = ${tradingSetups.name})` })
+      .from(tradingSetups).where(eq(tradingSetups.archived, 0)).all()
+    rows.sort((a, b) => (b.last ?? '').localeCompare(a.last ?? '') || a.name.localeCompare(b.name))
+    res.json(rows.map(r => r.name))
   } catch (e) { next(e) }
 })
 
+/** Takes a setup out of the picker. Trades keep it; nothing is erased. */
 router.delete('/setup-labels/:label', async (req, res, next) => {
   try {
     const label = decodeURIComponent(req.params.label)
-    await db.update(trades)
-      .set({ setupLabel: null })
-      .where(eq(trades.setupLabel, label))
+    db.update(tradingSetups).set({ archived: 1 }).where(eq(tradingSetups.name, label)).run()
     res.status(204).send()
   } catch (e) { next(e) }
 })
@@ -109,12 +79,13 @@ router.get('/analytics/summary', async (req, res, next) => {
       .where(conditions.length ? and(...conditions) : undefined)
 
     const total = rows.length
-    const wins = rows.filter(t => (t.realizedPnl ?? 0) > 0).length
-    const totalPnl = rows.reduce((s, t) => s + (t.realizedPnl ?? 0), 0)
+    const pnl = (t: typeof rows[number]) => t.netPnl ?? t.realizedPnl ?? 0
+    const wins = rows.filter(t => pnl(t) > 0).length
+    const totalPnl = rows.reduce((s, t) => s + pnl(t), 0)
     const avgRR = rows.filter(t => t.rrRatio != null).reduce((s, t) => s + (t.rrRatio ?? 0), 0) / (rows.filter(t => t.rrRatio != null).length || 1)
     const profitFactor = (() => {
-      const g = rows.filter(t => (t.realizedPnl ?? 0) > 0).reduce((s, t) => s + (t.realizedPnl ?? 0), 0)
-      const l = Math.abs(rows.filter(t => (t.realizedPnl ?? 0) < 0).reduce((s, t) => s + (t.realizedPnl ?? 0), 0))
+      const g = rows.filter(t => pnl(t) > 0).reduce((s, t) => s + pnl(t), 0)
+      const l = Math.abs(rows.filter(t => pnl(t) < 0).reduce((s, t) => s + pnl(t), 0))
       return l > 0 ? g / l : null
     })()
 
@@ -130,7 +101,7 @@ router.get('/analytics/equity', async (req, res, next) => {
     if (to) conditions.push(lte(trades.date, to as string))
     if (accountId) conditions.push(eq(trades.accountId, Number(accountId)))
 
-    const rows = await db.select({ date: trades.date, pnl: trades.realizedPnl })
+    const rows = await db.select({ date: trades.date, pnl: sql<number | null>`coalesce(${trades.netPnl}, ${trades.realizedPnl})` })
       .from(trades)
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(trades.date, trades.time)
@@ -141,6 +112,21 @@ router.get('/analytics/equity', async (req, res, next) => {
       return { date: r.date, cumulativePnl: cumulative }
     })
     res.json(curve)
+  } catch (e) { next(e) }
+})
+
+/**
+ * MFE/MAE for each crypto trade (see lib/excursions). Returns what's computed;
+ * anything missing is worked out in the background and `pending` says how
+ * many are still to come, so the page can poll.
+ */
+router.get('/analytics/excursions', (req, res, next) => {
+  try {
+    const accountId = req.query.accountId ? Number(req.query.accountId) : undefined
+    const pending = pendingExcursions(accountId).length
+    if (pending) fillExcursions()
+    const rows = db.select().from(tradeExcursions).all()
+    res.json({ pending, running: excursionsRunning(), rows: rows.map(({ basis, ...r }) => r) })
   } catch (e) { next(e) }
 })
 
@@ -170,12 +156,45 @@ router.get('/:id', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+/** On a Bybit trade these are the exchange's, kept by the sync; an edit can't change them. */
+const BYBIT_OWNED = [
+  'date', 'time', 'durationMinutes', 'closedAt', 'instrument', 'asset', 'direction', 'orderType', 'exitOrderType',
+  'entryPrice', 'exitPrice', 'size', 'isCompounded', 'entries', 'takeProfits',
+  'entryFeeAmount', 'exitFeeAmount', 'fundingFeeAmount', 'slippageAmount', 'realizedPnl', 'netPnl',
+  'riskAtStop', 'source', 'externalId', 'bybitAccountId', 'riskSource', 'stopPlacedAt',
+] as const
+
 router.put('/:id', async (req, res, next) => {
   try {
-    const computed = computeTradeFields(req.body)
+    const id = parseInt(req.params.id)
+    const [current] = await db.select().from(trades).where(eq(trades.id, id))
+    if (!current) return res.status(404).json({ error: 'Not found' })
+    const body = { ...req.body }
+    delete body.id; delete body.createdAt; delete body.updatedAt; delete body.screenshots
+    // { reviewed: true } finishes the review; the server stamps the time.
+    if ('reviewed' in body) { body.reviewedAt = body.reviewed ? new Date().toISOString() : null; delete body.reviewed }
+    delete body.stopPlacedAt
+    // Picked in the review even if it equals what the stop risked: still the user's.
+    const riskConfirmed = !!body.riskConfirmed; delete body.riskConfirmed
+    if (typeof body.setupLabel === 'string') { body.setupLabel = body.setupLabel.trim() || null; ensureSetup(body.setupLabel) }
+
+    if (current.source === 'bybit') {
+      for (const k of BYBIT_OWNED) delete body[k]
+      // Planned risk: a typed amount is the user's and the sync keeps it;
+      // cleared, it goes back to what the stop risked.
+      if ('riskDollars' in body) {
+        const r = body.riskDollars === '' || body.riskDollars == null ? null : Number(body.riskDollars)
+        if (r == null) { body.riskDollars = current.riskAtStop; body.riskSource = current.riskAtStop != null ? 'bybit' : null }
+        else if (r !== current.riskDollars || riskConfirmed) { body.riskDollars = r; body.riskSource = 'user' }
+      }
+    } else if ('riskDollars' in body) {
+      body.riskSource = body.riskDollars == null || body.riskDollars === '' ? null : 'user'
+    }
+
+    const computed = computeTradeFields({ ...current, ...body })
     const [row] = await db.update(trades)
-      .set({ ...req.body, ...computed, updatedAt: new Date().toISOString() })
-      .where(eq(trades.id, parseInt(req.params.id)))
+      .set({ ...body, ...computed, updatedAt: new Date().toISOString() })
+      .where(eq(trades.id, id))
       .returning()
     res.json(row)
   } catch (e) { next(e) }

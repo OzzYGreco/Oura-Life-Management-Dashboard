@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text, real } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, integer, text, real, primaryKey } from 'drizzle-orm/sqlite-core'
 import { sql } from 'drizzle-orm'
 
 // ─── TRADES ──────────────────────────────────────────────────────────────────
@@ -9,7 +9,20 @@ export const tradingAccounts = sqliteTable('trading_accounts', {
   broker:          text('broker'),
   currency:        text('currency').notNull().default('USD'),
   startingBalance: real('starting_balance'),
+  // When startingBalance was true (UTC ISO); balance = it + net of trades closed after.
+  startingBalanceAt: text('starting_balance_at'),
   notes:           text('notes'),
+  // Bybit sync: which .env key pair (BYBIT_<key>_KEY), and the first day synced
+  bybitKey:        text('bybit_key'),
+  bybitSyncFrom:   text('bybit_sync_from'),
+  bybitLastSyncAt: text('bybit_last_sync_at'),
+  bybitLastError:  text('bybit_last_error'),
+  fullRisk:        real('full_risk'),   // 1R for this account, in account currency
+  // Loss limits per day / week (Mon-Sun UTC) / month, positive, in lossLimitUnit.
+  maxLossDay:    real('max_loss_day'),
+  maxLossWeek:   real('max_loss_week'),
+  maxLossMonth:  real('max_loss_month'),
+  lossLimitUnit: text('loss_limit_unit').notNull().default('R'),   // 'R' | 'USD'
   createdAt:       text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:       text('updated_at').notNull().default(sql`(datetime('now'))`),
 })
@@ -49,8 +62,92 @@ export const trades = sqliteTable('trades', {
   isCompounded:    integer('is_compounded').notNull().default(0),
   entries:         text('entries', { mode: 'json' }).$type<{ price: number; size: number; sl?: number }[]>(),
   takeProfits:     text('take_profits', { mode: 'json' }).$type<{ price: number; size: number }[]>(),
+  // ── Bybit sync ────────────────────────────────────────────────────────────
+  // 'manual' or 'bybit'. A bybit trade's broker fields are owned by the sync;
+  // setup, notes, mistakes, tags, rules, stop and risk stay the user's.
+  source:          text('source').notNull().default('manual'),
+  externalId:      text('external_id'),
+  closedAt:        text('closed_at'),   // UTC ISO
+  bybitAccountId:  integer('bybit_account_id'),   // Bybit account it came from
+  // riskDollars is the planned risk. riskAtStop: what the position would have
+  // lost at its first stop, fees included (sync-owned). riskSource: 'user'
+  // means riskDollars was set by hand and the sync leaves it alone.
+  riskAtStop:      real('risk_at_stop'),
+  riskSource:      text('risk_source'),
+  // 1 = the journal side can't be filled in any more (no notes from the time);
+  // not counted as needing info. Nothing is invented for it.
+  infoUnavailable: integer('info_unavailable').notNull().default(0),
+  // When the trader finished the review (setup, rules, mistakes, risk).
+  // Null = still in the review queue.
+  reviewedAt:      text('reviewed_at'),
+  // When the first stop was placed (UTC ISO, sync-owned). Later than the
+  // open = the stop was added after the trade was already running.
+  stopPlacedAt:    text('stop_placed_at'),
   createdAt:       text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt:       text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
+// Raw Bybit fills and funding payments, kept for good (Bybit serves two years).
+export const bybitExecutions = sqliteTable('bybit_executions', {
+  execId:        text('exec_id').notNull(),
+  accountId:     integer('account_id').notNull().references(() => tradingAccounts.id),
+  symbol:        text('symbol').notNull(),
+  side:          text('side').notNull(),
+  execType:      text('exec_type').notNull(),
+  orderId:       text('order_id'),
+  orderType:     text('order_type'),
+  stopOrderType: text('stop_order_type'),
+  execTime:      integer('exec_time').notNull(),
+  seq:           integer('seq'),
+  price:         real('price').notNull(),
+  qty:           real('qty').notNull(),
+  closedSize:    real('closed_size'),
+  fee:           real('fee').notNull(),
+  isMaker:       integer('is_maker'),
+}, t => ({ pk: primaryKey({ columns: [t.accountId, t.execId] }) }))
+
+// Bybit orders, for stop losses (kept on the order, not the fill).
+export const bybitOrders = sqliteTable('bybit_orders', {
+  orderId:       text('order_id').notNull(),
+  accountId:     integer('account_id').notNull().references(() => tradingAccounts.id),
+  symbol:        text('symbol').notNull(),
+  side:          text('side').notNull(),
+  orderType:     text('order_type'),
+  stopOrderType: text('stop_order_type'),
+  status:        text('status'),
+  positionIdx:   integer('position_idx'),
+  triggerPrice:  real('trigger_price'),
+  stopLoss:      real('stop_loss'),
+  takeProfit:    real('take_profit'),
+  createdTime:   integer('created_time').notNull(),
+  updatedTime:   integer('updated_time').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.accountId, t.orderId] }) }))
+
+// How far a trade went for (MFE) and against (MAE) it while open, in price
+// and in R, from Bybit's public candles. status: 'ok' | 'no-data' | 'no-risk'.
+// basis: what the row was computed from (entry, exit, times, stop), so a
+// changed trade is recomputed.
+export const tradeExcursions = sqliteTable('trade_excursions', {
+  tradeId:     integer('trade_id').primaryKey().references(() => trades.id, { onDelete: 'cascade' }),
+  mfePrice:    real('mfe_price'),
+  maePrice:    real('mae_price'),
+  mfeR:        real('mfe_r'),
+  maeR:        real('mae_r'),
+  rUnit:       real('r_unit'),
+  intervalMin: integer('interval_min'),
+  status:      text('status').notNull(),
+  basis:       text('basis').notNull(),
+  computedAt:  text('computed_at').notNull().default(sql`(datetime('now'))`),
+})
+
+// Setups (systems). Trades link by name (trades.setup_label); archived ones
+// keep their history but leave the picker.
+export const tradingSetups = sqliteTable('trading_setups', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  name:        text('name').notNull().unique(),
+  description: text('description'),
+  archived:    integer('archived').notNull().default(0),
+  createdAt:   text('created_at').notNull().default(sql`(datetime('now'))`),
 })
 
 export const tradeScreenshots = sqliteTable('trade_screenshots', {
@@ -72,6 +169,7 @@ export const checklistTemplates = sqliteTable('checklist_templates', {
   enabled:        integer('enabled').notNull().default(1),
   repeatDaily:    integer('repeat_daily').notNull().default(1),
   createdAt:      text('created_at').notNull().default(sql`(datetime('now'))`),
+  archivedAt:     text('archived_at'),     // deleted routines with history are archived, never removed
 })
 
 export const checklistTemplateItems = sqliteTable('checklist_template_items', {
@@ -83,6 +181,10 @@ export const checklistTemplateItems = sqliteTable('checklist_template_items', {
   importance:   text('importance'),
   repeatDaily:  integer('repeat_daily').notNull().default(1),
   sortOrder:    integer('sort_order').notNull().default(0),
+  windowMin:    integer('window_min').notNull().default(60),   // minutes the window stays open after `time`
+  schedule:     text('schedule'),                              // null = every day | 'weekdays' | 'days:1,3,5' (0=Sun) | 'once:YYYY-MM-DD'
+  points:       real('points'),                                // null = from importance
+  retiredAt:    text('retired_at'),                            // retired items stay for history, never deleted
 })
 
 export const checklistEntries = sqliteTable('checklist_entries', {
@@ -102,6 +204,31 @@ export const checklistEntryItems = sqliteTable('checklist_entry_items', {
   completed:      integer('completed').notNull().default(0),
   completedAt:    text('completed_at'),
   archived:       integer('archived').notNull().default(0),
+  result:         text('result'),          // 'on_time' | 'late' | 'missed' | null while still open
+  reason:         text('reason'),          // why a miss happened, from the evening review
+  pointsEarned:   real('points_earned'),
+})
+
+// One row per closed day (04:00 to 04:00). The score is locked on close.
+export const dayReviews = sqliteTable('day_reviews', {
+  date:       text('date').primaryKey(),
+  score:      real('score').notNull(),
+  earned:     real('earned').notNull(),
+  possible:   real('possible').notNull(),
+  reflection: text('reflection'),
+  autoClosed: integer('auto_closed').notNull().default(0),
+  closedAt:   text('closed_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const appSettings = sqliteTable('app_settings', {
+  key:       text('key').primaryKey(),
+  value:     text('value').notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const notificationsSent = sqliteTable('notifications_sent', {
+  key:    text('key').primaryKey(),
+  sentAt: text('sent_at').notNull().default(sql`(datetime('now'))`),
 })
 
 // ─── GOALS (point-scoring system) ────────────────────────────────────────────
@@ -125,6 +252,12 @@ export const goalTasks = sqliteTable('goal_tasks', {
   earnedPoints: real('earned_points'),             // NULL = not yet scored
   notes:        text('notes'),
   sortOrder:    integer('sort_order').notNull().default(0),
+  source:       text('source').notNull().default('manual'), // manual | checklist | workouts | trading_rules | journal_reviewed
+  target:       real('target'),                  // e.g. 4 workouts
+  // Up the chain: a weekly task points at a monthly task; a monthly task (or a
+  // habit) at a milestone. Both empty = unlinked. (Migration 0024.)
+  parentTaskId: integer('parent_task_id'),
+  milestoneId:  integer('milestone_id'),
 })
 
 export const goalRewards = sqliteTable('goal_rewards', {
@@ -133,6 +266,49 @@ export const goalRewards = sqliteTable('goal_rewards', {
   minScore:  real('min_score').notNull(),           // threshold (e.g. 6, 7, 8)
   reward:    text('reward').notNull(),
   sortOrder: integer('sort_order').notNull().default(0),
+})
+
+// ─── GOAL CHAIN: 3-year directions and milestones (migration 0024) ───────────
+
+export const goalDirections = sqliteTable('goal_directions', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  title:      text('title').notNull(),            // "Zavabuild at £10k MRR"
+  why:        text('why'),
+  targetDate: text('target_date'),                // ISO date, e.g. 2029-12-31
+  sortOrder:  integer('sort_order').notNull().default(0),
+  archivedAt: text('archived_at'),
+  createdAt:  text('created_at').notNull().default(sql`(datetime('now'))`),
+})
+
+/** A SMART milestone: reached or not, never scored. */
+export const milestones = sqliteTable('milestones', {
+  id:             integer('id').primaryKey({ autoIncrement: true }),
+  directionId:    integer('direction_id').references(() => goalDirections.id, { onDelete: 'set null' }),
+  kind:           text('kind').notNull().default('milestone'),   // milestone | foundation
+  title:          text('title').notNull(),                       // Specific
+  doneMeans:      text('done_means'),                            // what "reached" means, in words
+  measure:        text('measure').notNull().default('manual'),   // Measurable: see MEASURES in lib/milestones.ts
+  measureParam:   text('measure_param'),                         // e.g. the lift's name
+  unit:           text('unit'),
+  startValue:     real('start_value'),
+  targetValue:    real('target_value'),
+  manualValue:    real('manual_value'),
+  higherIsBetter: integer('higher_is_better', { mode: 'boolean' }).notNull().default(true),
+  startDate:      text('start_date').notNull(),
+  dueDate:        text('due_date').notNull(),                    // Time-bound
+  status:         text('status').notNull().default('open'),      // open | reached | missed | dropped
+  reachedAt:      text('reached_at'),
+  sortOrder:      integer('sort_order').notNull().default(0),
+  createdAt:      text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt:      text('updated_at').notNull().default(sql`(datetime('now'))`),
+})
+
+export const milestoneSteps = sqliteTable('milestone_steps', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  milestoneId: integer('milestone_id').notNull().references(() => milestones.id, { onDelete: 'cascade' }),
+  title:       text('title').notNull(),
+  doneAt:      text('done_at'),
+  sortOrder:   integer('sort_order').notNull().default(0),
 })
 
 // ─── FINANCES ────────────────────────────────────────────────────────────────

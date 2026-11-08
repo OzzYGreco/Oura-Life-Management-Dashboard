@@ -19,21 +19,25 @@ export function CurrencySelector({ pageKey, defaultCurrency = 'USD' }: Props) {
   const { data: rates } = useCurrencyRates()
 
   return (
-    <div className="flex items-center rounded-lg overflow-hidden"
-      style={{ border: '1px solid var(--c-border-mid)', background: 'var(--c-bg-input)' }}
+    <div className="inline-flex items-center p-[2px] rounded-[7px] gap-px" role="radiogroup" aria-label="Display currency"
+      style={{ background: 'var(--c-bg-input)', boxShadow: 'inset 0 0 0 0.5px var(--c-border)' }}
       title={!rates ? 'Loading live rates…' : undefined}>
-      {CURRENCIES.map((c, i) => (
-        <button key={c.code} onClick={() => setViewCurrency(c.code)}
-          className="px-2.5 py-1.5 text-xs font-bold transition-all"
-          style={{
-            background: viewCurrency === c.code ? 'rgba(129,140,248,0.2)' : 'transparent',
-            color:      viewCurrency === c.code ? 'var(--c-accent)' : 'var(--c-text-3)',
-            borderRight: i < CURRENCIES.length - 1 ? '1px solid var(--c-border)' : 'none',
-            opacity: !rates && c.code !== viewCurrency ? 0.5 : 1,
-          }}>
-          {c.symbol} {c.code}
-        </button>
-      ))}
+      {CURRENCIES.map(c => {
+        const on = viewCurrency === c.code
+        return (
+          <button key={c.code} onClick={() => setViewCurrency(c.code)} role="radio" aria-checked={on}
+            title={c.code}
+            className="h-[22px] min-w-[30px] px-2 rounded-[5px] text-[12px] font-medium transition-colors"
+            style={{
+              background: on ? 'var(--c-seg-on)' : 'transparent',
+              boxShadow: on ? 'var(--c-seg-on-shadow)' : 'none',
+              color: on ? 'var(--c-text-1)' : 'var(--c-text-2)',
+              opacity: !rates && !on ? 0.5 : 1,
+            }}>
+            {c.symbol}
+          </button>
+        )
+      })}
     </div>
   )
 }

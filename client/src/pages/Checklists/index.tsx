@@ -415,6 +415,7 @@ function TemplateModal({
       repeatDaily: repeatDaily ? 1 : 0,
       enabled: enabled ? 1 : 0,
       items: tasks.filter(t => t.label.trim()).map((t, i) => ({
+        id: t.id,                       // keeps an edited item the same item, so its history stays attached
         label: t.label.trim(),
         time: t.time || null,
         importance: t.importance || null,

@@ -7,7 +7,18 @@ export interface TradingAccount {
   broker: string | null
   currency: string
   startingBalance: number | null
+  /** When startingBalance was true (UTC ISO); null = no known balance */
+  startingBalanceAt?: string | null
   notes: string | null
+  /** 1R: the account's full-size risk */
+  fullRisk: number | null
+  /** First day the journal syncs from Bybit (its journal start) */
+  bybitSyncFrom?: string | null
+  /** Loss limits (positive) per day / week (Mon–Sun UTC) / month, in lossLimitUnit */
+  maxLossDay?: number | null
+  maxLossWeek?: number | null
+  maxLossMonth?: number | null
+  lossLimitUnit?: 'R' | 'USD'
   tradeCount: number
   createdAt: string
   updatedAt: string

@@ -12,8 +12,13 @@ import { useCreateTrade, useUpdateTrade, useUploadScreenshots, useSetupLabels, u
 import { useTradingAccounts } from '../../hooks/useTradingAccounts'
 import { loadTradingSettings, computeFees } from '../../hooks/useTradingSettings'
 import { INSTRUMENTS, DIRECTIONS, ORDER_TYPES, MISTAKES } from '../../lib/constants'
-import { formatCurrency, fmtSize, cn } from '../../lib/utils'
+import { formatCurrency, fmtSize } from '../../lib/utils'
 import { Zap, ChevronRight, Layers, Plus, X, Check, ChevronDown } from 'lucide-react'
+import { Segmented } from './controls'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../lib/api'
+import { CoinBadge, RBar } from './ui'
+import { MAX_DEVIATION_PCT } from '../../components/shared/PnLBadge'
 
 interface Props {
   open: boolean
@@ -103,8 +108,12 @@ function QuickFill({ onClose }: { onClose: () => void }) {
 
   const submit = async () => {
     if (!preview) return
+    // Same recognition as the form's switch; Crypto if TradingView can't say.
+    const sym = (preview.asset || '').trim().toUpperCase()
+    const instrument = await api.get(`/api/asset-icons/identify/${encodeURIComponent(sym)}`)
+      .then(r => (r.data?.instrument as string | null) ?? 'Crypto').catch(() => (FUTURES_ROOTS.has(sym) ? 'Futures' : 'Crypto'))
     await create.mutateAsync({
-      instrument: 'Crypto',
+      instrument,
       asset:      preview.asset || '',
       direction:  preview.direction || 'Long',
       orderType:  'Market',
@@ -112,7 +121,7 @@ function QuickFill({ onClose }: { onClose: () => void }) {
       ...(preview.stopLoss  ? { stopLoss:  parseFloat(preview.stopLoss)  } : {}),
       ...(preview.exitPrice ? { exitPrice: parseFloat(preview.exitPrice) } : {}),
       date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().slice(0, 5),
+      time: new Date().toISOString().slice(11, 16),
     } as any)
     setDone(true)
     setText('')
@@ -381,10 +390,7 @@ function SystemCombobox({ value, onChange, options }: {
     if (pending === label) {
       // Second click - confirm delete
       deleteLabel.mutate(label, {
-        onSuccess: () => {
-          if (value === label) onChange('')
-          setPending(null)
-        },
+        onSuccess: () => setPending(null),
       })
     } else {
       setPending(label)
@@ -429,7 +435,7 @@ function SystemCombobox({ value, onChange, options }: {
                 <div key={o}
                   className="flex items-center group transition-colors"
                   style={{ background: isSelected ? 'rgba(99,102,241,0.08)' : 'transparent' }}
-                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)' }}
+                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)' }}
                   onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
                   {/* Select area */}
                   <button type="button" onClick={() => pick(o)}
@@ -442,14 +448,14 @@ function SystemCombobox({ value, onChange, options }: {
                   <button
                     type="button"
                     onClick={e => handleDelete(e, o)}
-                    title={isPending ? 'Click again to confirm delete' : 'Delete system'}
+                    title={isPending ? 'Click again to archive (its trades keep it)' : 'Archive system'}
                     className="shrink-0 mr-2 px-2 py-1 rounded text-xs font-semibold transition-all opacity-0 group-hover:opacity-100"
                     style={{
                       background: isPending ? 'rgba(239,68,68,0.15)' : 'transparent',
                       color: isPending ? '#f87171' : 'var(--c-text-3)',
                       border: isPending ? '1px solid rgba(239,68,68,0.3)' : '1px solid transparent',
                     }}>
-                    {isPending ? 'Delete?' : <X size={11} />}
+                    {isPending ? 'Archive?' : <X size={11} />}
                   </button>
                 </div>
               )
@@ -488,11 +494,11 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
   const [entries, setEntries]       = useState<EntryLeg[]>([{ price: '', size: '', sl: '' }])
   const [takeProfits, setTakeProfits] = useState<TPLeg[]>([{ price: '', size: '' }])
 
-  const { register, handleSubmit, watch, control, reset } = useForm<FormValues>({
+  const { register, handleSubmit, watch, control, reset, setValue } = useForm<FormValues>({
     defaultValues: {
       accountId: defaultAccountId ?? null,
       date: new Date().toISOString().split('T')[0],
-      time: new Date().toTimeString().slice(0, 5),
+      time: new Date().toISOString().slice(11, 16),
       instrument: 'Crypto',
       direction: 'Long',
       orderType: 'Market',
@@ -544,7 +550,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
       reset({
         accountId: defaultAccountId ?? null,
         date: new Date().toISOString().split('T')[0],
-        time: new Date().toTimeString().slice(0, 5),
+        time: new Date().toISOString().slice(11, 16),
         instrument: 'Crypto',
         direction: 'Long',
         orderType: 'Market',
@@ -583,7 +589,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
     const rr = r > 0 ? netPnl / r : null
     const absNet = Math.abs(netPnl)
     const dev = r > 0
-      ? (netPnl >= 0 || absNet <= r ? 0 : (absNet - r) / r * 100)
+      ? (netPnl >= 0 || absNet <= r ? 0 : (absNet - r) / absNet * 100)
       : null
 
     return { grossPnl, entryFee, exitFee, slippage, netPnl, rr, dev, hasActual: actual !== null }
@@ -620,7 +626,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
       const rr       = r > 0 ? netPnl / r : null
       const absNet   = Math.abs(netPnl)
       const dev      = r > 0
-        ? (netPnl >= 0 || absNet <= r ? 0 : (absNet - r) / r * 100)
+        ? (netPnl >= 0 || absNet <= r ? 0 : (absNet - r) / absNet * 100)
         : null
       return { grossPnl, entryFee, exitFee, slippage, netPnl, rr, dev, hasActual: actual !== null }
     }
@@ -656,6 +662,28 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
   }, [isCompounded, entries, takeProfits, direction, riskDollars, orderType, exitOrderType, exit_, actualPnl])
 
   const mistakes = watch('mistakes')
+
+  // ── Instrument follows what TradingView recognises the ticker as ─────────
+  // Typing ES flips the switch to Futures, NVDA to Stocks, HYPE to Crypto.
+  // Flipping it by hand wins for that ticker and changes nothing else in the
+  // form; typing a different ticker hands the switch back to recognition.
+  const assetTyped = String(watch('asset') ?? '').trim().toUpperCase()
+  const ticker = useDebounced(assetTyped, 500)
+  const [pickedFor, setPickedFor] = useState<string | null>(trade ? (trade.asset ?? '').toUpperCase() : null)
+  const { data: known, isFetching: identifying, isError: identifyFailed } = useQuery({
+    queryKey: ['identify-asset', ticker],
+    queryFn: () => api.get(`/api/asset-icons/identify/${encodeURIComponent(ticker)}`).then(r => r.data as { instrument: string | null; name: string | null; exchange: string | null; why: string }),
+    enabled: /^[A-Z0-9.!]{1,20}$/.test(ticker),
+    staleTime: 3_600_000,
+    retry: false,
+  })
+  const recognised = known?.instrument ?? (identifyFailed && FUTURES_ROOTS.has(ticker) ? 'Futures' : null)
+  const handPicked = pickedFor != null && pickedFor === ticker
+  useEffect(() => {
+    if (!recognised || handPicked || ticker !== assetTyped) return
+    if (watch('instrument') !== recognised) setValue('instrument', recognised as FormValues['instrument'])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recognised, handPicked, ticker, assetTyped])
 
   // ── Leg helpers ─────────────────────────────────────────────────────────────
   const updateEntryLeg = (idx: number, field: 'price' | 'size' | 'sl', value: string) =>
@@ -759,45 +787,52 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
   const isPending = create.isPending || update.isPending
 
   // Section header helper
-  const SectionHeader = ({ label, children }: { label: string; children?: React.ReactNode }) => (
-    <div className="flex items-center gap-2 mb-3">
-      <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>{label}</span>
+  const SectionHeader = ({ label, n, children }: { label: string; n?: number; children?: React.ReactNode }) => (
+    <div className="flex items-center gap-2.5 mb-3.5">
+      {n != null && (
+        <span className="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold num"
+          style={{ color: 'var(--c-accent)', background: 'color-mix(in srgb, var(--c-accent) 12%, transparent)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 30%, transparent)' }}>{n}</span>
+      )}
+      <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>{label}</span>
       <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }} />
       {children}
     </div>
   )
 
   return (
-    <Modal open={open} onClose={onClose} title={trade ? 'Edit Trade' : 'New Trade'} size="xl">
-      <form onSubmit={handleSubmit(onSubmit)} className="p-5 space-y-5">
+    <Modal open={open} onClose={onClose} title={trade ? 'Edit trade' : 'Log a trade'} size="2xl">
+      <form onSubmit={handleSubmit(onSubmit)} className="grid lg:grid-cols-[1fr_320px] min-h-0 overflow-y-auto lg:overflow-hidden">
+      <div className="p-6 space-y-7 lg:overflow-y-auto lg:max-h-[calc(90vh-64px)]">
 
         {/* ── Quick Fill ─────────────────────────────────────────────── */}
         <QuickFill onClose={onClose} />
 
         {/* ── Section 1: Trade Info ──────────────────────────────────── */}
         <div>
-          <SectionHeader label="Trade Info" />
+          <SectionHeader n={1} label="The trade" />
+          {trade?.source === 'bybit' && (
+            <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(99,102,241,0.08)', color: 'var(--c-text-2)' }}>
+              Synced from Bybit: times, prices, size, fees and P&L come from the exchange and stay as Bybit has them.
+              What you change here that counts is your planned risk, stop, setup, notes, mistakes and rules.
+            </p>
+          )}
           <div className="grid grid-cols-4 gap-3">
-            {/* Account selector */}
+            {/* Account */}
             <Controller name="accountId" control={control} render={({ field }) => (
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 col-span-4">
                 <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Account</label>
-                <select
-                  value={field.value ?? ''}
-                  onChange={e => field.onChange(e.target.value !== '' ? Number(e.target.value) : null)}
-                  className="rounded-lg px-3 py-2 text-sm outline-none transition-all duration-150"
-                  style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}
-                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-                  onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
-                >
-                  <option value="">No account</option>
-                  {accounts?.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}{a.broker ? ` · ${a.broker}` : ''}</option>
-                  ))}
-                </select>
+                <Segmented value={String(field.value ?? '')} onChange={v => field.onChange(v ? Number(v) : null)}
+                  options={[...(accounts ?? []).map(a => ({ value: String(a.id), label: a.name })), { value: '', label: 'None' }]} />
               </div>
             )} />
-            <Select label="Instrument" options={INSTRUMENTS.map(v => ({ value: v, label: v }))} {...register('instrument')} />
+            <Controller name="instrument" control={control} render={({ field }) => (
+              <div className="flex flex-col gap-1.5 col-span-2">
+                <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Instrument</label>
+                <Segmented size="sm" value={field.value} onChange={v => { setPickedFor(assetTyped || null); field.onChange(v) }} options={INSTRUMENTS.map(v => ({ value: v, label: v }))} />
+                <InstrumentHint ticker={ticker} typing={ticker !== assetTyped || identifying} known={known} current={field.value}
+                  handPicked={handPicked} onUse={v => { setPickedFor(null); field.onChange(v) }} />
+              </div>
+            )} />
             <Input label="Asset" placeholder="BTC, ETH, ES, AAPL…" {...register('asset', { required: true })} />
             {/* Direction */}
             <Controller name="direction" control={control} render={({ field }) => (
@@ -806,10 +841,11 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                 <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border-mid)' }}>
                   {(['Long', 'Short'] as const).map(d => (
                     <button key={d} type="button" onClick={() => field.onChange(d)}
-                      className="flex-1 py-2 text-sm font-semibold transition-all duration-150"
+                      className="flex-1 py-2 text-sm font-semibold transition-all duration-200"
                       style={field.value === d ? {
-                        background: d === 'Long' ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)',
+                        background: d === 'Long' ? 'linear-gradient(180deg, rgba(52,211,153,0.28), rgba(52,211,153,0.12))' : 'linear-gradient(180deg, rgba(248,113,113,0.28), rgba(248,113,113,0.12))',
                         color: d === 'Long' ? 'var(--c-profit)' : 'var(--c-loss)',
+                        boxShadow: `inset 0 0 0 1px ${d === 'Long' ? 'rgba(52,211,153,0.45)' : 'rgba(248,113,113,0.45)'}`,
                       } : { color: 'var(--c-text-3)', background: 'var(--c-bg-input)' }}>
                       {d === 'Long' ? '▲ Long' : '▼ Short'}
                     </button>
@@ -819,7 +855,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
             )} />
             <Select label="Entry Order Type" options={ORDER_TYPES.map(v => ({ value: v, label: v }))} {...register('orderType')} />
             <Select label="Exit Order Type" options={ORDER_TYPES.map(v => ({ value: v, label: v }))} {...register('exitOrderType')} />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 col-span-2">
               <Input label="Date" type="date" {...register('date', { required: true })} />
               <Input label="Time (UTC)" type="time" {...register('time')} />
             </div>
@@ -828,7 +864,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
 
         {/* ── Section 2: Prices & Size ───────────────────────────────── */}
         <div>
-          <SectionHeader label="Prices & Size">
+          <SectionHeader n={2} label="Prices and size">
             {/* Compounded toggle */}
             <button
               type="button"
@@ -946,7 +982,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
 
         {/* ── Section 3: Risk + Computed ────────────────────────────── */}
         <div>
-          <SectionHeader label="Risk & P&L" />
+          <SectionHeader n={3} label="Risk" />
           <div className="grid grid-cols-3 gap-3 mb-3">
             <Controller name="riskDollars" control={control} render={({ field }) => (
               <PriceInput label="Risk ($)" placeholder="0.00" value={field.value} onChange={field.onChange} />
@@ -975,82 +1011,11 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
             </div>
           </div>
 
-          {/* ── Computed box: simple trade ─────────────────────────── */}
-          {!isCompounded && computed && (
-            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
-              <div className="grid grid-cols-4" style={{ borderBottom: '1px solid var(--c-border)' }}>
-                {[
-                  { label: 'Gross P&L', value: formatCurrency(computed.grossPnl), color: computed.grossPnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' },
-                  { label: 'Entry Fee', value: `-${formatCurrency(computed.entryFee)}`, color: 'var(--c-text-3)' },
-                  { label: 'Exit Fee',  value: `-${formatCurrency(computed.exitFee)}`, color: 'var(--c-text-3)' },
-                  {
-                    label: computed.hasActual ? 'Slippage (calc.)' : 'Slippage',
-                    value: computed.slippage != null ? `${computed.slippage < 0 ? '+' : '-'}${formatCurrency(Math.abs(computed.slippage))}` : '--',
-                    color: computed.slippage == null ? 'var(--c-text-3)' : computed.slippage > 0 ? 'var(--c-loss)' : 'var(--c-profit)',
-                  },
-                ].map(({ label, value, color }, i) => (
-                  <div key={label} className="p-3 text-center" style={{ background: 'var(--c-bg-input)', borderRight: i < 3 ? '1px solid var(--c-border)' : undefined }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-                    <div className="text-sm num font-semibold" style={{ color }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-3">
-                {[
-                  { label: computed.hasActual ? 'Net P&L (actual)' : 'Net P&L (est.)', value: formatCurrency(computed.netPnl), color: computed.netPnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)', big: true },
-                  { label: 'R:R Ratio', value: computed.rr != null ? `${computed.rr >= 0 ? '+' : ''}${computed.rr.toFixed(2)}R` : '--', color: computed.rr != null && computed.rr >= 0 ? 'var(--c-profit)' : 'var(--c-loss)', big: false },
-                  { label: 'Deviation', value: computed.dev != null ? `${computed.dev.toFixed(1)}%` : '--', color: computed.dev != null && computed.dev === 0 ? 'var(--c-profit)' : 'var(--c-loss)', big: false },
-                ].map(({ label, value, color, big }, i) => (
-                  <div key={label} className="p-3 text-center" style={{ borderRight: i < 2 ? '1px solid var(--c-border)' : undefined }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-                    <div className={cn('num font-bold', big ? 'text-lg' : 'text-sm')} style={{ color }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Computed box: compounded trade ────────────────────────── */}
-          {isCompounded && compoundedComputed?.hasExit && (
-            <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(251,191,36,0.25)' }}>
-              <div className="grid grid-cols-4" style={{ borderBottom: '1px solid rgba(251,191,36,0.15)' }}>
-                {[
-                  { label: 'Gross P&L', value: formatCurrency(compoundedComputed.grossPnl), color: compoundedComputed.grossPnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' },
-                  { label: 'Entry Fee', value: `-${formatCurrency(compoundedComputed.entryFee)}`, color: 'var(--c-text-3)' },
-                  { label: 'Exit Fee',  value: `-${formatCurrency(compoundedComputed.exitFee)}`,  color: 'var(--c-text-3)' },
-                  {
-                    label: compoundedComputed.hasActual ? 'Slippage (calc.)' : 'Slippage',
-                    value: compoundedComputed.slippage != null
-                      ? `${compoundedComputed.slippage < 0 ? '+' : '-'}${formatCurrency(Math.abs(compoundedComputed.slippage))}`
-                      : '--',
-                    color: compoundedComputed.slippage == null ? 'var(--c-text-3)' : compoundedComputed.slippage > 0 ? 'var(--c-loss)' : 'var(--c-profit)',
-                  },
-                ].map(({ label, value, color }, i) => (
-                  <div key={label} className="p-3 text-center" style={{ background: 'rgba(251,191,36,0.04)', borderRight: i < 3 ? '1px solid rgba(251,191,36,0.15)' : undefined }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-                    <div className="text-sm num font-semibold" style={{ color }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="grid grid-cols-3">
-                {[
-                  { label: compoundedComputed.hasActual ? 'Net P&L (actual)' : 'Net P&L (est.)', value: formatCurrency(compoundedComputed.netPnl), color: compoundedComputed.netPnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)', big: true },
-                  { label: 'R:R Ratio', value: compoundedComputed.rr != null ? `${compoundedComputed.rr >= 0 ? '+' : ''}${compoundedComputed.rr.toFixed(2)}R` : '--', color: compoundedComputed.rr != null && compoundedComputed.rr >= 0 ? 'var(--c-profit)' : 'var(--c-loss)', big: false },
-                  { label: 'Deviation', value: compoundedComputed.dev != null ? `${compoundedComputed.dev.toFixed(1)}%` : '--', color: compoundedComputed.dev != null && compoundedComputed.dev === 0 ? 'var(--c-profit)' : 'var(--c-loss)', big: false },
-                ].map(({ label, value, color, big }, i) => (
-                  <div key={label} className="p-3 text-center" style={{ borderRight: i < 2 ? '1px solid rgba(251,191,36,0.15)' : undefined }}>
-                    <div className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-                    <div className={cn('num font-bold', big ? 'text-lg' : 'text-sm')} style={{ color }}>{value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* ── Section 4: Rules & Setup ──────────────────────────────── */}
         <div>
-          <SectionHeader label="Rules & Setup" />
+          <SectionHeader n={4} label="Setup and rules" />
           <div className="grid grid-cols-2 gap-3 mb-3">
             <Controller name="setupLabel" control={control} render={({ field }) => (
               <SystemCombobox
@@ -1092,9 +1057,16 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
 
         {/* ── Section 5: Mistakes ───────────────────────────────────── */}
         <div>
-          <SectionHeader label="Mistakes" />
+          <SectionHeader n={5} label="Mistakes" />
           <Controller name="mistakes" control={control} render={({ field }) => (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => field.onChange(field.value && field.value.length === 0 ? null : [])}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                style={field.value && field.value.length === 0
+                  ? { background: 'rgba(52,211,153,0.14)', boxShadow: 'inset 0 0 0 1px rgba(52,211,153,0.4)', color: 'var(--c-profit)' }
+                  : { background: 'var(--c-bg-input)', boxShadow: 'inset 0 0 0 1px var(--c-border)', color: 'var(--c-text-3)' }}>
+                None
+              </button>
               {MISTAKES.map(m => {
                 const selected = field.value?.includes(m.key)
                 return (
@@ -1103,7 +1075,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                       ? field.value.filter((k: string) => k !== m.key)
                       : [...(field.value || []), m.key]
                     )}
-                    className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-left transition-all duration-150"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-left transition-all duration-150"
                     style={selected ? {
                       background: 'rgba(248,113,113,0.12)',
                       border: '1px solid rgba(248,113,113,0.3)',
@@ -1113,10 +1085,6 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                       border: '1px solid var(--c-border-mid)',
                       color: 'var(--c-text-3)',
                     }}>
-                    <span className="w-4 h-4 rounded flex items-center justify-center shrink-0 text-xs"
-                      style={selected ? { background: 'rgba(248,113,113,0.3)' } : { background: 'var(--c-border)' }}>
-                      {selected ? '✗' : ''}
-                    </span>
                     {m.label}
                   </button>
                 )
@@ -1132,20 +1100,127 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
 
         {/* ── Section 6: Notes & Screenshots ───────────────────────── */}
         <div>
-          <SectionHeader label="Notes & Screenshots" />
+          <SectionHeader n={6} label="Notes and charts" />
           <Textarea label="Quick Note" rows={3} placeholder="Setup context, execution notes, what you'd do differently…" {...register('quickNote')} />
           <div className="mt-3">
             <ImageUpload images={images} onChange={setImages} label="Screenshots" />
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-3" style={{ borderTop: '1px solid var(--c-border)' }}>
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={isPending}>
-            {isPending ? 'Saving…' : trade ? 'Save Changes' : 'Log Trade'}
-          </Button>
-        </div>
+      </div>
+
+      <TradeTicket
+        asset={watch('asset')} direction={direction} instrument={instrument}
+        account={accounts?.find(a => a.id === watch('accountId'))?.name ?? null}
+        c={isCompounded ? (compoundedComputed?.hasExit ? compoundedComputed : null) : computed}
+        risk={riskDollars ? Number(riskDollars) : null}
+        saving={isPending} editing={!!trade} onCancel={onClose} />
       </form>
     </Modal>
+  )
+}
+
+/**
+ * The live summary beside the form: what this trade is and what it did,
+ * recomputed as you type. Save lives here, so it's always in reach.
+ */
+/** CME, CBOT, NYMEX, COMEX and ICE roots, minis and micros included. */
+const FUTURES_ROOTS = new Set(('ES MES NQ MNQ YM MYM RTY M2K EMD NKD CL MCL QM BZ NG QG RB HO GC MGC SI SIL HG MHG PL PA ' +
+  'ZB ZN ZF ZT UB TN ZC ZS ZW ZM ZL ZO KE LE HE GF 6E M6E 6J 6B M6B 6A M6A 6C 6S 6N 6M DX VX BTC1! MBT ETH1! MET').split(' '))
+
+/** One line under the switch: what TradingView says, and a way back if you overrode it. */
+function InstrumentHint({ ticker, typing, known, current, handPicked, onUse }: {
+  ticker: string; typing: boolean; known?: { instrument: string | null; name: string | null; exchange: string | null; why: string }
+  current: string; handPicked: boolean; onUse: (v: string) => void
+}) {
+  if (!ticker) return null
+  if (typing) return <span className="text-[10px]" style={{ color: 'var(--c-text-3)' }}>Looking up {ticker}…</span>
+  if (!known?.instrument) return <span className="text-[10px]" style={{ color: 'var(--c-text-3)' }}>TradingView doesn't know {ticker}; pick the instrument yourself</span>
+  const what = known.name ? `${known.name}${known.exchange ? ` · ${known.exchange}` : ''}` : known.why
+  if (known.instrument !== current && handPicked) {
+    return (
+      <span className="text-[10px]" style={{ color: '#f59e0b' }}>
+        TradingView has {ticker} as {known.instrument.toLowerCase()} ({what}); keeping {current.toLowerCase()}.{' '}
+        <button type="button" onClick={() => onUse(known.instrument!)} className="underline">Use {known.instrument}</button>
+      </span>
+    )
+  }
+  return <span className="text-[10px] truncate" style={{ color: 'var(--c-text-3)' }}>✓ {what}</span>
+}
+
+function useDebounced<T>(v: T, ms: number) {
+  const [d, setD] = useState(v)
+  useEffect(() => { const t = setTimeout(() => setD(v), ms); return () => clearTimeout(t) }, [v, ms])
+  return d
+}
+
+function TradeTicket({ asset: liveAsset, direction, instrument, account, c, risk, saving, editing, onCancel }: {
+  asset?: string; direction?: string; instrument?: string; account: string | null
+  c: { grossPnl: number; entryFee: number; exitFee: number; slippage: number | null; netPnl: number; rr: number | null; dev: number | null; hasActual: boolean } | null
+  risk: number | null; saving: boolean; editing: boolean; onCancel: () => void
+}) {
+  // Fetch the logo once typing stops, not for every partial ticker.
+  const asset = useDebounced(liveAsset?.trim(), 600)
+  const long = direction !== 'Short'
+  const net = c?.netPnl ?? null
+  const dev = c?.dev ?? null
+  const row = (k: string, v: string, color?: string) => (
+    <div className="flex items-center justify-between py-1.5 text-xs" style={{ borderTop: '1px solid var(--c-border-subtle)' }}>
+      <span style={{ color: 'var(--c-text-3)' }}>{k}</span><span className="num" style={{ color: color ?? 'var(--c-text-2)' }}>{v}</span>
+    </div>
+  )
+  return (
+    <aside className="flex flex-col p-5 lg:max-h-[calc(90vh-64px)]" style={{ background: 'linear-gradient(180deg, var(--c-bg-elevated), var(--c-bg-card))', borderLeft: '1px solid var(--c-border)' }}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] mb-3" style={{ color: 'var(--c-text-3)' }}>Ticket</div>
+      <div className="flex items-center gap-3">
+        {asset ? <CoinBadge asset={asset.toUpperCase()} instrument={instrument} size={38} /> : <span className="w-[38px] h-[38px] rounded-full" style={{ background: 'var(--c-bg-input)', boxShadow: 'inset 0 0 0 1px var(--c-border)' }} />}
+        <div>
+          <div className="text-lg font-bold leading-tight" style={{ color: 'var(--c-text-1)' }}>{liveAsset?.trim() ? liveAsset.trim().toUpperCase() : 'Asset'}</div>
+          <div className="text-xs font-semibold" style={{ color: long ? 'var(--c-profit)' : 'var(--c-loss)' }}>
+            {long ? '▲ Long' : '▼ Short'}<span className="font-normal" style={{ color: 'var(--c-text-3)' }}>{account ? ` · ${account}` : ''}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: 'var(--c-text-3)' }}>{c?.hasActual ? 'Net P&L (broker)' : 'Net P&L (estimated)'}</div>
+        <div className="text-3xl font-bold num tracking-tight mt-1" style={{ color: net == null ? 'var(--c-text-3)' : net >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>
+          {net == null ? '—' : `${net >= 0 ? '+' : ''}${formatCurrency(net)}`}
+        </div>
+        <div className="mt-2 flex items-center gap-3" style={{ display: c ? undefined : 'none' }}>
+          <RBar r={c?.rr ?? null} width={150} height={7} />
+          <span className="text-sm font-semibold num" style={{ color: c?.rr == null ? 'var(--c-text-3)' : c.rr >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>
+            {c?.rr == null ? (risk ? '—' : 'set a risk') : `${c.rr >= 0 ? '+' : ''}${c.rr.toFixed(2)}R`}
+          </span>
+        </div>
+        {dev != null && dev > 0 && (
+          <div className="mt-2 text-[11px] px-2 py-1 rounded-md inline-block"
+            style={dev > MAX_DEVIATION_PCT ? { background: 'rgba(248,113,113,0.12)', color: 'var(--c-loss)' } : { background: 'rgba(245,158,11,0.12)', color: '#f59e0b' }}>
+            {dev.toFixed(1)}% past plan · {dev > MAX_DEVIATION_PCT ? 'breaks' : 'within'} your {MAX_DEVIATION_PCT}% rule
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5">
+        {c ? <>
+          {row('Price move', formatCurrency(c.grossPnl), c.grossPnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)')}
+          {row('Entry fee', `−${formatCurrency(c.entryFee)}`)}
+          {row('Exit fee', `−${formatCurrency(c.exitFee)}`)}
+          {row(c.hasActual ? 'Slippage (from broker P&L)' : 'Slippage', c.slippage == null ? '—' : `${c.slippage < 0 ? '+' : '−'}${formatCurrency(Math.abs(c.slippage))}`)}
+          {row('Planned risk', risk ? formatCurrency(risk) : '—')}
+        </> : (
+          <p className="text-xs leading-relaxed" style={{ color: 'var(--c-text-3)' }}>Fill in entry, exit and size to see the result, fees and R here as you type.</p>
+        )}
+      </div>
+
+      <div className="mt-auto pt-6 flex flex-col gap-2">
+        <button type="submit" disabled={saving}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all hover:brightness-110 active:scale-[0.99] disabled:opacity-60"
+          style={{ background: 'linear-gradient(135deg, var(--c-accent), var(--c-accent-2))', boxShadow: 'var(--c-shadow-btn)', color: 'var(--c-on-accent)' }}>
+          {saving ? 'Saving…' : editing ? 'Save changes' : 'Log trade'}
+        </button>
+        <button type="button" onClick={onCancel} className="w-full py-2 rounded-xl text-xs" style={{ color: 'var(--c-text-3)' }}>Cancel</button>
+      </div>
+    </aside>
   )
 }

@@ -22,6 +22,10 @@ import { Button } from '../../components/ui/Button'
 // EVENT_CATEGORIES replaced by persisted `categories` state in CalendarPage
 import { formatGBP, formatCurrency } from '../../lib/utils'
 import {
+  loadSessions, saveSessions as storeSessions, windowsForDate, localTz, hoursIn, zoneLabel, SESSION_ZONES, DEFAULT_SESSIONS,
+  type TradingSession,
+} from '../../lib/sessions'
+import {
   ChevronLeft, ChevronRight, Plus,
   TrendingUp, Dumbbell, Briefcase, DollarSign, CheckSquare,
   Clock, Target, Layers, AlarmClock, Settings2, Palette, Trash2,
@@ -51,7 +55,7 @@ const DEFAULT_CATEGORIES: CalCategory[] = [
   { value: 'trading',  label: 'Trading',   color: '#fbbf24', builtin: true },
   { value: 'focus',    label: 'Deep Work', color: '#22d3ee', builtin: true },
 ]
-function loadCategories(): CalCategory[] {
+export function loadCategories(): CalCategory[] {
   try {
     const raw = localStorage.getItem(CAT_KEY)
     if (!raw) return DEFAULT_CATEGORIES
@@ -66,7 +70,7 @@ function loadCategories(): CalCategory[] {
     return [...builtinsMerged, ...customs]
   } catch { return DEFAULT_CATEGORIES }
 }
-function saveCategories(cats: CalCategory[]) {
+export function saveCategories(cats: CalCategory[]) {
   localStorage.setItem(CAT_KEY, JSON.stringify(cats))
 }
 function catMap(cats: CalCategory[]): Record<string, string> {
@@ -117,32 +121,7 @@ function loadLayers() {
 }
 
 // ─── Trading sessions ─────────────────────────────────────────────────────────
-interface TradingSession { id: string; name: string; start: string; end: string; color: string; enabled: boolean }
-const SESSION_KEY = 'cal-trading-sessions'
-const DEFAULT_SESSIONS: TradingSession[] = [
-  { id: 'nyse',   name: 'NYSE',   start: '14:30', end: '21:00', color: '#818cf8', enabled: true },
-  { id: 'london', name: 'London', start: '08:00', end: '16:30', color: '#34d399', enabled: true },
-  { id: 'asia',   name: 'Asia',   start: '00:00', end: '09:00', color: '#fbbf24', enabled: true },
-]
-function loadSessions(): TradingSession[] {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY)
-    if (!raw) return DEFAULT_SESSIONS
-    const saved = JSON.parse(raw) as TradingSession[]
-    // Merge saved values over defaults so new fields always exist
-    return DEFAULT_SESSIONS.map(def => ({ ...def, ...(saved.find(s => s.id === def.id) ?? {}) }))
-  } catch { return DEFAULT_SESSIONS }
-}
-
-/** Convert "HH:MM" string to decimal hours. Returns null on invalid input. */
-function hhmm(t: string): number | null {
-  const parts = t.split(':')
-  if (parts.length < 2) return null
-  const h = parseInt(parts[0], 10)
-  const m = parseInt(parts[1], 10)
-  if (isNaN(h) || isNaN(m)) return null
-  return h + m / 60
-}
+// Defined in each exchange's own time zone (lib/sessions); DST is applied per day.
 
 // ─── CategoryConfigModal ──────────────────────────────────────────────────────
 const PRESET_COLORS = ['#818cf8','#a78bfa','#34d399','#22d3ee','#fbbf24','#fb923c','#f87171','#e879f9','#38bdf8','#a3e635','#fb7185','#c084fc']
@@ -151,7 +130,7 @@ function slugify(label: string): string {
   return label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 32) || `cat-${Date.now()}`
 }
 
-function CategoryConfigModal({
+export function CategoryConfigModal({
   open, onClose, categories, onSave,
 }: { open: boolean; onClose: () => void; categories: CalCategory[]; onSave: (cats: CalCategory[]) => void }) {
   const [local, setLocal] = useState<CalCategory[]>(categories)
@@ -251,7 +230,7 @@ function CategoryConfigModal({
 // ─── SessionConfigModal ───────────────────────────────────────────────────────
 const SESSION_PRESET_COLORS = PRESET_COLORS
 
-function SessionConfigModal({
+export function SessionConfigModal({
   open, onClose, sessions, onSave,
 }: { open: boolean; onClose: () => void; sessions: TradingSession[]; onSave: (s: TradingSession[]) => void }) {
   const [local, setLocal] = useState<TradingSession[]>(sessions)
@@ -273,8 +252,8 @@ function SessionConfigModal({
     <Modal open={open} onClose={onClose} title="Trading Sessions" size="sm">
       <div className="p-4 space-y-3">
         <p className="text-xs text-text-muted mb-1">
-          Session bands appear as coloured overlays in the time grid when the Plans layer is on.
-          Times are in your local timezone.
+          Each session is set in its exchange's own time, so daylight saving shifts on its own:
+          New York, London and Tokyo change on their own dates, and your calendar follows.
         </p>
         {local.map(s => {
           const meta = SESSION_META[s.id]
@@ -288,7 +267,7 @@ function SessionConfigModal({
                   <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: s.color }} />
                   <div>
                     <p className="text-sm font-bold text-text-primary">{s.name}</p>
-                    <p className="text-[11px] text-text-muted">{meta?.region}</p>
+                    <p className="text-[11px] text-text-muted">{meta?.region ?? zoneLabel(s.tz)}</p>
                   </div>
                 </div>
                 {/* Toggle */}
@@ -344,9 +323,9 @@ function SessionConfigModal({
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-text-muted block mb-1">Open</label>
                   <input
                     type="time"
-                    value={s.start}
+                    value={s.open}
                     disabled={!s.enabled}
-                    onChange={e => upd(s.id, 'start', e.target.value)}
+                    onChange={e => upd(s.id, 'open', e.target.value)}
                     className="w-full rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none transition-all disabled:opacity-35"
                     style={{ background: 'var(--c-bg-input)', border: `1px solid ${s.enabled ? s.color + '40' : 'var(--c-border-mid)'}` }}
                   />
@@ -356,13 +335,22 @@ function SessionConfigModal({
                   <label className="text-[10px] font-semibold uppercase tracking-wider text-text-muted block mb-1">Close</label>
                   <input
                     type="time"
-                    value={s.end}
+                    value={s.close}
                     disabled={!s.enabled}
-                    onChange={e => upd(s.id, 'end', e.target.value)}
+                    onChange={e => upd(s.id, 'close', e.target.value)}
                     className="w-full rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none transition-all disabled:opacity-35"
                     style={{ background: 'var(--c-bg-input)', border: `1px solid ${s.enabled ? s.color + '40' : 'var(--c-border-mid)'}` }}
                   />
                 </div>
+              </div>
+              <div className={`flex items-center gap-2 text-[11px] ${!s.enabled ? 'opacity-35' : ''}`}>
+                <span className="text-text-muted">Times are</span>
+                <select value={s.tz} disabled={!s.enabled} onChange={e => upd(s.id, 'tz', e.target.value)}
+                  className="rounded-md px-1.5 py-0.5 text-[11px] outline-none"
+                  style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}>
+                  {[...SESSION_ZONES, ...(SESSION_ZONES.some(z => z.tz === s.tz) ? [] : [{ tz: s.tz, label: zoneLabel(s.tz) }])].map(z => <option key={z.tz} value={z.tz}>{z.label} time</option>)}
+                </select>
+                {s.enabled && <span className="ml-auto num text-text-muted text-right" title="Today, with daylight saving applied">= {hoursIn(s, localTz())} your time · {hoursIn(s, 'UTC')} UTC</span>}
               </div>
               {s.enabled && meta?.desc && (
                 <p className="text-[10px] text-text-muted">{meta.desc}</p>
@@ -455,7 +443,7 @@ export function CalendarPage() {
 
   const saveSessions = (next: TradingSession[]) => {
     setSessions(next)
-    localStorage.setItem(SESSION_KEY, JSON.stringify(next))
+    storeSessions(next)
   }
   const saveCategories_ = (next: CalCategory[]) => {
     setCategories(next)
@@ -521,7 +509,7 @@ export function CalendarPage() {
   const dayMeetings = (allMeetings  as any[]).filter(n => n.meetingDate === selStr)
   const dayExpenses = (rangeExpenses as any[]).filter(e => e.date === selStr)
   const dayIncome   = (rangeIncome  as any[]).filter(i => i.date === selStr)
-  const dayPnl      = dayTrades.reduce((s: number, t: any) => s + (t.realizedPnl ?? 0), 0)
+  const dayPnl      = dayTrades.reduce((s: number, t: any) => s + (t.netPnl ?? t.realizedPnl ?? 0), 0)
   const timedItems  = useMemo(() =>
     (chkEntries as any[]).flatMap(e => (e.items ?? []).filter((it: any) => it.time)
       .map((it: any) => ({ ...it, entryId: e.id, templateName: e.template?.name ?? '' }))), [chkEntries])
@@ -738,13 +726,14 @@ export function CalendarPage() {
                     })}
 
                     {/* Trading session bands (Plans layer) */}
-                    {layers.plans && isWeekday(day) && sessions.filter(s => s.enabled).map(s => {
-                      const startH = hhmm(s.start)
-                      const endH   = hhmm(s.end)
-                      if (startH === null || endH === null) return null
-                      // Clamp to visible grid; handle overnight sessions (end < start)
-                      const visStart = Math.max(startH < endH ? startH : GRID_START, GRID_START)
-                      const visEnd   = Math.min(startH < endH ? endH   : GRID_END,   GRID_END)
+                    {layers.plans && isWeekday(day) && windowsForDate(sessions, dateStr).map(w => {
+                      const s = w.session
+                      // This day's real local hours: each exchange's DST applied for this date.
+                      const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()
+                      const startH = (w.start - dayStart) / 3_600_000
+                      const endH   = (w.end - dayStart) / 3_600_000
+                      const visStart = Math.max(startH, GRID_START)
+                      const visEnd   = Math.min(endH, GRID_END)
                       if (visStart >= visEnd) return null
                       const topPct = ((visStart - GRID_START) / HOURS_SHOWN) * 100
                       const hPct   = ((visEnd - visStart)     / HOURS_SHOWN) * 100
@@ -1064,7 +1053,7 @@ export function CalendarPage() {
                 {dayTrades.map((t: any) => (
                   <div key={t.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg" style={{ background: 'var(--c-bg-input)' }}>
                     <div><p className="text-xs font-medium text-text-primary">{t.asset}</p><p className="text-[11px] text-text-muted">{t.direction} · {t.instrument}</p></div>
-                    <span className="text-xs num font-semibold" style={{ color: pnlClr(t.realizedPnl??0) }}>{(t.realizedPnl??0)>=0?'+':''}{formatCurrency(t.realizedPnl??0)}</span>
+                    <span className="text-xs num font-semibold" style={{ color: pnlClr(t.netPnl??t.realizedPnl??0) }}>{(t.netPnl??t.realizedPnl??0)>=0?'+':''}{formatCurrency(t.netPnl??t.realizedPnl??0)}</span>
                   </div>
                 ))}
               </div>

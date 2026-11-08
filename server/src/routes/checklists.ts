@@ -3,15 +3,16 @@ import { db } from '../db'
 import { checklistTemplates, checklistTemplateItems, checklistEntries, checklistEntryItems } from '../db/schema'
 import { eq, and, isNull } from 'drizzle-orm'
 import { localDateStr } from '../lib/date'
+import { ensureDay, dayKey } from '../lib/day'
 
 const router = Router()
 
 // Templates
 router.get('/templates', async (_req, res, next) => {
   try {
-    const templates = await db.select().from(checklistTemplates)
-    const items = await db.select().from(checklistTemplateItems)
-    res.json(templates.map(t => ({ ...t, items: items.filter(i => i.templateId === t.id) })))
+    const templates = (await db.select().from(checklistTemplates)).filter(t => !t.archivedAt)
+    const items = (await db.select().from(checklistTemplateItems)).filter(i => !i.retiredAt)
+    res.json(templates.map(t => ({ ...t, items: items.filter(i => i.templateId === t.id).sort((a, b) => a.sortOrder - b.sortOrder) })))
   } catch (e) { next(e) }
 })
 
@@ -27,18 +28,56 @@ router.post('/templates', async (req, res, next) => {
   } catch (e) { next(e) }
 })
 
+// Saving a template updates its items in place. An item removed from the
+// template is retired, never deleted: past days still point at it, and
+// deleting it is what used to make every save fail once a day had been used.
 router.put('/templates/:id', async (req, res, next) => {
   try {
     const id = parseInt(req.params.id)
-    const [template] = await db.update(checklistTemplates).set(req.body).where(eq(checklistTemplates.id, id)).returning()
-    if (req.body.items !== undefined) {
-      await db.delete(checklistTemplateItems).where(eq(checklistTemplateItems.templateId, id))
-      if (req.body.items.length) {
-        await db.insert(checklistTemplateItems).values(
-          req.body.items.map((item: any, i: number) => ({ ...item, templateId: id, sortOrder: i }))
-        )
+    const { items, ...fields } = req.body ?? {}
+    const allowed = ['name', 'type', 'enabled', 'repeatDaily'] as const
+    const patch = Object.fromEntries(Object.entries(fields).filter(([k]) => (allowed as readonly string[]).includes(k)))
+
+    const template = db.transaction(tx => {
+      const [t] = Object.keys(patch).length
+        ? tx.update(checklistTemplates).set(patch).where(eq(checklistTemplates.id, id)).returning().all()
+        : tx.select().from(checklistTemplates).where(eq(checklistTemplates.id, id)).all()
+      if (!t) throw Object.assign(new Error('Template not found'), { status: 404 })
+
+      if (Array.isArray(items)) {
+        const current = tx.select().from(checklistTemplateItems).where(eq(checklistTemplateItems.templateId, id)).all()
+        const byId = new Map(current.map(c => [c.id, c]))
+        const kept = new Set<number>()
+        items.forEach((item: any, i: number) => {
+          const values = {
+            label: String(item.label ?? '').trim(),
+            time: item.time || null,
+            importance: item.importance || null,
+            repeatDaily: item.repeatDaily ?? 1,
+            sortOrder: i,
+            ...(item.windowMin != null ? { windowMin: Number(item.windowMin) } : {}),
+            ...(item.schedule !== undefined ? { schedule: item.schedule || null } : {}),
+            ...(item.points !== undefined ? { points: item.points == null || item.points === '' ? null : Number(item.points) } : {}),
+            retiredAt: null,
+          }
+          if (item.id && byId.has(item.id)) {
+            tx.update(checklistTemplateItems).set(values).where(eq(checklistTemplateItems.id, item.id)).run()
+            kept.add(item.id)
+          } else {
+            tx.insert(checklistTemplateItems).values({ ...values, templateId: id }).run()
+          }
+        })
+        const now = new Date().toISOString()
+        for (const c of current) {
+          if (!kept.has(c.id) && !c.retiredAt) {
+            tx.update(checklistTemplateItems).set({ retiredAt: now }).where(eq(checklistTemplateItems.id, c.id)).run()
+          }
+        }
       }
-    }
+      return t
+    })
+
+    await ensureDay(dayKey())   // today's list picks up the change straight away
     res.json(template)
   } catch (e) { next(e) }
 })

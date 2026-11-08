@@ -36,6 +36,19 @@ export interface Trade {
   isCompounded?: number
   entries?: { price: number; size: number; sl?: number }[]
   takeProfits?: { price: number; size: number }[]
+  source?: 'manual' | 'bybit'
+  externalId?: string | null
+  closedAt?: string | null
+  /** What the position would have lost at its first stop, fees included (Bybit) */
+  riskAtStop?: number | null
+  /** Who set riskDollars (the planned risk): 'user' or 'bybit' */
+  riskSource?: 'user' | 'bybit' | null
+  /** 1 = no journal info available from the time; not counted as needing info */
+  infoUnavailable?: number
+  /** When the review was finished; null = waiting in the review queue */
+  reviewedAt?: string | null
+  /** When the first stop was placed (UTC ISO, Bybit) */
+  stopPlacedAt?: string | null
   createdAt: string
   updatedAt: string
   screenshots?: { id: number; filePath: string; note?: string; sortOrder: number }[]

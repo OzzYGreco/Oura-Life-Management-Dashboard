@@ -22,3 +22,12 @@ server/uploads/*
 *.db
 *.db-shm
 *.db-wal
+
+# Always-on agent logs
+server/logs/
+
+# Built native helpers (rebuild with native/notifier/build.sh)
+native/notifier/build/
+
+# Early design drafts (built from real client data)
+design/drafts/

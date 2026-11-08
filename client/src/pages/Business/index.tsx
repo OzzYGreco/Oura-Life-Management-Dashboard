@@ -5,6 +5,8 @@ import { PageShell } from '../../components/layout/PageShell'
 import { Tabs } from '../../components/ui/Tabs'
 import { CurrencySelector } from '../../components/ui/CurrencySelector'
 import { ConversionBanner } from '../../components/ui/ConversionBanner'
+import { useIsNext } from '../../skins/isNext'
+import { useViewCurrency, type ViewCurrency } from '../../hooks/useViewCurrency'
 import { useFmtView } from '../../hooks/useFmtView'
 import { useFinanceSettings } from '../../hooks/useFinanceSettings'
 import { useFinanceExpenses } from '../../hooks/useFinances'
@@ -53,6 +55,7 @@ const VIEW_PATH: Record<InvoicesView, string> = { ledger: 'invoices', payments: 
  * every row action hidden behind a hover.
  */
 export function BusinessPage() {
+  const nx = useIsNext()
   // Where you are is the address, not memory: /business/clients/12, and Back,
   // Forward and refresh all land on the same view with the same filters.
   const { pathname } = useLocation()
@@ -135,8 +138,10 @@ export function BusinessPage() {
             onOpenClient={openClient}
             onOpenInvoice={invoiceId => setInvoiceModal({ open: true, invoiceId })}
           />
-          <CurrencySelector pageKey="business" defaultCurrency="GBP" />
-          <Tabs tabs={TABS} active={tab} onChange={t => setTab(t as Tab)} />
+          {nx ? <QuietCurrency /> : <CurrencySelector pageKey="business" defaultCurrency="GBP" />}
+          {nx
+            ? <div className="tr-seg">{TABS.map(t => <button key={t.id} type="button" className={tab === t.id ? 'on' : ''} aria-pressed={tab === t.id} onClick={() => setTab(t.id as Tab)}>{t.label}</button>)}</div>
+            : <Tabs tabs={TABS} active={tab} onChange={t => setTab(t as Tab)} />}
           <NewMenu
             onNewWork={() => setNewWork(true)}
             onRecordPayment={() => setRecordPayment({ open: true, client: null })}
@@ -148,6 +153,7 @@ export function BusinessPage() {
       }
     >
       <ConversionBanner native="GBP" pageKey="business" />
+      <div className={nx ? 'bz' : undefined}>
 
       {tab === 'overview' && (
         <Overview
@@ -285,6 +291,7 @@ export function BusinessPage() {
         monthlyCosts={monthlyCosts}
         fmtView={fmtView}
       />
+      </div>
     </PageShell>
   )
 }
@@ -298,6 +305,7 @@ function NewMenu({
 }: Record<'onNewWork' | 'onRecordPayment' | 'onAddCost' | 'onLogAdSpend' | 'onRecordDraw', () => void>) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const nx = useIsNext()
 
   useEffect(() => {
     if (!open) return
@@ -321,8 +329,9 @@ function NewMenu({
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white"
-        style={{ background: 'linear-gradient(135deg,#6366f1,#a78bfa)', boxShadow: '0 2px 10px rgba(99,102,241,0.3)' }}
+        aria-expanded={open}
+        className={nx ? 'nx-btn tr-primary' : 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white'}
+        style={nx ? undefined : { background: 'linear-gradient(135deg,#6366f1,#a78bfa)', boxShadow: '0 2px 10px rgba(99,102,241,0.3)' }}
       >
         <Plus size={14} /> New <ChevronDown size={12} />
       </button>
@@ -354,3 +363,14 @@ function NewMenu({
 }
 
 export default BusinessPage
+
+/** The redesign's currency switch: three quiet symbols, GBP first for the business. */
+function QuietCurrency() {
+  const { viewCurrency, setViewCurrency } = useViewCurrency('business', 'GBP')
+  const opts: { v: ViewCurrency; s: string }[] = [{ v: 'GBP', s: '£' }, { v: 'USD', s: '$' }, { v: 'EUR', s: '€' }]
+  return (
+    <div className="nx-cur" role="radiogroup" aria-label="Show amounts in">
+      {opts.map(o => <button key={o.v} type="button" role="radio" aria-checked={viewCurrency === o.v} aria-label={o.v} className={viewCurrency === o.v ? 'on' : ''} onClick={() => setViewCurrency(o.v)}>{o.s}</button>)}
+    </div>
+  )
+}

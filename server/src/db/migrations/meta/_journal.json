@@ -106,6 +106,83 @@
       "when": 1793491200000,
       "tag": "0014_business_growth",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1793577600000,
+      "tag": "0015_bybit_sync",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793664000000,
+      "tag": "0016_planned_risk",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793750400000,
+      "tag": "0017_info_unavailable",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793836800000,
+      "tag": "0018_review_and_setups",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793923200000,
+      "tag": "0019_loss_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1794009600000,
+      "tag": "0020_balance_as_of",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1794096000000,
+      "tag": "0021_trade_excursions",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1794182400000,
+      "tag": "0022_today",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1794268800000,
+      "tag": "0023_routine_archive",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794355200000,
+      "tag": "0024_goal_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1794441600000,
+      "tag": "0025_finance_budgets",
+      "breakpoints": true
     }
   ]
 }

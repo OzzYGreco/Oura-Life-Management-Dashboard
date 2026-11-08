@@ -1,0 +1,120 @@
+/* Goal crushers (Week page), Whoop skin: horizons, settings, threshold markers,
+   past-periods list, typed scores and period dates. Builds on whoop.css. */
+
+/* ─── Horizon switch + rule + gear ─────────────────────── */
+.wk-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.wk-hz { display: inline-flex; gap: 4px; padding: 3px; border-radius: 12px; background: rgb(var(--k-fg) / .04); border: 1px solid var(--k-line); }
+.wk-hz button { height: 32px; padding: 0 16px; border-radius: 9px; font-size: 13.5px; color: var(--k-mute); transition: background .12s, color .12s; }
+.wk-hz button:hover { color: var(--k-ink2); }
+.wk-hz button.on { background: rgb(var(--k-fg) / .09); color: var(--k-ink); }
+.wk-rule { font-size: 13px; color: var(--k-mute); }
+.wk-rule b { font-weight: 500; color: var(--k-ink2); }
+.wk-gear { margin-left: auto; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--k-line2); color: var(--k-mute); display: grid; place-items: center; transition: color .12s, background .12s; }
+.wk-gear:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); }
+
+/* ─── Record: view toggle, threshold marker on tiles ───── */
+.wk-record { grid-template-columns: auto minmax(0, 1fr) auto; }
+.wk-record.list { row-gap: 16px; }
+.wk-view { display: inline-flex; flex-direction: column; gap: 4px; padding: 3px; border-radius: 11px; background: rgb(var(--k-fg) / .04); border: 1px solid var(--k-line); align-self: center; }
+.wk-view button { width: 28px; height: 26px; border-radius: 8px; display: grid; place-items: center; color: var(--k-faint); }
+.wk-view button:hover { color: var(--k-ink2); }
+.wk-view button.on { background: rgb(var(--k-fg) / .09); color: var(--k-ink); }
+.wk-none { font-size: 13px; color: var(--k-mute); align-self: center; padding: 0 4px; }
+
+.wk-record .tile .sc { position: relative; overflow: hidden; }
+.wk-record .tile .sc em { position: relative; font-style: normal; }
+.wk-record .tile .sc .lvl { position: absolute; left: 0; right: 0; bottom: 0; background: currentColor; opacity: .14; pointer-events: none; }
+.wk-record .tile.cur .sc .lvl { opacity: .1; }
+.wk-record .tile .sc .th { position: absolute; left: 3px; right: 3px; height: 0; border-top: 1px dashed rgba(236,239,244,.45); pointer-events: none; }
+.wk-record .tile .wk { white-space: nowrap; }
+
+/* ─── Past periods as a list ───────────────────────────── */
+.wk-list { grid-column: 1 / -1; border-top: 1px solid var(--k-line); padding-top: 12px; }
+.wk-list-hd { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.wk-rows { max-height: 440px; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
+.wk-row { border-top: 1px solid var(--k-line); }
+.wk-row:first-child { border-top: 0; }
+.wk-row .hd { width: 100%; display: grid; grid-template-columns: 14px 64px 150px minmax(0, 1fr) 96px 190px; gap: 12px; align-items: center; min-height: 44px; text-align: left; color: var(--k-ink); border-radius: 10px; padding: 0 8px; }
+.wk-row .hd:hover { background: rgb(var(--k-fg) / .03); }
+.wk-row.on .hd { background: rgb(var(--k-fg) / .05); }
+.wk-row .chev { color: var(--k-faint); transition: transform .15s; }
+.wk-row.open .chev { transform: rotate(90deg); color: var(--k-ink2); }
+.wk-row .lb { font-size: 13px; color: var(--k-ink2); }
+.wk-row .rg { font-size: 13px; color: var(--k-mute); white-space: nowrap; }
+.wk-row .fc { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-row .sc { text-align: right; font-size: 15px; font-weight: 500; }
+.wk-row .sc i { font-style: normal; font-weight: 400; font-size: 12.5px; color: var(--k-mute); }
+.wk-row .st { justify-self: end; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--k-line2); color: var(--k-mute); white-space: nowrap; }
+.wk-row .st.good { color: var(--k-good); background: var(--k-good-d); border-color: rgba(111,211,160,.3); }
+.wk-row .st.bad { color: var(--k-bad); background: var(--k-bad-d); border-color: rgba(236,124,110,.3); }
+.wk-row .bd { padding: 4px 8px 14px 34px; }
+.wk-row .bd .tk { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; border-top: 1px solid var(--k-line); font-size: 13.5px; color: var(--k-ink2); }
+.wk-row .bd .tk:first-child { border-top: 0; }
+.wk-row .bd .tk b { font-weight: 500; white-space: nowrap; }
+.wk-row .bd .tk b i { font-style: normal; font-weight: 400; color: var(--k-mute); font-size: 12.5px; }
+.wk-row .bd .rw { margin: 6px 0 2px; font-size: 13px; color: var(--k-good); }
+.wk-row .bd .wh-chase { margin-top: 10px; }
+
+/* ─── Scorecard: threshold marker, plain answer, actions ─ */
+.wk-prog { position: relative; }
+.wk-prog .prog { margin-bottom: 10px; }
+.wk-th { position: absolute; top: 17px; width: 2px; height: 18px; margin-left: -1px; border-radius: 2px; background: var(--k-ink2); pointer-events: auto; }
+.wk-th.hit { background: var(--k-good); }
+.wk-answer { margin: 14px 0 0; font-size: 14px; }
+
+.wh-sc .acts { flex-wrap: wrap; row-gap: 10px; }
+.wh-sc .acts .wh-chase:disabled { opacity: .45; cursor: default; }
+.wk-sp { flex: 1; }
+.wk-del { height: 26px; padding: 0 12px; border-radius: 999px; font-size: 12.5px; color: var(--k-mute); border: 1px solid transparent; }
+.wk-del:hover { color: var(--k-bad); border-color: rgba(236,124,110,.35); }
+.wk-del.on { color: var(--k-bad); background: var(--k-bad-d); border-color: rgba(236,124,110,.4); }
+.wk-del:disabled { opacity: .5; cursor: default; }
+.wk-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--k-ink2); }
+.wk-err { font-size: 13px; color: var(--k-bad); }
+.wk-closed { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: rgb(var(--k-fg) / .035); border: 1px solid var(--k-line2); font-size: 14px; color: var(--k-ink2); }
+.wk-closed b { font-weight: 500; color: var(--k-ink); }
+
+/* Typed score: the number is a button, and turns into an input */
+.wh-sc .tr .seg .wk-val { min-width: 56px; height: 30px; padding: 0 6px; border-radius: 8px; text-align: right; font-size: 17px; font-weight: 500; border: 1px solid transparent; cursor: text; }
+.wh-sc .tr .seg .wk-val:hover { border-color: var(--k-line2); }
+.wh-sc .tr .seg .wk-typed { width: 56px; height: 30px; border-radius: 8px; background: rgb(var(--k-fg) / .05); border: 1px solid rgba(236,239,244,.4); color: var(--k-ink); font-size: 16px; font-weight: 500; text-align: right; padding: 0 6px; outline: none; -moz-appearance: textfield; }
+.wh-sc .tr .seg .wk-typed::-webkit-outer-spin-button, .wh-sc .tr .seg .wk-typed::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.wh-sc .tr { grid-template-columns: minmax(0, 1fr) 80px 256px; }
+
+/* ─── Composer: dates and typed points ─────────────────── */
+.wk-sheet .wk-dates { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.wk-sheet .wk-dates label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--k-mute); }
+.wk-sheet .wk-dates .in { width: 180px; color-scheme: dark; }
+.wk-sheet .wk-dates .lnk { margin-bottom: 11px; }
+.wk-sheet .p { grid-template-columns: minmax(0, 1fr) 150px 140px 28px; }
+.wk-sheet .pts input { width: 52px; height: 28px; border-radius: 8px; background: rgb(var(--k-fg) / .04); border: 1px solid var(--k-line2); color: var(--k-ink); font-size: 14px; font-weight: 500; text-align: center; outline: none; }
+.wk-sheet .pts input:focus { border-color: rgba(236,239,244,.4); }
+
+/* ─── Settings sheet ───────────────────────────────────── */
+.wk-settings { width: 600px; }
+.wk-set { margin-top: 18px; }
+.wk-set .r { display: grid; grid-template-columns: 90px repeat(3, minmax(0, 1fr)); gap: 10px; align-items: center; min-height: 48px; border-top: 1px solid var(--k-line); }
+.wk-set .r.th { min-height: 30px; border-top: 0; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--k-faint); }
+.wk-set .r .h { font-size: 14px; color: var(--k-ink); }
+.wk-set .r .in { height: 36px; text-align: right; }
+
+@media (max-width: 1100px) {
+  .wk-row .hd { grid-template-columns: 14px 56px minmax(0, 1fr) 88px; }
+  .wk-row .rg, .wk-row .st { display: none; }
+  .wk-rule { display: none; }
+}
+
+/* ─── Up the chain: what each goal serves, and the alignment meter ─── */
+.wk-sheet .p .up { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin: -6px 0 10px; font-size: 12px; color: var(--k-mute); }
+.wk-sheet .p .up select { height: 28px; max-width: 100%; min-width: 0; flex: 0 1 auto; font-size: 12.5px; }
+.wk-sheet .p .up.free select { color: var(--k-mute); }
+.wk-sheet .align { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: rgb(var(--k-fg) / .03); font-size: 13px; color: var(--k-ink2); }
+.wk-sheet .align .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.wk-sheet .align .row b { color: var(--k-ink); font-weight: 600; }
+.wk-sheet .align .note { color: var(--k-mute); font-size: 12.5px; }
+.wk-sheet .align.over .note { color: var(--k-warn); }
+.wk-sheet .align .bar { position: relative; height: 6px; margin-top: 10px; border-radius: 3px; background: rgb(var(--k-fg) / .06); }
+.wk-sheet .align .bar b { display: block; height: 100%; border-radius: 3px; background: var(--k-good); transition: width .3s cubic-bezier(.2, 0, 0, 1); }
+.wk-sheet .align.over .bar b { background: var(--k-warn); }
+.wk-sheet .align .bar i { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--k-faint); }
+.wk-sheet .align.empty { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--k-mute); }

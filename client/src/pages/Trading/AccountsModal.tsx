@@ -22,16 +22,29 @@ type AccountFormState = {
   broker: string
   currency: string
   startingBalance: string
+  startingBalanceAt: string   // ISO; set to "now" when the balance changes
+  fullRisk: string
   notes: string
+  maxLossDay: string
+  maxLossWeek: string
+  maxLossMonth: string
+  lossLimitUnit: 'R' | 'USD'
 }
 
-const emptyForm = (): AccountFormState => ({ name: '', broker: '', currency: 'USD', startingBalance: '', notes: '' })
+const emptyForm = (): AccountFormState => ({ name: '', broker: '', currency: 'USD', startingBalance: '', startingBalanceAt: '', fullRisk: '', notes: '', maxLossDay: '', maxLossWeek: '', maxLossMonth: '', lossLimitUnit: 'R' })
+const str = (n: number | null | undefined) => (n != null ? String(n) : '')
 const toForm = (a: TradingAccount): AccountFormState => ({
   name:            a.name,
   broker:          a.broker ?? '',
   currency:        a.currency,
   startingBalance: a.startingBalance != null ? String(a.startingBalance) : '',
+  startingBalanceAt: a.startingBalanceAt ?? '',
+  fullRisk:        a.fullRisk != null ? String(a.fullRisk) : '',
   notes:           a.notes ?? '',
+  maxLossDay:      str(a.maxLossDay),
+  maxLossWeek:     str(a.maxLossWeek),
+  maxLossMonth:    str(a.maxLossMonth),
+  lossLimitUnit:   a.lossLimitUnit ?? 'R',
 })
 
 const CURRENCIES = ['USD', 'GBP', 'EUR', 'AUD', 'CAD', 'JPY']
@@ -84,7 +97,13 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
       broker:          form.broker.trim() || null,
       currency:        form.currency,
       startingBalance: form.startingBalance !== '' ? Number(form.startingBalance) : null,
+      startingBalanceAt: form.startingBalance === '' ? null : form.startingBalanceAt || new Date().toISOString(),
+      fullRisk:        form.fullRisk !== '' ? Number(form.fullRisk) : null,
       notes:           form.notes.trim() || null,
+      maxLossDay:      form.maxLossDay,
+      maxLossWeek:     form.maxLossWeek,
+      maxLossMonth:    form.maxLossMonth,
+      lossLimitUnit:   form.lossLimitUnit,
     }
     if (editingId != null) {
       await update.mutateAsync({ id: editingId, ...payload })
@@ -149,7 +168,16 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
           </select>
         </div>
         <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-semibold uppercase tracking-widest" style={labelStyle}>Starting Balance</label>
+          <label className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1.5" style={labelStyle}
+            title="What the account held at a point in time. Its balance is this plus every trade closed after it.">
+            Balance
+            <span className="normal-case tracking-normal font-normal">
+              as of{' '}
+              <input type="date" value={form.startingBalanceAt.slice(0, 10)}
+                onChange={e => setField('startingBalanceAt', e.target.value ? `${e.target.value}T00:00:00.000Z` : '')}
+                className="bg-transparent outline-none num" style={{ color: 'var(--c-text-2)', colorScheme: 'dark' }} />
+            </span>
+          </label>
           <input
             type="number"
             step="any"
@@ -157,10 +185,51 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
             style={inputStyle}
             placeholder="e.g. 10000"
             value={form.startingBalance}
-            onChange={e => setField('startingBalance', e.target.value)}
+            onChange={e => setForm(f => ({ ...f, startingBalance: e.target.value, startingBalanceAt: new Date().toISOString() }))}
             onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
             onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
           />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-widest" style={labelStyle} title="Your full-size risk per trade. Trades get ½R / 1R / 1.5R / 2R buttons from it.">Full risk (1R)</label>
+          <input
+            type="number"
+            step="any"
+            className={inputClass}
+            style={inputStyle}
+            placeholder="e.g. 7"
+            value={form.fullRisk}
+            onChange={e => setField('fullRisk', e.target.value)}
+            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
+            onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] font-semibold uppercase tracking-widest" style={labelStyle}
+            title="The most this account may lose in a day, a week (Mon–Sun, UTC) or a calendar month. The trading page warns you as you get close and tells you to stop when you hit one.">
+            Max loss
+          </label>
+          <div className="flex rounded-md overflow-hidden text-[10px] font-semibold" style={{ border: '1px solid var(--c-border-mid)' }}>
+            {(['R', 'USD'] as const).map(u => (
+              <button key={u} type="button" onClick={() => setForm(f => ({ ...f, lossLimitUnit: u }))} className="px-2 py-0.5"
+                style={{ background: form.lossLimitUnit === u ? 'var(--c-accent)' : 'transparent', color: form.lossLimitUnit === u ? 'var(--c-on-accent)' : 'var(--c-text-3)' }}>
+                {u === 'R' ? 'in R' : 'in $'}
+              </button>
+            ))}
+          </div>
+          {form.lossLimitUnit === 'R' && !form.fullRisk && <span className="text-[10px]" style={{ color: '#f59e0b' }}>needs Full risk (1R) set</span>}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {([['maxLossDay', 'Day'], ['maxLossWeek', 'Week'], ['maxLossMonth', 'Month']] as const).map(([k, l]) => (
+            <div key={k} className="relative">
+              <input type="number" step="any" min="0" className={inputClass + ' pl-14'} style={inputStyle}
+                placeholder={form.lossLimitUnit === 'R' ? 'e.g. 3' : 'e.g. 100'} value={form[k]} onChange={e => setField(k, e.target.value)} />
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px]" style={{ color: 'var(--c-text-3)' }}>{l}</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px]" style={{ color: 'var(--c-text-3)' }}>{form.lossLimitUnit === 'R' ? 'R' : '$'}</span>
+            </div>
+          ))}
         </div>
       </div>
       <div className="flex flex-col gap-1.5">

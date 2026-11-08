@@ -7,21 +7,21 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const baseStyles: Record<string, React.CSSProperties> = {
-  primary:   { background: 'linear-gradient(135deg, #6366f1 0%, #a78bfa 100%)', color: '#fff', boxShadow: 'var(--c-shadow-btn)' },
+  primary:   { background: 'var(--c-accent)', color: 'var(--c-on-accent)', boxShadow: 'var(--c-shadow-btn)', filter: 'none' },
   secondary: { background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' },
   ghost:     { background: 'transparent', color: 'var(--c-text-2)' },
-  danger:    { background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' },
-  good:      { background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', color: '#34d399' },
-  warn:      { background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', color: '#f59e0b' },
+  danger:    { background: 'color-mix(in srgb, var(--c-loss) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--c-loss) 28%, transparent)', color: 'var(--c-loss)' },
+  good:      { background: 'color-mix(in srgb, var(--c-profit) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--c-profit) 28%, transparent)', color: 'var(--c-profit)' },
+  warn:      { background: 'color-mix(in srgb, var(--c-warn) 9%, transparent)', border: '1px solid color-mix(in srgb, var(--c-warn) 30%, transparent)', color: 'var(--c-warn)' },
 }
 
 const hoverStyles: Record<string, React.CSSProperties> = {
-  primary:   { boxShadow: '0 6px 20px rgba(99,102,241,0.4), inset 0 1px 0 rgba(255,255,255,0.2)' },
+  primary:   { filter: 'brightness(1.08)' },
   secondary: { background: 'var(--c-bg-hover)', borderColor: 'var(--c-border-strong)' },
   ghost:     { background: 'var(--c-bg-hover)', color: 'var(--c-text-1)' },
-  danger:    { background: 'rgba(239,68,68,0.14)' },
-  good:      { background: 'rgba(52,211,153,0.15)' },
-  warn:      { background: 'rgba(245,158,11,0.15)' },
+  danger:    { background: 'color-mix(in srgb, var(--c-loss) 15%, transparent)' },
+  good:      { background: 'color-mix(in srgb, var(--c-profit) 15%, transparent)' },
+  warn:      { background: 'color-mix(in srgb, var(--c-warn) 15%, transparent)' },
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

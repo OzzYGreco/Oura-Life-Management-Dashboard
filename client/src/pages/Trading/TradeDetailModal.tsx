@@ -7,6 +7,7 @@ import { formatDate, fmtSize, fmtPrice } from '../../lib/utils'
 import { useFmtView } from '../../hooks/useFmtView'
 import { type Trade } from '../../hooks/useTrades'
 import { MISTAKES } from '../../lib/constants'
+import { RiskPlanner } from './RiskPlanner'
 import { Edit, Layers, X, ChevronLeft, ChevronRight } from 'lucide-react'
 
 // ── Screenshot lightbox ───────────────────────────────────────────────────────
@@ -170,7 +171,13 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
   return (
     <Modal open onClose={onClose} title={
       <span className="flex items-center gap-2">
-        {trade.asset} · {formatDate(trade.date)}
+        {trade.asset} · {formatDate(trade.date)}{trade.time ? ` · ${trade.time} UTC` : ''}
+        {trade.infoUnavailable ? (
+          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md" style={{ background: 'var(--c-bg-input)', color: 'var(--c-text-3)', border: '1px solid var(--c-border)' }}
+            title="No notes or charts from the time, so setup, rules and mistakes stay empty. Not counted as needing info.">
+            No info from the time
+          </span>
+        ) : null}
         {isCompounded && (
           <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md"
             style={{ background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.3)', color: '#fbbf24' }}>
@@ -282,6 +289,8 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
           </div>
         )}
 
+        <RiskPlanner trade={trade} />
+
         {/* ── Trade details grid ────────────────────────────────────── */}
         <div>
           {!isCompounded && <SectionLabel>Details</SectionLabel>}
@@ -297,7 +306,7 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
                 ? `${fmtPrice(trade.exitPrice)} (avg)`
                 : fmtPrice(trade.exitPrice)],
               ['Size', isCompounded ? `${fmtSize(trade.size, trade.instrument)} (total)` : fmtSize(trade.size, trade.instrument)],
-              ['Risk $', fmtView(trade.riskDollars)],
+              ['Planned risk', fmtView(trade.riskDollars)],
               ['Expected Loss', fmtView(trade.expectedLoss)],
               ...(trade.netPnl != null ? [['Net P&L', fmtView(trade.netPnl)]] : []),
             ].map(([k, v]) => (
@@ -329,8 +338,9 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
               {trade.fundingFeeAmount != null && (
                 <div className="bg-bg-secondary rounded p-2 text-center">
                   <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Funding Fee</div>
-                  <div className="num" style={{ color: trade.fundingFeeAmount < 0 ? 'var(--c-loss)' : 'var(--c-profit)' }}>
-                    {trade.fundingFeeAmount < 0 ? '-' : '+'}{fmt(Math.abs(trade.fundingFeeAmount))}
+                  {/* Same sign as the other fees: positive = paid, negative = received */}
+                  <div className="num" style={{ color: trade.fundingFeeAmount > 0 ? 'var(--c-loss)' : trade.fundingFeeAmount < 0 ? 'var(--c-profit)' : undefined }}>
+                    {trade.fundingFeeAmount > 0 ? '-' : trade.fundingFeeAmount < 0 ? '+' : ''}{fmt(Math.abs(trade.fundingFeeAmount))}
                   </div>
                 </div>
               )}

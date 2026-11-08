@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { HEX } from '../../../lib/chartTheme'
 import { useUrlState } from '../lib/useUrlState'
 import { Search } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
@@ -7,7 +8,7 @@ import { Sparkline } from '../../../components/ui/Sparkline'
 import { Question } from '../components/MoneySections'
 import { SplitBar, hoverCard, SERIES } from '../components/charts'
 import { Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow } from '../components/primitives'
-import { useClientRows } from '../../../hooks/useBusiness'
+import { useBusinessMetrics, useClientRows } from '../../../hooks/useBusiness'
 import type { ClientRow } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
 
@@ -23,6 +24,9 @@ export function Clients({
   onNewClient: () => void
 }) {
   const { data: rows = [], isPending } = useClientRows()
+  // Churn and lifetime: already worked out by the metrics, over the last 12 months.
+  const { data: metrics } = useBusinessMetrics()
+  const churn = metrics?.churn
   const [q, setQ] = useUrlState('q', '')
   // Clients who left are history, not the working list.
   const [status, setStatus] = useUrlState<(typeof STATUSES)[number]>('status', 'active')
@@ -79,7 +83,10 @@ export function Clients({
       answer={payers.total > 0
         ? <>{payers.count} client{payers.count === 1 ? '' : 's'} pay <b className="num" style={{ color: 'var(--c-accent)' }}>{fmtView(payers.total)}/mo</b>.
           {payers.count > 3 ? <> The top three bring {Math.round(payers.topShare)}% of it.</> : null}
-          {payers.owing.length ? <> {payers.owing.length} owe{payers.owing.length === 1 ? 's' : ''} you money.</> : <> Nobody owes you anything.</>}</>
+          {payers.owing.length ? <> {payers.owing.length} owe{payers.owing.length === 1 ? 's' : ''} you money.</> : <> Nobody owes you anything.</>}
+          {churn && <> {churn.cancelledCount ? `${churn.cancelledCount} retainer${churn.cancelledCount === 1 ? '' : 's'} ended in the last 12 months` : 'No retainer ended in the last 12 months'}
+            {churn.logoChurnPct > 0 ? ` (${churn.logoChurnPct.toFixed(1)}% churn, ${churn.revenueChurnPct.toFixed(1)}% of revenue)` : ''}
+            {churn.avgLifetimeMonths != null ? `; at that rate a client stays about ${Math.round(churn.avgLifetimeMonths)} months` : ''}.</>}</>
         : 'Nobody pays monthly yet.'}>
       {payers.parts.length > 0 && (
         <div className={`rounded-xl p-4 ${hoverCard}`} style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
@@ -193,7 +200,7 @@ function ClientTableRow({ r, fmtView, onOpen }: { r: ClientRow; fmtView: FmtView
       </Td>
       <Td align="right">
         <div className="w-20 ml-auto">
-          <Sparkline points={r.spark} color={r.mrr ? '#818cf8' : '#4b4b6b'} height={20} />
+          <Sparkline points={r.spark} color={r.mrr ? HEX.accent : '#4b4b6b'} height={20} />
         </div>
       </Td>
       <Td align="right"><MiniBtn onClick={onOpen}>Open</MiniBtn></Td>

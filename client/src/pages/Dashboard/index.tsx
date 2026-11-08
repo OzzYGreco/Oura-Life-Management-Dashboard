@@ -1,599 +1,289 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ChevronRight, CandlestickChart, ListChecks, Briefcase, Target, Check } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useDashboardSummary } from '../../hooks/useDashboard'
 import { useToggleChecklistItem } from '../../hooks/useChecklists'
 import { PageShell } from '../../components/layout/PageShell'
 import { PageLoader } from '../../components/ui/Spinner'
 import { CurrencySelector } from '../../components/ui/CurrencySelector'
-import { ConversionBanner } from '../../components/ui/ConversionBanner'
-import { formatDate, pnlColor, today } from '../../lib/utils'
-import { useFmtView } from '../../hooks/useFmtView'
-import {
-  TrendingUp, CheckSquare, Target, Briefcase,
-  Dumbbell, Flame, CalendarDays, Clock, ArrowRight,
-} from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, Cell, ReferenceLine,
-} from 'recharts'
+import { useFmtView, type FmtView } from '../../hooks/useFmtView'
+import { today } from '../../lib/utils'
 
-// ─── Tiny helpers ─────────────────────────────────────────────────────────────
+// ─── Types (shape of /api/dashboard/summary) ─────────────────────────────────
 
-function NavLink({ label, to }: { label: string; to: string }) {
+type Trade = { id: number; asset: string; direction: string; realizedPnl?: number; rrRatio?: number }
+type Item  = { entryId: number; itemId: number; title: string; completed: boolean; time?: string }
+type Day   = { date: string; label: string; pnl: number }
+
+// ─── Small helpers ───────────────────────────────────────────────────────────
+
+const tone = (n: number) => (n > 0 ? 'var(--c-profit)' : n < 0 ? 'var(--c-loss)' : 'var(--c-text-2)')
+const signed = (fmt: FmtView, n: number, cur?: string) => (n > 0 ? '+' : '') + fmt(n, cur)
+const r = (n: number) => `${n > 0 ? '+' : ''}${n.toFixed(2)}R`
+
+/** "09:15AM" / "13:30PM" / "01:45AM" → minutes after the day starts (04:00). */
+function minutesOf(t?: string): number | null {
+  const m = t?.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i)
+  if (!m) return null
+  let h = Number(m[1])
+  const ampm = m[3]?.toUpperCase()
+  if (ampm === 'PM' && h < 12) h += 12
+  if (ampm === 'AM' && h === 12) h = 0
+  const mins = h * 60 + Number(m[2])
+  return mins < 4 * 60 ? mins + 24 * 60 : mins   // after midnight still belongs to today
+}
+const clock = (mins: number) => {
+  const m = mins % (24 * 60)
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+const nowMinutes = () => {
+  const d = new Date()
+  const m = d.getHours() * 60 + d.getMinutes()
+  return m < 4 * 60 ? m + 24 * 60 : m
+}
+
+// ─── Building blocks ─────────────────────────────────────────────────────────
+
+function Section({ icon: Icon, title, to, summary, children, className = '' }: {
+  icon: LucideIcon; title: string; to: string; summary?: React.ReactNode
+  children: React.ReactNode; className?: string
+}) {
   const nav = useNavigate()
   return (
-    <button onClick={() => nav(to)}
-      className="flex items-center gap-1 text-[11px] font-medium transition-colors"
-      style={{ color: 'var(--c-text-3)' }}
-      onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--c-accent)'}
-      onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)'}>
-      {label} <ArrowRight size={10} />
-    </button>
+    <section className={`rounded-[12px] p-4 flex flex-col ${className}`}
+      style={{ background: 'var(--c-bg-card)', boxShadow: 'var(--c-shadow-card)' }}>
+      <button onClick={() => nav(to)}
+        className="group flex items-center gap-1.5 self-start -ml-1 px-1 h-6 rounded-[5px] hover:bg-[var(--c-bg-hover)] transition-colors">
+        <Icon size={15} strokeWidth={1.75} style={{ color: 'var(--c-accent)' }} aria-hidden />
+        <span className="text-[13px] font-semibold" style={{ color: 'var(--c-text-1)' }}>{title}</span>
+        <ChevronRight size={13} strokeWidth={2} style={{ color: 'var(--c-text-3)' }} aria-hidden />
+      </button>
+      {summary && <p className="mt-1 text-[13px] leading-[1.45]" style={{ color: 'var(--c-text-2)' }}>{summary}</p>}
+      <div className="mt-4 flex-1 flex flex-col">{children}</div>
+    </section>
   )
 }
 
-function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+function Figure({ label, value, color, sub }: { label: string; value: string; color?: string; sub?: React.ReactNode }) {
   return (
-    <div className={`rounded-2xl ${className}`}
-      style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
-      {children}
+    <div>
+      <p className="text-[11px] font-medium" style={{ color: 'var(--c-text-2)' }}>{label}</p>
+      <p className="num text-[28px] leading-[1.1] font-semibold tracking-[-0.02em] mt-0.5" style={{ color: color ?? 'var(--c-text-1)' }}>
+        {value}
+      </p>
+      {sub && <p className="text-[12px] mt-1" style={{ color: 'var(--c-text-2)' }}>{sub}</p>}
     </div>
   )
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+/** A label/value list with hairline separators, as in System Settings. */
+function Rows({ rows }: { rows: { label: React.ReactNode; value: React.ReactNode; color?: string }[] }) {
   return (
-    <p className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--c-text-3)' }}>
-      {children}
-    </p>
+    <dl>
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-baseline justify-between gap-3 py-[7px] text-[13px]"
+          style={{ borderTop: i ? '0.5px solid var(--c-border)' : undefined }}>
+          <dt style={{ color: 'var(--c-text-2)' }} className="truncate">{row.label}</dt>
+          <dd className="num font-medium shrink-0" style={{ color: row.color ?? 'var(--c-text-1)' }}>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
-const tooltipStyle = {
-  background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border-mid)',
-  borderRadius: 8, fontSize: 11, color: 'var(--c-text-1)',
+/** Seven days of P&L as bars on a zero line, in the manner of Stocks. */
+function WeekBars({ days, fmt }: { days: Day[]; fmt: FmtView }) {
+  const max = Math.max(1, ...days.map(d => Math.abs(d.pnl)))
+  const H = 44
+  return (
+    <div className="flex items-end gap-2" role="img"
+      aria-label={days.map(d => `${d.label} ${fmt(d.pnl, 'USD')}`).join(', ')}>
+      {days.map(d => {
+        const h = d.pnl === 0 ? 0 : Math.max(3, (Math.abs(d.pnl) / max) * H)
+        return (
+          <div key={d.date} className="flex-1 flex flex-col items-center gap-1.5" title={`${d.label}: ${fmt(d.pnl, 'USD')}`}>
+            <div className="w-full flex flex-col justify-end" style={{ height: H * 2 + 1 }}>
+              <div style={{ height: H, display: 'flex', alignItems: 'flex-end' }}>
+                {d.pnl > 0 && <div className="w-full rounded-t-[3px]" style={{ height: h, background: 'var(--c-profit)' }} />}
+              </div>
+              <div style={{ height: 1, background: 'var(--c-border-mid)' }} />
+              <div style={{ height: H }}>
+                {d.pnl < 0 && <div className="w-full rounded-b-[3px]" style={{ height: h, background: 'var(--c-loss)' }} />}
+              </div>
+            </div>
+            <span className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>{d.label.slice(0, 3)}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
+function CheckCircle({ checked, onClick, label }: { checked: boolean; onClick: () => void; label: string }) {
+  return (
+    <button onClick={onClick} role="checkbox" aria-checked={checked} aria-label={label}
+      className="w-[18px] h-[18px] rounded-full shrink-0 flex items-center justify-center transition-colors"
+      style={{
+        background: checked ? 'var(--c-accent)' : 'transparent',
+        boxShadow: checked ? 'none' : 'inset 0 0 0 1.5px var(--c-border-strong)',
+      }}>
+      {checked && <Check size={11} strokeWidth={3} color="var(--c-on-accent)" />}
+    </button>
+  )
+}
 
-const MAX_CHECKLIST = 8
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
   const { data, isPending } = useDashboardSummary(today())
   const { fmtView } = useFmtView('USD', 'dashboard')
-  const nav = useNavigate()
-  const toggleItem = useToggleChecklistItem()
+  const toggle = useToggleChecklistItem()
 
-  // Always-current ref so setTimeout callbacks never read stale server data
-  const itemsRef = useRef<any[]>([])
-
-  // Explicit ordered list of item IDs shown in the grid (max MAX_CHECKLIST)
-  const [visibleQueue, setVisibleQueue] = useState<number[]>([])
-  // Items checked this session - held in queue while countdown runs
-  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set())
-  // Items playing their exit animation (opacity → 0)
-  const [exitingIds, setExitingIds] = useState<Set<number>>(new Set())
-  const timers      = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
-  const initialized = useRef(false)
-
-  // Sync ref every render so timers always see the latest items
-  const rawItems = (data?.checklistItems ?? []) as any[]
-  itemsRef.current = rawItems
-
-  // One-time init: fill queue with first MAX_CHECKLIST unchecked items
-  useEffect(() => {
-    if (initialized.current || rawItems.length === 0) return
-    setVisibleQueue(
-      rawItems.filter(i => !i.completed).slice(0, MAX_CHECKLIST).map(i => i.itemId)
-    )
-    initialized.current = true
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data])
-
-  const handleToggle = useCallback((itemId: number, entryId: number, isCurrentlyChecked: boolean) => {
-    toggleItem.mutate({ entryId, itemId, completed: !isCurrentlyChecked })
-
-    if (!isCurrentlyChecked) {
-      // Mark as pending so it shows as checked immediately
-      setPendingIds(p => new Set([...p, itemId]))
-
-      const t1 = setTimeout(() => {
-        // Start exit animation
-        setExitingIds(p => new Set([...p, itemId]))
-
-        const t2 = setTimeout(() => {
-          // Swap: remove this item, enqueue the next unchecked one not already in the queue
-          setVisibleQueue(prev => {
-            const prevSet = new Set(prev)
-            const next = itemsRef.current.find(i => !i.completed && !prevSet.has(i.itemId))
-            const newQ  = prev.filter(id => id !== itemId)
-            if (next) newQ.push(next.itemId)
-            return newQ
-          })
-          setExitingIds(p => { const n = new Set(p); n.delete(itemId); return n })
-          setPendingIds(p => { const n = new Set(p); n.delete(itemId); return n })
-          timers.current.delete(itemId)
-        }, 500)
-        timers.current.set(itemId, t2)
-      }, 4500)
-      timers.current.set(itemId, t1)
-    } else {
-      // Un-check: cancel any running timer
-      clearTimeout(timers.current.get(itemId))
-      timers.current.delete(itemId)
-      setPendingIds(p => { const n = new Set(p); n.delete(itemId); return n })
-      setExitingIds(p => { const n = new Set(p); n.delete(itemId); return n })
-    }
-  }, [toggleItem])
-
-  if (isPending) return <PageShell title="Dashboard"><PageLoader /></PageShell>
+  const dateLabel = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  const shell = (children: React.ReactNode) => (
+    <PageShell title="Summary" subtitle={dateLabel}
+      action={<CurrencySelector pageKey="dashboard" defaultCurrency="USD" />}>
+      {children}
+    </PageShell>
+  )
+  if (isPending) return shell(<PageLoader />)
 
   const d = data ?? {}
+  const trades = (d.todayTradesDetail ?? []) as Trade[]
+  const days = (d.pnlLast7 ?? []) as Day[]
+  const items = (d.checklistItems ?? []) as Item[]
+  const pnl: number = d.todayPnl ?? 0
+  const mtd: number = d.mtdPnl ?? 0
+  const avgToday = trades.length ? trades.reduce((s, t) => s + (t.rrRatio ?? 0), 0) / trades.length : 0
 
-  // Derived values
-  const pnl         = d.todayPnl   ?? 0
-  const mtdPnl      = d.mtdPnl     ?? 0
-  const checkTotal  = d.checklistProgress?.total ?? 0
-  const checkDone   = d.checklistProgress?.completed ?? 0
-  const checkPct    = checkTotal > 0 ? Math.round((checkDone / checkTotal) * 100) : null
-  const pnlLast7    = (d.pnlLast7 ?? []) as { date: string; label: string; pnl: number }[]
-  const todayTrades = (d.todayTradesDetail ?? []) as { id: number; asset: string; direction: string; realizedPnl?: number; rrRatio?: number; setupLabel?: string }[]
+  // Checklist: open items first, in time order; overdue ones are marked.
+  const now = nowMinutes()
+  const done = items.filter(i => i.completed).length
+  const open = items.filter(i => !i.completed)
+    .map(i => ({ ...i, at: minutesOf(i.time) }))
+    .sort((a, b) => (a.at ?? 9999) - (b.at ?? 9999))
+  const overdue = open.filter(i => i.at != null && i.at < now).length
+  const nextUp = open.find(i => i.at != null && i.at >= now)
 
-  // Today's date label
-  const todayLabel  = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  const goal = (d.goalHighlights ?? [])[0]
+  const owed = d.nextDue as { invoiceNumber: string; amount: number; dueDate: string; clientName: string } | null
+  const owedLate = owed && owed.dueDate < today()
+  const fmtDay = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 
-  // Checklist completion colour
-  const checkColor  = checkPct == null ? 'var(--c-text-3)'
-    : checkPct === 100 ? '#34d399'
-    : checkPct >= 60   ? '#818cf8'
-    : '#fbbf24'
+  // One-sentence summaries, written from the numbers.
+  const tradingLine = trades.length
+    ? <>{pnl < 0 ? 'Down' : pnl > 0 ? 'Up' : 'Flat'} <b className="num font-medium" style={{ color: tone(pnl) }}>{fmtView(Math.abs(pnl), 'USD')}</b> today across {trades.length} trade{trades.length > 1 ? 's' : ''}; the month is <b className="num font-medium" style={{ color: tone(mtd) }}>{signed(fmtView, mtd, 'USD')}</b>.</>
+    : <>No trades today. The month is <b className="num font-medium" style={{ color: tone(mtd) }}>{signed(fmtView, mtd, 'USD')}</b>.</>
+  const checklistLine = items.length === 0
+    ? 'Nothing is set up for today.'
+    : done === items.length
+      ? 'Everything is done for today.'
+      : <>{done} of {items.length} done{overdue > 0 && <>, <span style={{ color: 'var(--c-warn)' }}>{overdue} past their time</span></>}.{nextUp && <> Next is {nextUp.title} at {clock(nextUp.at!)}.</>}</>
+  const businessLine = <>Recurring revenue is <b className="num font-medium" style={{ color: 'var(--c-text-1)' }}>{fmtView(d.mrr ?? 0, 'GBP')}</b> a month{(d.netNewMrr ?? 0) > 0 && <>, up <b className="num font-medium" style={{ color: 'var(--c-profit)' }}>{fmtView(d.netNewMrr, 'GBP')}</b> this month</>}.</>
 
-  return (
-    <PageShell title="Dashboard" action={<CurrencySelector pageKey="dashboard" defaultCurrency="USD" />}>
-      <ConversionBanner native="USD" pageKey="dashboard" detail="Trading in USD · Business in GBP · Finance in EUR" />
-      <div className="space-y-4">
+  return shell(
+    <div className="grid grid-cols-12 gap-4 max-w-[2200px]">
 
-        {/* ════════════════════════════════════════════════════════════════
-            ZONE 1 - THE DAY  (most important - eyes land here first)
-        ════════════════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-5 gap-4">
-
-          {/* ── TODAY: P&L + trades ───────────────────────────── 2 cols */}
-          <Panel className="col-span-2 p-5 flex flex-col gap-4">
-            {/* Date */}
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold" style={{ color: 'var(--c-text-3)' }}>{todayLabel}</span>
-              <NavLink label="Journal" to="/trading" />
-            </div>
-
-            {/* Big P&L */}
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>
-                Today's P&L
-              </p>
-              <p className={`text-5xl font-black num leading-none ${pnl === 0 && todayTrades.length === 0 ? 'text-text-muted' : pnlColor(pnl)}`}>
-                {todayTrades.length === 0 ? '--' : fmtView(pnl)}
-              </p>
-              <p className="text-xs mt-1.5" style={{ color: 'var(--c-text-3)' }}>
-                {todayTrades.length === 0
-                  ? 'No trades logged today'
-                  : `${todayTrades.length} trade${todayTrades.length > 1 ? 's' : ''} today`}
-              </p>
-            </div>
-
-            {/* Today's trade list */}
-            {todayTrades.length > 0 ? (
-              <div className="space-y-1.5">
-                {todayTrades.map(t => (
-                  <div key={t.id} className="flex items-center gap-2 px-2.5 py-2 rounded-lg"
-                    style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
-                    <span className="text-xs font-bold" style={{ color: 'var(--c-text-1)' }}>{t.asset}</span>
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
-                      style={{
-                        background: t.direction === 'Long' ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
-                        color: t.direction === 'Long' ? '#34d399' : '#f87171',
-                      }}>
-                      {t.direction}
-                    </span>
-                    {t.setupLabel && (
-                      <span className="text-[11px] truncate flex-1" style={{ color: 'var(--c-text-3)' }}>{t.setupLabel}</span>
-                    )}
-                    <span className={`text-xs num font-bold ml-auto flex-shrink-0 ${pnlColor(t.realizedPnl ?? 0)}`}>
-                      {t.realizedPnl != null
-                        ? `${t.realizedPnl >= 0 ? '+' : ''}${fmtView(t.realizedPnl)}`
-                        : '--'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <button onClick={() => nav('/trading')}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all duration-150"
-                style={{ border: '1px dashed var(--c-border-mid)', color: 'var(--c-text-3)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--c-accent)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-border-mid)'; (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)' }}>
-                <TrendingUp size={13} /> Log a trade
-              </button>
-            )}
-          </Panel>
-
-          {/* ── PROCESS: Checklist ────────────────────────────── 3 cols */}
-          <Panel className="col-span-3 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <CheckSquare size={14} style={{ color: checkColor }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Today's Checklist</span>
-              </div>
-              <div className="flex items-center gap-3">
-                {checkPct != null && (
-                  <span className="text-2xl font-black num" style={{ color: checkColor }}>
-                    {checkPct}%
-                  </span>
-                )}
-                <NavLink label="Checklists" to="/checklists" />
-              </div>
-            </div>
-
-            {/* Progress bar */}
-            {checkTotal > 0 && (
-              <div className="h-1.5 rounded-full overflow-hidden mb-4" style={{ background: 'var(--c-bg-input)' }}>
-                <div className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${checkPct}%`, background: checkColor }} />
-              </div>
-            )}
-
-            {/* Items */}
-            {(() => {
-              if (rawItems.length === 0) return (
-                <div className="py-6 text-center">
-                  <p className="text-sm" style={{ color: 'var(--c-text-3)' }}>No checklist for today.</p>
-                  <button onClick={() => nav('/checklists')}
-                    className="text-xs mt-1 hover:underline" style={{ color: 'var(--c-accent)' }}>
-                    Set one up →
-                  </button>
-                </div>
-              )
-              const visibleItems = visibleQueue
-                .map(id => rawItems.find(i => i.itemId === id))
-                .filter(Boolean) as any[]
-              if (visibleItems.length === 0) return (
-                <div className="py-4 text-center">
-                  <p className="text-sm" style={{ color: 'var(--c-profit)' }}>All done for today!</p>
-                </div>
-              )
-              return (
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
-                  {visibleItems.map((item: any) => {
-                    const isChecked = item.completed || pendingIds.has(item.itemId)
-                    const isExiting = exitingIds.has(item.itemId)
-                    return (
-                      <div key={item.itemId}
-                        style={{
-                          overflow: 'hidden',
-                          maxHeight: isExiting ? 0 : '2rem',
-                          opacity:   isExiting ? 0 : 1,
-                          transition: 'max-height 0.45s ease, opacity 0.45s ease',
-                        }}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <button
-                            className="w-4 h-4 rounded-md flex-shrink-0 flex items-center justify-center transition-all"
-                            style={{
-                              background: isChecked ? 'var(--c-profit)' : 'var(--c-bg-input)',
-                              border:     isChecked ? 'none' : '1px solid var(--c-border-strong)',
-                              cursor: 'pointer',
-                            }}
-                            onClick={() => handleToggle(item.itemId, item.entryId, isChecked)}
-                          >
-                            {isChecked && (
-                              <svg width="9" height="9" viewBox="0 0 8 8">
-                                <path d="M1 4l2 2 4-4" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-                              </svg>
-                            )}
-                          </button>
-                          <span className={`text-xs truncate ${isChecked ? 'line-through' : ''}`}
-                            style={{ color: isChecked ? 'var(--c-text-3)' : 'var(--c-text-2)' }}>
-                            {item.title}
-                          </span>
-                          {item.time && (
-                            <span className="text-[10px] num ml-auto flex-shrink-0" style={{ color: 'var(--c-text-3)' }}>
-                              {item.time}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </Panel>
-        </div>
-
-        {/* ════════════════════════════════════════════════════════════════
-            ZONE 2 - THIS MONTH  (monthly context + trend chart)
-        ════════════════════════════════════════════════════════════════ */}
-        <Panel className="p-5">
-          <div className="flex items-start justify-between mb-4">
-            <SectionLabel>This Month</SectionLabel>
-            <NavLink label="Analytics" to="/trading" />
+      {/* Trading */}
+      <Section icon={CandlestickChart} title="Trading" to="/trading" summary={tradingLine} className="col-span-12 xl:col-span-7">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.3fr)] gap-6 items-start">
+          <Figure label="Today" value={trades.length ? signed(fmtView, pnl, 'USD') : '—'} color={trades.length ? tone(pnl) : 'var(--c-text-3)'}
+            sub={trades.length ? <>{trades.length} trade{trades.length > 1 ? 's' : ''} · avg <span className="num">{r(avgToday)}</span></> : 'No trades yet'} />
+          <Rows rows={[
+            { label: 'This month', value: signed(fmtView, mtd, 'USD'), color: tone(mtd) },
+            { label: 'Trades', value: d.mtdTradeCount ?? 0 },
+            { label: 'Win rate', value: `${Math.round(d.winRate ?? 0)}%` },
+            { label: 'Average', value: r(d.avgRR ?? 0), color: tone(d.avgRR ?? 0) },
+          ]} />
+          <div>
+            <p className="text-[11px] font-medium mb-2" style={{ color: 'var(--c-text-2)' }}>Last 7 days</p>
+            <WeekBars days={days} fmt={fmtView} />
           </div>
-
-          {/* MTD stat strip */}
-          <div className="grid grid-cols-4 gap-3 mb-5">
-            {[
-              {
-                label: 'MTD P&L',
-                value: fmtView(mtdPnl),
-                color: mtdPnl === 0 ? 'var(--c-text-3)' : mtdPnl > 0 ? '#34d399' : '#f87171',
-              },
-              {
-                label: 'Win Rate',
-                value: d.winRate != null ? `${d.winRate}%` : '--',
-                color: d.winRate == null ? 'var(--c-text-3)' : d.winRate >= 50 ? '#34d399' : '#f87171',
-              },
-              {
-                label: 'Avg R:R',
-                value: d.avgRR != null ? `${d.avgRR.toFixed(2)}R` : '--',
-                color: d.avgRR == null ? 'var(--c-text-3)' : d.avgRR >= 1 ? '#34d399' : d.avgRR > 0 ? '#fbbf24' : '#f87171',
-              },
-              {
-                label: 'Trades',
-                value: d.mtdTradeCount ?? 0,
-                color: 'var(--c-text-1)',
-              },
-            ].map(s => (
-              <div key={s.label} className="rounded-xl px-4 py-3 text-center"
-                style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>
-                  {s.label}
-                </p>
-                <p className="text-xl font-black num" style={{ color: s.color }}>{s.value}</p>
+        </div>
+        {trades.length > 0 && (
+          <div className="mt-4" style={{ borderTop: '0.5px solid var(--c-border)' }}>
+            {trades.map(t => (
+              <div key={t.id} className="flex items-center gap-3 py-2 text-[13px]" style={{ borderBottom: '0.5px solid var(--c-border-subtle)' }}>
+                <span className="font-medium w-14" style={{ color: 'var(--c-text-1)' }}>{t.asset}</span>
+                <span style={{ color: 'var(--c-text-2)' }}>{t.direction}</span>
+                <span className="flex-1" />
+                <span className="num w-16 text-right" style={{ color: tone(t.rrRatio ?? 0) }}>{r(t.rrRatio ?? 0)}</span>
+                <span className="num w-20 text-right font-medium" style={{ color: tone(t.realizedPnl ?? 0) }}>{signed(fmtView, t.realizedPnl ?? 0, 'USD')}</span>
               </div>
             ))}
           </div>
+        )}
+      </Section>
 
-          {/* 7-day chart */}
-          {pnlLast7.every(d => d.pnl === 0) ? (
-            <div className="h-24 flex items-center justify-center rounded-xl"
-              style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
-              <p className="text-xs" style={{ color: 'var(--c-text-3)' }}>No P&L data yet. Log trade exits to see this chart.</p>
+      {/* Checklist */}
+      <Section icon={ListChecks} title="Checklist" to="/checklists" summary={checklistLine} className="col-span-12 xl:col-span-5">
+        {items.length > 0 && (
+          <>
+            <div className="h-[4px] rounded-full overflow-hidden mb-3" style={{ background: 'var(--c-bg-input)' }}
+              role="progressbar" aria-valuenow={done} aria-valuemax={items.length} aria-label="Checklist progress">
+              <div className="h-full rounded-full transition-[width] duration-300" style={{ width: `${(done / items.length) * 100}%`, background: 'var(--c-accent)' }} />
             </div>
-          ) : (
-            <div className="h-28">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={pnlLast7} barSize={22} margin={{ top: 4, bottom: 0, left: 0, right: 0 }}>
-                  <XAxis dataKey="label" tick={{ fill: '#4b4b6b', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#4b4b6b', fontSize: 10 }} axisLine={false} tickLine={false}
-                    tickFormatter={v => `$${Math.abs(v) >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`} />
-                  <ReferenceLine y={0} stroke="var(--c-chart-grid)" />
-                  <Tooltip
-                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
-                    content={({ active, payload, label }: any) => {
-                      if (!active || !payload?.length) return null
-                      const v = payload[0]?.value as number
-                      const valColor = v >= 0 ? '#34d399' : '#f87171'
-                      return (
-                        <div style={{ background: 'var(--c-chart-tooltip-bg)', border: '1px solid var(--c-border-mid)', borderRadius: 8, padding: '8px 12px', fontSize: 11 }}>
-                          <p style={{ color: 'var(--c-text-1)', fontWeight: 600, margin: '0 0 4px' }}>{label}</p>
-                          <p style={{ margin: 0, color: valColor }}>
-                            P&amp;L : {fmtView(v)}
-                          </p>
-                        </div>
-                      )
-                    }}
-                  />
-                  <Bar dataKey="pnl" radius={[3, 3, 0, 0]}>
-                    {pnlLast7.map((entry, i) => (
-                      <Cell key={i} fill={entry.pnl >= 0 ? '#34d399' : '#f87171'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </Panel>
-
-        {/* ════════════════════════════════════════════════════════════════
-            ZONE 3 - CONTEXT  (business · calendar · goals)
-        ════════════════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-3 gap-4">
-
-          {/* ── Business ─────────────────────────────────────────────── */}
-          <Panel className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Briefcase size={13} style={{ color: '#34d399' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Business</span>
-              </div>
-              <NavLink label="Zavabuild" to="/business" />
-            </div>
-
-            <div className="space-y-0">
-              {[
-                { label: 'Total Revenue',  value: fmtView(d.totalRevenue ?? 0, 'GBP'), color: '#34d399' },
-                { label: 'Outstanding',    value: fmtView(d.outstandingAmt ?? 0, 'GBP'), color: d.outstandingAmt > 0 ? '#fbbf24' : 'var(--c-text-3)' },
-                { label: 'Active Clients', value: d.activeClients ?? 0,                  color: '#818cf8' },
-              ].map((row, i, arr) => (
-                <div key={row.label} className="flex items-center justify-between py-2.5"
-                  style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--c-border)' : 'none' }}>
-                  <span className="text-xs" style={{ color: 'var(--c-text-3)' }}>{row.label}</span>
-                  <span className="text-sm font-bold num" style={{ color: row.color }}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-
-            {d.nextDue && (
-              <div className="rounded-xl p-3 mt-3"
-                style={{ background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.18)' }}>
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: '#fbbf24' }}>Next Invoice Due</p>
-                <p className="text-sm font-bold num" style={{ color: 'var(--c-text-1)' }}>{fmtView(d.nextDue.amount, 'GBP')}</p>
-                <p className="text-[11px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>{formatDate(d.nextDue.dueDate)}</p>
-              </div>
+            <ul>
+              {open.slice(0, 7).map((i, idx) => {
+                const late = i.at != null && i.at < now
+                return (
+                  <li key={i.itemId} className="flex items-center gap-3 py-[7px]" style={{ borderTop: idx ? '0.5px solid var(--c-border)' : undefined }}>
+                    <CheckCircle checked={false} label={`Mark ${i.title} done`}
+                      onClick={() => toggle.mutate({ entryId: i.entryId, itemId: i.itemId, completed: true })} />
+                    <span className="flex-1 truncate text-[13px]" style={{ color: 'var(--c-text-1)' }}>{i.title}</span>
+                    {i.at != null && (
+                      <span className="num text-[12px]" style={{ color: late ? 'var(--c-warn)' : 'var(--c-text-3)' }}>{clock(i.at)}</span>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+            {open.length > 7 && (
+              <p className="text-[12px] mt-2" style={{ color: 'var(--c-text-3)' }}>and {open.length - 7} more</p>
             )}
-          </Panel>
+          </>
+        )}
+      </Section>
 
-          {/* ── Upcoming ─────────────────────────────────────────────── */}
-          <Panel className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <CalendarDays size={13} style={{ color: '#818cf8' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Upcoming</span>
-              </div>
-              <NavLink label="Calendar" to="/calendar" />
+      {/* Business */}
+      <Section icon={Briefcase} title="Business" to="/business" summary={businessLine} className="col-span-12 lg:col-span-6 xl:col-span-4">
+        <Rows rows={[
+          { label: 'Revenue this month', value: fmtView(d.revenueMTD ?? 0, 'GBP') },
+          { label: 'Margin', value: `${(d.marginPct ?? 0).toFixed(1)}%` },
+          { label: 'Active clients', value: d.activeClients ?? 0 },
+          { label: 'Owed to you', value: fmtView(d.outstandingAmt ?? 0, 'GBP'), color: (d.outstandingAmt ?? 0) > 0 ? 'var(--c-warn)' : undefined },
+        ]} />
+        {owed && (
+          <div className="mt-3 rounded-[8px] px-3 py-2.5 flex items-center gap-3" style={{ background: 'var(--c-bg-input)' }}>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium truncate" style={{ color: 'var(--c-text-1)' }}>{owed.clientName}</p>
+              <p className="text-[12px]" style={{ color: owedLate ? 'var(--c-warn)' : 'var(--c-text-2)' }}>
+                {owed.invoiceNumber} · {owedLate ? 'overdue since' : 'due'} {fmtDay(owed.dueDate)}
+              </p>
             </div>
+            <span className="num text-[13px] font-medium" style={{ color: 'var(--c-text-1)' }}>{fmtView(owed.amount, 'GBP')}</span>
+          </div>
+        )}
+      </Section>
 
-            {(d.upcomingEvents ?? []).length === 0 ? (
-              <p className="text-sm py-4 text-center" style={{ color: 'var(--c-text-3)' }}>Nothing scheduled. All clear.</p>
-            ) : (
-              <div className="space-y-2">
-                {(d.upcomingEvents as any[]).map((e: any) => {
-                  const col = e.color || '#818cf8'
-                  const dateStr = e.startDatetime?.split('T')[0] ?? ''
-                  const timeStr = e.startDatetime?.includes('T')
-                    ? new Date(e.startDatetime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-                    : null
-                  return (
-                    <div key={e.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-                      style={{ background: col + '10', border: `1px solid ${col}22` }}>
-                      <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: col }} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold truncate" style={{ color: 'var(--c-text-1)' }}>{e.title}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <span className="text-[10px] num" style={{ color: col }}>{formatDate(dateStr)}</span>
-                          {timeStr && (
-                            <>
-                              <span style={{ color: 'var(--c-text-3)', fontSize: 10 }}>·</span>
-                              <span className="text-[10px] num flex items-center gap-1" style={{ color: 'var(--c-text-3)' }}>
-                                <Clock size={9} />{timeStr}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </Panel>
+      {/* This week */}
+      <Section icon={Target} title="This week" to="/goals" className="col-span-12 lg:col-span-6 xl:col-span-4"
+        summary={goal ? <>Focus: {goal.focus}.</> : 'No weekly goal set yet.'}>
+        <Rows rows={[
+          ...(goal ? [{ label: 'Goal period', value: `${fmtDay(goal.periodStart)} – ${fmtDay(goal.periodEnd)}` }] : []),
+          { label: 'Workouts', value: d.weekWorkoutsCount ?? 0 },
+          ...(d.lastWorkout ? [{ label: 'Last workout', value: `${d.lastWorkout.name} · ${fmtDay(d.lastWorkout.date)}` }] : []),
+          ...(d.lastWorkout?.durationMinutes ? [{ label: 'Duration', value: `${d.lastWorkout.durationMinutes} min` }] : []),
+        ]} />
+      </Section>
 
-          {/* ── Goals ────────────────────────────────────────────────── */}
-          <Panel className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Target size={13} style={{ color: '#a78bfa' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Goals</span>
-              </div>
-              <NavLink label="All goals" to="/goals" />
-            </div>
-
-            {(d.goalHighlights ?? []).length === 0 ? (
-              <div className="py-4 text-center">
-                <p className="text-sm" style={{ color: 'var(--c-text-3)' }}>No active goals.</p>
-                <button onClick={() => nav('/goals')} className="text-xs mt-1 hover:underline" style={{ color: 'var(--c-accent)' }}>
-                  Set your first goal →
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {(d.goalHighlights as any[]).map((g: any) => {
-                  const pct = Math.round(g.progressPct ?? 0)
-                  const col = pct >= 80 ? '#34d399' : pct >= 40 ? '#818cf8' : '#a78bfa'
-                  return (
-                    <div key={g.id}>
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="min-w-0 flex-1 mr-2">
-                          <p className="text-xs font-semibold truncate" style={{ color: 'var(--c-text-1)' }}>{g.focus}</p>
-                          <p className="text-[10px] capitalize" style={{ color: 'var(--c-text-3)' }}>{g.horizon}</p>
-                        </div>
-                        <span className="text-sm num font-bold flex-shrink-0" style={{ color: col }}>{pct}%</span>
-                      </div>
-                      <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--c-bg-input)' }}>
-                        <div className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${pct}%`, background: col }} />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        {/* ════════════════════════════════════════════════════════════════
-            ZONE 4 - SUPPORTING  (finance · training - compact)
-        ════════════════════════════════════════════════════════════════ */}
-        <div className="grid grid-cols-2 gap-4">
-
-          {/* Finance MTD */}
-          <Panel className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Finance: This Month</span>
-              <NavLink label="Finances" to="/finances" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {(() => {
-                const inc = d.totalIncMTD ?? 0
-                const exp = d.totalExpMTD ?? 0
-                const net = inc - exp
-                return [
-                  { label: 'Income',   value: fmtView(inc, 'EUR'), color: '#34d399' },
-                  { label: 'Expenses', value: fmtView(exp, 'EUR'), color: '#f87171' },
-                  { label: 'Net',      value: `${net >= 0 ? '+' : ''}${fmtView(net, 'EUR')}`, color: net >= 0 ? '#34d399' : '#f87171' },
-                ].map(s => (
-                  <div key={s.label} className="rounded-xl px-3 py-3 text-center"
-                    style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
-                    <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>{s.label}</p>
-                    <p className="text-sm font-bold num" style={{ color: s.color }}>{s.value}</p>
-                  </div>
-                ))
-              })()}
-            </div>
-          </Panel>
-
-          {/* Training */}
-          <Panel className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Dumbbell size={13} style={{ color: '#818cf8' }} />
-                <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Training</span>
-              </div>
-              <NavLink label="Log workout" to="/training" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                {
-                  label: 'This Week',
-                  value: `${d.weekWorkoutsCount ?? 0} sessions`,
-                  color: '#818cf8',
-                  icon: <Dumbbell size={12} />,
-                },
-                {
-                  label: 'Streak',
-                  value: d.trainingStreak > 0 ? `${d.trainingStreak} days` : '--',
-                  color: '#f87171',
-                  icon: <Flame size={12} />,
-                },
-                {
-                  label: 'Last Workout',
-                  value: d.lastWorkout ? d.lastWorkout.name : '--',
-                  color: 'var(--c-text-2)',
-                  icon: null,
-                  small: true,
-                },
-              ].map(s => (
-                <div key={s.label} className="rounded-xl px-3 py-3 text-center"
-                  style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
-                  <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--c-text-3)' }}>{s.label}</p>
-                  <p className={`font-bold num ${s.small ? 'text-xs' : 'text-sm'} truncate`} style={{ color: s.color }}>{s.value}</p>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-
-      </div>
-    </PageShell>
+      {/* Coming up */}
+      <Section icon={ListChecks} title="Coming up" to="/calendar" className="col-span-12 xl:col-span-4"
+        summary={(d.upcomingEvents ?? []).length ? undefined : 'Nothing on the calendar this week.'}>
+        <Rows rows={(d.upcomingEvents ?? []).slice(0, 5).map((e: { title: string; startDatetime: string }) => ({
+          label: e.title, value: fmtDay(e.startDatetime.slice(0, 10)),
+        }))} />
+      </Section>
+    </div>,
   )
 }

@@ -14,7 +14,14 @@ router.get('/', async (req, res, next) => {
       broker:          tradingAccounts.broker,
       currency:        tradingAccounts.currency,
       startingBalance: tradingAccounts.startingBalance,
+      startingBalanceAt: tradingAccounts.startingBalanceAt,
       notes:           tradingAccounts.notes,
+      fullRisk:        tradingAccounts.fullRisk,
+      bybitSyncFrom:   tradingAccounts.bybitSyncFrom,
+      maxLossDay:      tradingAccounts.maxLossDay,
+      maxLossWeek:     tradingAccounts.maxLossWeek,
+      maxLossMonth:    tradingAccounts.maxLossMonth,
+      lossLimitUnit:   tradingAccounts.lossLimitUnit,
       createdAt:       tradingAccounts.createdAt,
       updatedAt:       tradingAccounts.updatedAt,
       tradeCount:      sql<number>`count(${trades.id})`,
@@ -44,9 +51,19 @@ router.post('/', async (req, res, next) => {
 // PUT /:id - update account
 router.put('/:id', async (req, res, next) => {
   try {
-    const { name, broker, currency, startingBalance, notes } = req.body
+    const { name, broker, currency, startingBalance, notes, fullRisk } = req.body
+    // Loss limits: positive amounts; blank clears one. Only touched when sent.
+    const limit = (v: unknown) => (v == null || v === '' ? null : Math.abs(Number(v)) || null)
+    const limits: Partial<typeof tradingAccounts.$inferInsert> = {}
+    if ('maxLossDay' in req.body) limits.maxLossDay = limit(req.body.maxLossDay)
+    if ('maxLossWeek' in req.body) limits.maxLossWeek = limit(req.body.maxLossWeek)
+    if ('maxLossMonth' in req.body) limits.maxLossMonth = limit(req.body.maxLossMonth)
+    if ('startingBalanceAt' in req.body) limits.startingBalanceAt = req.body.startingBalanceAt || null
+    if (req.body.lossLimitUnit === 'R' || req.body.lossLimitUnit === 'USD') limits.lossLimitUnit = req.body.lossLimitUnit
     const [row] = await db.update(tradingAccounts)
       .set({
+        ...limits,
+        fullRisk:        fullRisk != null && fullRisk !== '' ? Number(fullRisk) : null,
         name,
         broker:          broker || null,
         currency:        currency || 'USD',

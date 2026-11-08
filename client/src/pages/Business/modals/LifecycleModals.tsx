@@ -402,7 +402,7 @@ function OwedRows({
                 <button key={String(k)} type="button" onClick={() => onToggle(i.id, k)}
                   className="px-2 py-0.5 rounded text-[10.5px] font-semibold"
                   style={k === isOff
-                    ? { background: 'var(--c-accent)', color: '#fff' }
+                    ? { background: 'var(--c-accent)', color: 'var(--c-on-accent)' }
                     : { border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
                   {k ? offLabel : 'Still owed'}
                 </button>

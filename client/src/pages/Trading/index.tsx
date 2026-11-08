@@ -1,18 +1,25 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { PageShell } from '../../components/layout/PageShell'
-import { Tabs } from '../../components/ui/Tabs'
-import { CurrencySelector } from '../../components/ui/CurrencySelector'
+import { Segmented } from './controls'
+import { useViewCurrency, type ViewCurrency } from '../../hooks/useViewCurrency'
 import { ConversionBanner } from '../../components/ui/ConversionBanner'
 import { TradeLog } from './TradeLog'
 import { TradingAnalytics } from './Analytics'
 import { AccountsModal } from './AccountsModal'
+import { BybitPanel } from './BybitPanel'
+import { TradingPulse } from './TradingPulse'
 import { useTradingAccounts } from '../../hooks/useTradingAccounts'
-import { List, BarChart2, Settings2, ChevronDown } from 'lucide-react'
+import { List, BarChart2, Settings2 } from 'lucide-react'
 
-const TABS = [
-  { id: 'log',       label: 'Trade Log',  icon: <List size={14} /> },
-  { id: 'analytics', label: 'Analytics',  icon: <BarChart2 size={14} /> },
-]
+/** The page's view currency, in the same segmented style as the rest. */
+function CurrencySwitch() {
+  const { viewCurrency, setViewCurrency } = useViewCurrency('trading', 'USD')
+  return (
+    <Segmented size="sm" value={viewCurrency} onChange={v => setViewCurrency(v as ViewCurrency)}
+      options={[{ value: 'EUR', label: '€' }, { value: 'GBP', label: '£' }, { value: 'USD', label: '$' }]} />
+  )
+}
 
 const STORAGE_KEY = 'trading-selected-account'
 
@@ -24,12 +31,13 @@ function readStored(): number | null {
 }
 
 export function TradingPage() {
-  const [tab, setTab] = useState('log')
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'analytics' ? 'analytics' : 'log'
+  const setTab = (t: string) => setParams(p => { if (t === 'log') p.delete('tab'); else p.set('tab', t); return p })
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(readStored)
   const [accountsModalOpen, setAccountsModalOpen] = useState(false)
+  const [reviewSignal, setReviewSignal] = useState(0)
   const { data: accounts } = useTradingAccounts()
-
-  const selectedAccount = accounts?.find(a => a.id === selectedAccountId) ?? null
 
   const handleSelect = (id: number | null) => {
     setSelectedAccountId(id)
@@ -42,62 +50,38 @@ export function TradingPage() {
 
   return (
     <PageShell title="Trading Journal" action={
-      <div className="flex items-center gap-2">
-        <CurrencySelector pageKey="trading" defaultCurrency="USD" />
-        <Tabs tabs={TABS} active={tab} onChange={setTab} />
+      <div className="flex items-center gap-2.5">
+        <CurrencySwitch />
+        <Segmented value={tab} onChange={setTab} options={[
+          { value: 'log', label: <><List size={14} /> Journal</> },
+          { value: 'analytics', label: <><BarChart2 size={14} /> Analytics</> },
+        ]} />
       </div>
     }>
       <ConversionBanner native="USD" pageKey="trading" />
 
-      {/* ── Account selector bar ──────────────────────────────────────── */}
-      <div className="flex items-center gap-2 mb-5">
-        <div className="relative">
-          <select
-            value={selectedAccountId ?? ''}
-            onChange={e => handleSelect(e.target.value !== '' ? Number(e.target.value) : null)}
-            className="appearance-none pl-3 pr-8 py-1.5 rounded-lg text-sm font-medium outline-none cursor-pointer"
-            style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}
-          >
-            <option value="">All Accounts</option>
-            {accounts?.map(a => (
-              <option key={a.id} value={a.id}>
-                {a.name}{a.broker ? ` · ${a.broker}` : ''}
-              </option>
-            ))}
-          </select>
-          <ChevronDown
-            size={12}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            style={{ color: 'var(--c-text-3)' }}
-          />
-        </div>
-
-        <button
-          onClick={() => setAccountsModalOpen(true)}
-          className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-150"
-          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-3)' }}
-          title="Manage accounts"
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-accent)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-accent)' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-border)' }}
-        >
-          <Settings2 size={13} />
+      {/* ── Accounts and connection ───────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <Segmented keep value={String(selectedAccountId ?? 'all')} onChange={v => handleSelect(v === 'all' ? null : Number(v))}
+          options={[
+            { value: 'all', label: 'All accounts' },
+            ...(accounts ?? []).map(a => ({
+              value: String(a.id),
+              title: [a.broker, a.startingBalance != null ? `started at ${a.startingBalance.toLocaleString()} ${a.currency}` : null].filter(Boolean).join(' · ') || undefined,
+              label: <>{a.name}{a.fullRisk ? <span className="font-medium num" style={{ color: 'var(--c-text-3)' }}>1R ${a.fullRisk}</span> : null}</>,
+            })),
+          ]} />
+        <button onClick={() => setAccountsModalOpen(true)} title="Accounts, 1R and loss limits"
+          className="w-8 h-8 rounded-xl flex items-center justify-center transition-colors hover:text-[var(--c-accent)]"
+          style={{ background: 'var(--c-bg-input)', boxShadow: 'inset 0 0 0 1px var(--c-border)', color: 'var(--c-text-3)' }}>
+          <Settings2 size={14} />
         </button>
-
-        {selectedAccount && (
-          <span className="text-[11px] font-medium px-2 py-0.5 rounded"
-            style={{ background: 'var(--c-bg-input)', color: 'var(--c-text-3)', border: '1px solid var(--c-border)' }}>
-            {selectedAccount.currency}
-          </span>
-        )}
-
-        {selectedAccount?.startingBalance != null && (
-          <span className="text-[11px] num" style={{ color: 'var(--c-text-3)' }}>
-            Starting balance: {selectedAccount.startingBalance.toLocaleString()} {selectedAccount.currency}
-          </span>
-        )}
+        <div className="ml-auto"><BybitPanel accountId={selectedAccountId} /></div>
       </div>
 
-      {tab === 'log'       && <TradeLog accountId={selectedAccountId} defaultAccountId={selectedAccountId ?? accounts?.[0]?.id ?? null} />}
+      <TradingPulse accountId={selectedAccountId} onReview={() => { setTab('log'); setReviewSignal(n => n + 1) }} onSetLimits={() => setAccountsModalOpen(true)} />
+
+      {tab === 'log'       && <TradeLog accountId={selectedAccountId} defaultAccountId={selectedAccountId ?? accounts?.[0]?.id ?? null} reviewSignal={reviewSignal} />}
       {tab === 'analytics' && <TradingAnalytics accountId={selectedAccountId} />}
 
       <AccountsModal

@@ -28,7 +28,7 @@ router.get('/summary', async (req, res, next) => {
 
     // ── Today's P&L ───────────────────────────────────────────────────────
     const todayTrades = await db.select().from(trades).where(eq(trades.date, date))
-    const todayPnl    = todayTrades.reduce((s, t) => s + (t.realizedPnl ?? 0), 0)
+    const todayPnl    = todayTrades.reduce((s, t) => s + (t.netPnl ?? t.realizedPnl ?? 0), 0)
 
     // ── 7-day P&L (last 7 calendar days) ─────────────────────────────────
     const d7ago = new Date(date + 'T00:00:00Z')
@@ -141,7 +141,7 @@ router.get('/summary', async (req, res, next) => {
       todayTradeCount:  todayTrades.length,
       todayTradesDetail: todayTrades.map(t => ({
         id: t.id, asset: t.asset, direction: t.direction,
-        realizedPnl: t.realizedPnl, rrRatio: t.rrRatio, setupLabel: t.setupLabel,
+        realizedPnl: t.netPnl ?? t.realizedPnl, rrRatio: t.rrRatio, setupLabel: t.setupLabel,
       })),
       mtdPnl,
       mtdTradeCount:    mtdTrades.length,

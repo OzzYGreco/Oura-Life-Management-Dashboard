@@ -1,0 +1,82 @@
+/* Trading in the redesign: everything below the pulse band. The band itself
+   (accounts, this week, last 10, discipline, session, loss limits) keeps its
+   own look by the owner's choice. Classes appear only on the Next skin. */
+
+/* ─── Controls ─────────────────────────────────────────────────────────── */
+.tr-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: rgb(var(--k-fg) / .04); }
+.tr-seg button { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--k-mute); white-space: nowrap; transition-property: background-color, color; transition-duration: .15s; }
+.tr-seg.sm button { height: 26px; padding: 0 10px; font-size: 12px; }
+.tr-seg button.on { background: rgb(var(--k-fg) / .08); color: var(--k-ink); }
+@media (hover: hover) { .tr-seg button:not(.on):hover { color: var(--k-ink2); } }
+.tr-tray { display: inline-flex; gap: 6px; }
+.tr-tool { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 10px; font-size: 13px; font-weight: 500; color: var(--k-ink); background: rgb(var(--k-fg) / .04); box-shadow: inset 0 0 0 1px var(--k-line2); transition-property: background-color, scale; transition-duration: .15s; transition-timing-function: ease-out; }
+.tr-tool svg { color: var(--k-mute); }
+.tr-tool kbd, .tr-primary kbd { font-family: var(--k-font); font-size: 11px; line-height: 1; padding: 3px 5px; border-radius: 4px; background: rgb(var(--k-fg) / .07); color: var(--k-mute); }
+.tr-tool:not(:disabled):active { scale: .96; }
+@media (hover: hover) { .tr-tool:hover { background: rgb(var(--k-fg) / .08); } }
+.nx-btn.tr-primary { height: 34px; padding: 0 14px 0 12px; border-radius: 10px; font-size: 13px; }
+.tr-primary kbd { background: rgba(0,0,0,.08); color: var(--k-on-acc); opacity: .6; }
+
+/* ─── The journal ──────────────────────────────────────────────────────── */
+.tr-log { margin-top: 40px; }
+.tr-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; font-size: 13px; color: var(--k-mute); }
+.tr-toolbar > .ml-auto { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.tr-chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 8px; font-size: 12.5px; color: var(--k-ink2); background: rgb(var(--k-fg) / .04); transition-property: background-color, color; transition-duration: .15s; }
+.tr-chip i { width: 6px; height: 6px; border-radius: 50%; }
+.tr-chip .lb { max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-chip .n { color: var(--k-faint); }
+.tr-chip.on { background: rgb(var(--k-fg) / .12); color: var(--k-ink); }
+.tr-chip.on .n { color: var(--k-ink2); }
+.tr-chip.act { background: rgb(var(--k-fg) / .08); }
+.tr-chip:disabled { opacity: .35; }
+.tr-chip svg { color: var(--k-mute); }
+@media (hover: hover) { .tr-chip:not(:disabled):not(.on):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); } }
+.tr-sep { width: 1px; height: 16px; margin: 0 4px; background: var(--k-line2); }
+
+.tr-running { margin: 16px 0 4px; display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-running > button { display: inline-flex !important; align-items: center; gap: 8px; height: 32px; padding: 0 12px !important; border-radius: 10px !important; font-size: 13px !important; background: var(--k-good-d) !important; border: 0 !important; }
+
+.tr-weeks { margin-top: 24px; display: flex; flex-direction: column; gap: 36px; }
+.tr-week { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 0; background: var(--k-bg); border-bottom: 1px solid var(--k-line2); font-size: 13px; color: var(--k-mute); }
+.tr-week b { font-size: 16px; font-weight: 600; color: var(--k-ink); }
+.tr-week .rg { color: var(--k-ink2); font-size: 14px; }
+.tr-week .sp { flex: 1; }
+.tr-week .pnl { font-size: 13px; }
+.tr-week .r { font-family: var(--k-round); font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+.tr-week .good, .tr-dayh .good { color: var(--k-good); } .tr-week .bad, .tr-dayh .bad { color: var(--k-bad); }
+.tr-day { margin-top: 14px; }
+.tr-dayh { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; font-size: 12.5px; font-weight: 600; color: var(--k-ink2); }
+.tr-dayh .v { display: inline-flex; gap: 12px; font-weight: 400; color: var(--k-mute); }
+.tr-dayh .v b { font-weight: 600; }
+.tr-rows { border-top: 1px solid var(--k-line); }
+.tr-row { border-bottom: 1px solid var(--k-line); }
+.tr-row > div:first-child { padding-left: 4px !important; border-radius: 10px; }
+.tr-row.open { background: rgb(var(--k-fg) / .02); border-radius: 12px; }
+.tr-keys { margin: 8px 0 0; font-size: 12px; color: var(--k-mute); text-align: left; }
+.tr-keys kbd { font-family: var(--k-font); font-size: 11px; padding: 2px 5px; margin-right: 3px; border-radius: 4px; background: rgb(var(--k-fg) / .07); color: var(--k-ink2); }
+
+/* ─── Analytics ────────────────────────────────────────────────────────── */
+.tr-an { margin-top: 40px; display: flex; flex-direction: column; gap: 48px; }
+/* No spaced-out capitals anywhere in the redesign. */
+.tr-an .uppercase { text-transform: none; letter-spacing: 0 !important; font-size: 12px !important; font-weight: 500 !important; color: var(--k-mute) !important; }
+.tr-sec > :first-child h2 { font-family: var(--k-display); font-size: 20px !important; font-weight: 600; letter-spacing: -.01em; }
+.tr-sec > :first-child .flex-1 { background: var(--k-line) !important; }
+.tr-sec > p { font-size: 15px !important; color: var(--k-ink2) !important; max-width: 78ch; }
+
+/* The headline figures: one card, split by hairlines. */
+.tr-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 24px; background: var(--k-card); border-radius: 18px; box-shadow: 0 0 0 1px var(--k-line), 0 30px 60px -40px rgba(0,0,0,.8); }
+.tr-kpi { display: flex; flex-direction: column; gap: 3px; padding: 18px 20px; border-left: 1px solid var(--k-line); min-width: 0; }
+.tr-kpi:first-child { border-left: 0; }
+.tr-kpi .l { font-size: 12px; color: var(--k-mute); }
+.tr-kpi .v { font-family: var(--k-round); font-size: 30px; line-height: 1.1; font-weight: 600; letter-spacing: -.01em; white-space: nowrap; }
+.tr-kpi .d { font-size: 12px; } .tr-kpi .d.good { color: var(--k-good); } .tr-kpi .d.bad { color: var(--k-bad); }
+.tr-kpi .s { font-size: 12px; color: var(--k-mute); line-height: 1.35; }
+@media (max-width: 1100px) { .tr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tr-kpi:nth-child(odd) { border-left: 0; } .tr-kpi { border-top: 1px solid var(--k-line); } }
+
+/* Charts and tables sit on space and a hairline. */
+.tr-an .tr-panel { padding: 16px 0 0 !important; border-top: 1px solid var(--k-line); background: none; }
+.tr-levers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; }
+.tr-lever { padding-top: 16px; border-top: 1px solid var(--k-line); }
+.tr-lever .text-2xl, .tr-stat .text-2xl { font-family: var(--k-round); font-weight: 600 !important; }
+.tr-stat { padding-top: 16px; border-top: 1px solid var(--k-line); }
+@media (max-width: 1100px) { .tr-levers { grid-template-columns: minmax(0, 1fr); row-gap: 20px; } }

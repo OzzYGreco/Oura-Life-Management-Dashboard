@@ -1,839 +1,639 @@
-import { useState, useMemo, useCallback } from 'react'
-import { useTrades } from '../../../hooks/useTrades'
-import { Card } from '../../../components/ui/Card'
+import { useState, useMemo } from 'react'
+import { useTrades, type Trade } from '../../../hooks/useTrades'
+import { useTradingAccounts } from '../../../hooks/useTradingAccounts'
+import { Panel } from './Panel'
+import { useIsNext } from '../../../skins/isNext'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { useFmtView } from '../../../hooks/useFmtView'
 import { MISTAKES } from '../../../lib/constants'
+import { MAX_DEVIATION_PCT } from '../../../components/shared/PnLBadge'
+import { applyDateFilter, presetRange, type Preset } from '../../../components/shared/DateFilter'
+import { RangePicker, Segmented } from '../controls'
+import { dimensions, levers, type Dimension } from './slices'
+import { LeverCards, RollingEdge, BreakevenGauge } from './EdgeParts'
+import { TradeManagement } from './Management'
+import { ChevronDown } from 'lucide-react'
 import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
+  BE_R, byTime, fmtR, isClosed, mean, median, outcomeOf, pnlOf, stopTiming, sum,
+} from '../../../lib/tradeStats'
+import {
+  AreaChart, Area, BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
-import type { Trade } from '../../../hooks/useTrades'
-import { DateFilter, applyDateFilter, type Preset } from '../../../components/shared/DateFilter'
 
-// ── Palette ───────────────────────────────────────────────────────────────────
-const C = {
-  profit: '#22c55e',
-  loss:   '#ef4444',
-  blue:   '#6366f1',
-  amber:  '#f59e0b',
-  muted:  '#525252',
-}
+/**
+ * Trading analytics as a set of questions, each answered in a sentence and
+ * one visual: am I making money, where does it go, is my risk under control,
+ * which setups work, when do I trade best, what do my mistakes cost.
+ *
+ * Counting rules, everywhere on the page:
+ *  - only closed trades count; a running position has no result yet
+ *  - a result inside ±0.1R is breakeven, not a win or a loss
+ *  - R figures use trades with a planned risk; ones without are left out, and said so
+ *  - groups under 5 trades are greyed: too few to tell
+ */
 
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-const DAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+const C = { profit: 'var(--c-profit)', loss: 'var(--c-loss)', line: 'var(--c-accent)', muted: 'var(--c-chart-tick)' }
+const HEX = { profit: 'var(--c-profit)', loss: 'var(--c-loss)' }
+const MIN_N = 5
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const rColor = (r: number | null | undefined) =>
-  r == null ? 'var(--c-text-3)' : r > 0 ? C.profit : r < 0 ? C.loss : 'var(--c-text-3)'
+const rColor = (r: number | null | undefined) => (r == null || Math.abs(r) < 1e-9 ? 'var(--c-text-3)' : r > 0 ? C.profit : C.loss)
+const pct = (x: number) => `${Math.round(x * 100)}%`
+const mistakeLabel = (k: string) => MISTAKES.find(m => m.key === k)?.label ?? k.replace(/_/g, ' ')
+const ttStyle = { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', borderRadius: 8, fontSize: 12 }
 
-const fmtR = (r: number) => `${r >= 0 ? '+' : ''}${r.toFixed(2)}R`
+// ── Groups ───────────────────────────────────────────────────────────────────
 
-const rCellBg = (r: number | null): React.CSSProperties => {
-  if (r == null) return {}
-  if (r >  1.5) return { background: 'rgba(34,197,94,0.45)',  color: '#fff' }
-  if (r >  0)   return { background: 'rgba(34,197,94,0.18)',  color: C.profit }
-  if (r < -1.5) return { background: 'rgba(239,68,68,0.45)',  color: '#fff' }
-  if (r <  0)   return { background: 'rgba(239,68,68,0.18)',  color: C.loss }
-  return {}
-}
+interface Group { name: string; n: number; wins: number; losses: number; be: number; avgR: number | null; netR: number; pnl: number; curve: number[] }
 
-const pnlCellBg = (v: number): React.CSSProperties =>
-  v > 0 ? { background: 'rgba(34,197,94,0.15)', color: C.profit }
-        : v < 0 ? { background: 'rgba(239,68,68,0.15)', color: C.loss }
-        : {}
-
-/** Map a raw mistake key → readable label */
-const fmtMistake = (key: string): string => {
-  const found = MISTAKES.find(m => m.key === key)
-  if (found) return found.label
-  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-}
-
-// ── Shared tooltip styles ─────────────────────────────────────────────────────
-const ttStyle   = { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', borderRadius: 8, fontSize: 12 }
-const ttLabel   = { color: 'var(--c-text-1)' }
-const barCursor = { fill: 'rgba(255,255,255,0.04)' }
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
-function Sect({ label, children, action }: { label: string; children: React.ReactNode; action?: React.ReactNode }) {
-  return (
-    <div>
-      <div className="flex items-center gap-3 mb-3">
-        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>{label}</span>
-        <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }} />
-        {action}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function KpiCard({
-  label, value, sub, color = 'var(--c-text-1)',
-}: { label: string; value: React.ReactNode; sub?: string; color?: string }) {
-  return (
-    <div className="rounded-xl p-3.5" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-      <div className="text-xl font-bold num leading-none" style={{ color }}>{value}</div>
-      {sub && <div className="text-[10px] num mt-1.5" style={{ color: 'var(--c-text-3)' }}>{sub}</div>}
-    </div>
-  )
-}
-
-/** Custom P&L tooltip that colors value green / red based on sign */
-function PnlTip({
-  active, payload, label,
-  fmt = (v: number) => `$${v.toFixed(2)}`,
-}: { active?: boolean; payload?: any[]; label?: string; fmt?: (v: number) => string }) {
-  if (!active || !payload?.length) return null
-  const v = payload[0]?.value as number
-  return (
-    <div style={{ ...ttStyle, padding: '8px 12px' }}>
-      <p style={{ color: 'var(--c-text-1)', fontWeight: 600, margin: '0 0 4px' }}>{label}</p>
-      <p style={{ margin: 0, color: v >= 0 ? C.profit : C.loss }}>P&amp;L : {fmt(v)}</p>
-    </div>
-  )
-}
-
-// ── Stats helpers ──────────────────────────────────────────────────────────────
-function computeStats(trades: Trade[]) {
-  if (!trades.length) return null
-  const total   = trades.length
-  const wins    = trades.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) > 0)
-  const losses  = trades.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) < 0)
-  const longs   = trades.filter(t => t.direction === 'Long')
-  const shorts  = trades.filter(t => t.direction === 'Short')
-
-  const totalPnl  = trades.reduce((s, t) => s + (t.netPnl ?? t.realizedPnl ?? 0), 0)
-  const totalR    = trades.reduce((s, t) => s + (t.rrRatio ?? 0), 0)
-  const winRate   = wins.length / total
-  const lossRate  = 1 - winRate
-  const avgWinR   = wins.length  ? wins.reduce((s, t)   => s + (t.rrRatio ?? 0), 0) / wins.length  : 0
-  const avgLossR  = losses.length ? losses.reduce((s, t) => s + (t.rrRatio ?? 0), 0) / losses.length : 0
-  const ev        = winRate * avgWinR + lossRate * avgLossR
-  const bestR     = trades.reduce((m, t) => Math.max(m, t.rrRatio ?? -Infinity), -Infinity)
-
-  // Max drawdown ($) using netPnl
-  const sorted = [...trades].sort((a, b) =>
-    a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''))
-  let cum = 0, peak = 0, maxDD = 0
-  for (const t of sorted) {
-    cum  += t.netPnl ?? t.realizedPnl ?? 0
-    if (cum > peak) peak = cum
-    const dd = peak - cum
-    if (dd > maxDD) maxDD = dd
-  }
-
+function group(name: string, ts: Trade[]): Group {
+  const rs = ts.filter(t => t.rrRatio != null).map(t => t.rrRatio!)
+  let cum = 0
   return {
-    total, wins: wins.length, losses: losses.length,
-    longs: longs.length, shorts: shorts.length,
-    totalPnl, totalR, winRate, avgWinR, avgLossR, ev,
-    bestR: bestR === -Infinity ? 0 : bestR,
-    maxDD: -maxDD,
+    name, n: ts.length,
+    wins: ts.filter(t => outcomeOf(t) === 'win').length,
+    losses: ts.filter(t => outcomeOf(t) === 'loss').length,
+    be: ts.filter(t => outcomeOf(t) === 'be').length,
+    avgR: mean(rs), netR: sum(rs), pnl: sum(ts.map(t => pnlOf(t) ?? 0)),
+    curve: [0, ...[...ts].sort(byTime).filter(t => t.rrRatio != null).map(t => (cum += t.rrRatio!))],
   }
 }
 
-// ── Calendar Heatmap ──────────────────────────────────────────────────────────
-function CalendarHeatmap({ trades }: { trades: Trade[] }) {
-  const now = new Date()
-  const [viewMonth, setViewMonth] = useState(now.getMonth() + 1)
-  const [viewYear, setViewYear]   = useState(now.getFullYear())
-
-  const years = useMemo(() => {
-    const ys = [...new Set(trades.map(t => Number(t.date.slice(0, 4))))].sort().reverse()
-    return ys.length ? ys : [now.getFullYear()]
-  }, [trades])
-
-  const dayR = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const t of trades) {
-      const [y, mo] = t.date.split('-').map(Number)
-      if (y === viewYear && mo === viewMonth && t.rrRatio != null) {
-        m[t.date] = (m[t.date] ?? 0) + t.rrRatio
-      }
-    }
-    return m
-  }, [trades, viewMonth, viewYear])
-
-  const firstDow    = new Date(viewYear, viewMonth - 1, 1).getDay()
-  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate()
-  const cells: (number | null)[] = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)]
-  while (cells.length % 7 !== 0) cells.push(null)
-  const weeks: (number | null)[][] = []
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
-
-  const selectStyle: React.CSSProperties = { background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }
-
-  return (
-    <Card className="p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--c-text-2)' }}>Daily R Heatmap</h3>
-        <div className="flex items-center gap-2">
-          <select value={viewMonth} onChange={e => setViewMonth(Number(e.target.value))}
-            className="text-xs px-2.5 py-1.5 rounded-lg outline-none" style={selectStyle}>
-            {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-          </select>
-          <select value={viewYear} onChange={e => setViewYear(Number(e.target.value))}
-            className="text-xs px-2.5 py-1.5 rounded-lg outline-none" style={selectStyle}>
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-      </div>
-      <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 4 }}>
-        <thead>
-          <tr>{DAYS.map(d => (
-            <th key={d} className="text-center text-[10px] font-bold pb-2 uppercase tracking-widest"
-              style={{ color: 'var(--c-text-3)', width: '14.28%' }}>{d}</th>
-          ))}</tr>
-        </thead>
-        <tbody>
-          {weeks.map((week, wi) => (
-            <tr key={wi}>
-              {week.map((day, di) => {
-                if (!day) return <td key={di} />
-                const dateKey = `${viewYear}-${String(viewMonth).padStart(2,'0')}-${String(day).padStart(2,'0')}`
-                const r = dayR[dateKey] ?? null
-                return (
-                  <td key={di} style={{
-                    borderRadius: 8, padding: '8px 4px', textAlign: 'center',
-                    border: '1px solid var(--c-border)',
-                    ...rCellBg(r),
-                    background: r !== null ? rCellBg(r).background : 'var(--c-bg-secondary)',
-                  }}>
-                    <div className="text-xs font-semibold num">{day}</div>
-                    <div className="text-[11px] num font-medium mt-0.5">
-                      {r !== null ? `${r >= 0 ? '+' : ''}${r.toFixed(2)} R` : <span style={{ color: 'var(--c-text-3)' }}> - </span>}
-                    </div>
-                  </td>
-                )
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
-  )
+function groupBy(ts: Trade[], key: (t: Trade) => string | null): Group[] {
+  const m = new Map<string, Trade[]>()
+  for (const t of ts) { const k = key(t); if (k == null) continue; m.set(k, [...(m.get(k) ?? []), t]) }
+  return [...m].map(([k, v]) => group(k, v))
 }
 
-// ── Sparkline ─────────────────────────────────────────────────────────────────
-function Sparkline({ points, color }: { points: number[]; color: string }) {
-  if (points.length < 2) return null
-  const W = 100, H = 36
-  const min = Math.min(...points)
-  const max = Math.max(...points)
-  const range = max - min || 1
-  const pts = points
-    .map((v, i) => `${(i / (points.length - 1)) * W},${H - ((v - min) / range) * (H - 4) - 2}`)
-    .join(' ')
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: 'block' }}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.8"
-        strokeLinecap="round" strokeLinejoin="round" opacity={0.85} />
-    </svg>
-  )
+/** The best and worst group with enough trades to mean something. */
+function extremes(gs: Group[]) {
+  const ok = gs.filter(g => g.n >= MIN_N && g.avgR != null).sort((a, b) => b.avgR! - a.avgR!)
+  return ok.length >= 2 ? { best: ok[0], worst: ok[ok.length - 1] } : null
 }
 
-// ── System Performance ────────────────────────────────────────────────────────
-function SystemPerformance({ trades, fmtView }: { trades: Trade[]; fmtView: (n: number) => string }) {
-  const [selected, setSelected] = useState<string | null>(null)
+// ── Page ─────────────────────────────────────────────────────────────────────
 
-  const systems = useMemo(() => {
-    const m: Record<string, { trades: number; wins: number; r: number; pnl: number; equityPts: number[] }> = {}
-    // Sort trades by date first so sparkline is chronological
-    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''))
-    for (const t of sorted) {
-      const key = t.setupLabel || 'Untagged'
-      if (!m[key]) m[key] = { trades: 0, wins: 0, r: 0, pnl: 0, equityPts: [0] }
-      const pnl = t.netPnl ?? t.realizedPnl ?? 0
-      m[key].trades++
-      if (pnl > 0) m[key].wins++
-      m[key].r   += t.rrRatio ?? 0
-      m[key].pnl += pnl
-      m[key].equityPts.push(+(m[key].pnl).toFixed(2))
-    }
-    return Object.entries(m)
-      .sort(([, a], [, b]) => b.trades - a.trades)
-      .map(([name, v]) => ({
-        name, ...v,
-        winRate: v.trades ? v.wins / v.trades * 100 : 0,
-        ev:      v.trades ? v.r / v.trades : 0,
-      }))
-  }, [trades])
-
-  // Aggregate (all trades) - used by the '__ALL__' card
-  const allEquityPts = useMemo(() => {
-    let cum = 0
-    return [0, ...[...trades]
-      .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''))
-      .map(t => { cum += t.netPnl ?? t.realizedPnl ?? 0; return +cum.toFixed(2) })]
-  }, [trades])
-
-  const allStats = useMemo(() => {
-    const pnls  = trades.map(t => t.netPnl ?? t.realizedPnl ?? 0)
-    const wins  = pnls.filter(p => p > 0)
-    const rs    = trades.map(t => t.rrRatio ?? 0)
-    const winRs = trades.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) > 0).map(t => t.rrRatio ?? 0)
-    const lossRs= trades.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) < 0).map(t => t.rrRatio ?? 0)
-    const winRate = trades.length ? wins.length / trades.length : 0
-    const avgWinR  = winRs.length  ? winRs.reduce((s,r)=>s+r,0)/winRs.length   : 0
-    const avgLossR = lossRs.length ? lossRs.reduce((s,r)=>s+r,0)/lossRs.length : 0
-    const ev = winRate * avgWinR + (1 - winRate) * avgLossR
-    const totalR = rs.reduce((s,r)=>s+r,0)
-    const totalPnl = pnls.reduce((s,p)=>s+p,0)
-    const bestR = rs.length ? Math.max(...rs) : 0
-    const sorted = [...trades].sort((a,b)=>a.date.localeCompare(b.date))
-    let cum = 0
-    const equity = sorted.map(t => { cum += t.netPnl ?? t.realizedPnl ?? 0; return { date: t.date.slice(5), pnl: +cum.toFixed(2) } })
-    return {
-      total: trades.length, wins: wins.length, losses: trades.length - wins.length,
-      winRate, avgWinR, avgLossR, ev, totalR, totalPnl, bestR, equity,
-    }
-  }, [trades])
-
-  const detail = useMemo(() => {
-    if (!selected) return null
-    if (selected === '__ALL__') return allStats
-    const ts = trades.filter(t => (t.setupLabel || 'Untagged') === selected)
-    const pnls = ts.map(t => t.netPnl ?? t.realizedPnl ?? 0)
-    const wins = pnls.filter(p => p > 0)
-    const rs = ts.map(t => t.rrRatio ?? 0)
-    const winRs = ts.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) > 0).map(t => t.rrRatio ?? 0)
-    const lossRs = ts.filter(t => (t.netPnl ?? t.realizedPnl ?? 0) < 0).map(t => t.rrRatio ?? 0)
-    const totalR = rs.reduce((s, r) => s + r, 0)
-    const winRate = ts.length ? wins.length / ts.length : 0
-    const avgWinR = winRs.length ? winRs.reduce((s, r) => s + r, 0) / winRs.length : 0
-    const avgLossR = lossRs.length ? lossRs.reduce((s, r) => s + r, 0) / lossRs.length : 0
-    const ev = winRate * avgWinR + (1 - winRate) * avgLossR
-    const totalPnl = pnls.reduce((s, p) => s + p, 0)
-    const bestR = rs.length ? Math.max(...rs) : 0
-    const sorted = [...ts].sort((a, b) => a.date.localeCompare(b.date))
-    let cum = 0
-    const equity = sorted.map(t => {
-      cum += t.netPnl ?? t.realizedPnl ?? 0
-      return { date: t.date.slice(5), pnl: +cum.toFixed(2) }
-    })
-    return { total: ts.length, wins: wins.length, losses: ts.length - wins.length, winRate, avgWinR, avgLossR, ev, totalR, totalPnl, bestR, equity }
-  }, [selected, trades, allStats])
-
-  if (selected && detail) {
-    // ── Drill-in view ───────────────────────────────────────────────────────
-    return (
-      <div>
-        <button onClick={() => setSelected(null)}
-          className="flex items-center gap-1.5 text-xs mb-4 transition-colors"
-          style={{ color: 'var(--c-text-3)' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-accent)' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)' }}>
-          ← All Systems
-        </button>
-        <div className="mb-4">
-          <h3 className="text-base font-bold" style={{ color: 'var(--c-text-1)' }}>
-            {selected === '__ALL__' ? 'All Systems' : selected}
-          </h3>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--c-text-3)' }}>{detail.total} trades · {detail.wins}W {detail.losses}L</p>
-        </div>
-        <div className="grid grid-cols-4 gap-3 mb-4">
-          <KpiCard label="Win Rate"   value={`${(detail.winRate * 100).toFixed(0)}%`} color={detail.winRate >= 0.5 ? C.profit : C.loss} />
-          <KpiCard label="EV / trade" value={fmtR(detail.ev)}      color={rColor(detail.ev)} />
-          <KpiCard label="Net R"      value={fmtR(detail.totalR)}  color={rColor(detail.totalR)} />
-          <KpiCard label="Total P&L"  value={fmtView(detail.totalPnl)} color={detail.totalPnl >= 0 ? C.profit : C.loss} />
-        </div>
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <KpiCard label="Avg Win R"  value={fmtR(detail.avgWinR)}  color={C.profit} />
-          <KpiCard label="Avg Loss R" value={fmtR(detail.avgLossR)} color={C.loss} />
-          <KpiCard label="Best Trade" value={fmtR(detail.bestR)}    color={C.profit} />
-        </div>
-        {detail.equity.length > 1 && (
-          <Card className="p-4">
-            <div className="text-[10px] font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--c-text-3)' }}>Equity - {selected}</div>
-            <div className="h-36">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={detail.equity}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--c-border)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: C.muted }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 9, fill: C.muted }} tickLine={false} axisLine={false}
-                    tickFormatter={v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(1)+'k' : v}`} />
-                  <Tooltip content={(p: any) => <PnlTip {...p} fmt={fmtView} />} />
-                  <Line type="monotone" dataKey="pnl" stroke={C.blue} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-        )}
-      </div>
-    )
+/** The core numbers for a set of closed trades, for the headline and the comparison. */
+function core(closed: Trade[]) {
+  const rs = closed.filter(t => t.rrRatio != null).map(t => t.rrRatio!)
+  const winRs = rs.filter(r => r >= BE_R), lossRs = rs.filter(r => r <= -BE_R)
+  const wins = closed.filter(t => outcomeOf(t) === 'win').length
+  return {
+    n: closed.length, net: sum(closed.map(t => pnlOf(t) ?? 0)), netR: sum(rs), avgR: mean(rs),
+    winRate: closed.length ? wins / closed.length : 0,
+    pf: lossRs.length ? sum(winRs) / Math.abs(sum(lossRs)) : null,
+    avgWinR: mean(winRs), avgLossR: mean(lossRs),
   }
-
-  // ── All-systems card grid ─────────────────────────────────────────────────
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
-
-      {/* Aggregate "All Systems" card */}
-      {(() => {
-        const evColor = rColor(allStats.ev)
-        const wrColor = allStats.winRate >= 0.5 ? C.profit : C.loss
-        return (
-          <button type="button" onClick={() => setSelected('__ALL__')}
-            className="text-left rounded-xl p-4 transition-all col-span-1"
-            style={{ background: 'var(--c-bg-card)', border: '2px solid var(--c-accent)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1' }}>
-            <div className="text-xs font-bold mb-1 uppercase tracking-widest" style={{ color: 'var(--c-accent)' }}>All Systems</div>
-            <div className="text-[10px] mb-3" style={{ color: 'var(--c-text-3)' }}>{allStats.total} trades</div>
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--c-text-3)' }}>EV</div>
-                <div className="text-lg font-bold num" style={{ color: evColor }}>{allStats.ev >= 0 ? '+' : ''}{allStats.ev.toFixed(2)}R</div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--c-text-3)' }}>Win%</div>
-                <div className="text-sm font-bold num" style={{ color: wrColor }}>{(allStats.winRate * 100).toFixed(0)}%</div>
-                <div className="text-[10px] num mt-0.5" style={{ color: 'var(--c-text-3)' }}>{allStats.wins}W · {allStats.losses}L</div>
-              </div>
-            </div>
-            <div className="mt-3 -mx-1">
-              <Sparkline points={allEquityPts} color={evColor} />
-            </div>
-          </button>
-        )
-      })()}
-
-      {systems.map(s => {
-        const evColor = rColor(s.ev)
-        const wrColor = s.winRate >= 50 ? C.profit : C.loss
-        return (
-          <button key={s.name} type="button" onClick={() => setSelected(s.name)}
-            className="text-left rounded-xl p-4 transition-all group"
-            style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.4)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-border)' }}>
-            {/* Name */}
-            <div className="text-xs font-semibold mb-3 leading-snug" style={{ color: 'var(--c-text-1)' }}
-              title={s.name}>
-              {s.name.length > 28 ? s.name.slice(0, 26) + '…' : s.name}
-            </div>
-            {/* 3 key numbers */}
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--c-text-3)' }}>EV</div>
-                <div className="text-lg font-bold num" style={{ color: evColor }}>{s.ev >= 0 ? '+' : ''}{s.ev.toFixed(2)}R</div>
-              </div>
-              <div className="text-right">
-                <div className="text-[10px] uppercase tracking-wider mb-0.5" style={{ color: 'var(--c-text-3)' }}>Win%</div>
-                <div className="text-sm font-bold num" style={{ color: wrColor }}>{s.winRate.toFixed(0)}%</div>
-                <div className="text-[10px] num mt-0.5" style={{ color: 'var(--c-text-3)' }}>{s.trades} trades</div>
-              </div>
-            </div>
-            {/* Mini equity sparkline */}
-            <div className="mt-3 -mx-1">
-              <Sparkline points={s.equityPts} color={evColor} />
-            </div>
-          </button>
-        )
-      })}
-    </div>
-  )
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
-interface Props { accountId?: number | null }
+/** The equal-length stretch right before a date range, for "vs previous period". */
+function previousRange(preset: Preset, customFrom: string, customTo: string): { from: string; to: string } | null {
+  const r = preset === 'Custom' ? (customFrom && customTo ? { from: customFrom, to: customTo } : null) : presetRange(preset)
+  if (!r) return null
+  const day = 86_400_000
+  const a = Date.parse(`${r.from}T00:00:00Z`), b = Date.parse(`${r.to}T00:00:00Z`)
+  const len = Math.round((b - a) / day) + 1
+  const f = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+  return { from: f(a - len * day), to: f(a - day) }
+}
 
-export function TradingAnalytics({ accountId }: Props) {
+export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
+  const nx = useIsNext()
   const { fmtView } = useFmtView('USD', 'trading')
-  const params: Record<string, string> = accountId ? { accountId: String(accountId) } : {}
-  const { data: trades = [], isPending } = useTrades(params)
-
-  // ── Date filter ─────────────────────────────────────────────────────────────
-  const [preset, setPreset]         = useState<Preset>('All')
+  const { data: trades = [], isPending } = useTrades(accountId ? { accountId: String(accountId) } : {})
+  const { data: accounts = [] } = useTradingAccounts()
+  const [preset, setPreset] = useState<Preset>('All')
   const [customFrom, setCustomFrom] = useState('')
-  const [customTo,   setCustomTo]   = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [compare, setCompare] = useState(false)
+  const [allMonths, setAllMonths] = useState(false)
 
-  const filteredTrades = useMemo(
-    () => applyDateFilter(trades, preset, customFrom, customTo),
+  const closed = useMemo(
+    () => applyDateFilter(trades, preset, customFrom, customTo).filter(isClosed).sort(byTime),
     [trades, preset, customFrom, customTo],
   )
+  const running = useMemo(() => trades.filter(t => t.source === 'bybit' && !isClosed(t)).length, [trades])
+  const prevRange = useMemo(() => previousRange(preset, customFrom, customTo), [preset, customFrom, customTo])
+  const before = useMemo(() => {
+    if (!compare || !prevRange) return null
+    const ts = trades.filter(t => isClosed(t) && t.date >= prevRange.from && t.date <= prevRange.to)
+    return ts.length ? core(ts) : null
+  }, [compare, prevRange, trades])
 
-  // Compute mistakes directly from filtered trades
-  const mistakes = useMemo(() => {
-    const m: Record<string, number> = {}
-    for (const t of filteredTrades) {
-      for (const key of t.mistakes ?? []) m[key] = (m[key] ?? 0) + 1
-    }
-    return Object.entries(m)
-      .map(([mistake, count]) => ({ mistake, count, label: fmtMistake(mistake) }))
-      .sort((a, b) => b.count - a.count)
-  }, [filteredTrades])
+  const s = useMemo(() => {
+    if (!closed.length) return null
+    const withR = closed.filter(t => t.rrRatio != null)
+    const rs = withR.map(t => t.rrRatio!)
+    const c = core(closed)
+    const all = group('All', closed)
+    const dims = dimensions(closed)
 
-  // ── Available years derived from actual data ──────────────────────────────
-  const availableYears = useMemo(() =>
-    [...new Set(filteredTrades.map(t => Number(t.date.slice(0, 4))))].sort().reverse()
-  , [filteredTrades])
-
-  const [annualYear, setAnnualYear] = useState<number | null>(null)
-  const displayYear = annualYear ?? availableYears[0] ?? new Date().getFullYear()
-  const prevYear = useCallback(() => setAnnualYear(y => (y ?? displayYear) - 1), [displayYear])
-  const nextYear = useCallback(() => setAnnualYear(y => (y ?? displayYear) + 1), [displayYear])
-  const hasDataInYear = (y: number) => availableYears.includes(y)
-
-  // ── Core stats ──────────────────────────────────────────────────────────────
-  const stats = useMemo(() => computeStats(filteredTrades), [filteredTrades])
-
-  // ── Equity curve ─────────────────────────────────────────────────────────────
-  const equity = useMemo(() => {
-    let cum = 0
-    return [...filteredTrades]
-      .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''))
-      .map(t => { cum += t.netPnl ?? t.realizedPnl ?? 0; return { date: t.date.slice(5), pnl: +cum.toFixed(2) } })
-  }, [filteredTrades])
-
-  // ── Day of week ───────────────────────────────────────────────────────────────
-  const dow = useMemo(() => {
-    const d: Record<number, { trades: number; wins: number; r: number }> = {}
-    for (const t of filteredTrades) {
-      const day = new Date(t.date + 'T12:00:00').getDay()
-      if (!d[day]) d[day] = { trades: 0, wins: 0, r: 0 }
-      d[day].trades++
-      const pnl = t.netPnl ?? t.realizedPnl ?? 0
-      if (pnl > 0) d[day].wins++
-      d[day].r += t.rrRatio ?? 0
-    }
-    return DAYS.map((name, i) => ({
-      day: name, trades: d[i]?.trades ?? 0, wins: d[i]?.wins ?? 0,
-      losses: (d[i]?.trades ?? 0) - (d[i]?.wins ?? 0), r: d[i]?.r ?? 0,
-    }))
-  }, [filteredTrades])
-
-  // ── Annual/monthly breakdown ──────────────────────────────────────────────────
-  const monthly = useMemo(() => {
-    const m: Record<string, { trades: number; wins: number; pnl: number; r: number }> = {}
-    for (const t of filteredTrades) {
-      const key = t.date.slice(0, 7)
-      if (!m[key]) m[key] = { trades: 0, wins: 0, pnl: 0, r: 0 }
-      m[key].trades++
-      const pnl = t.netPnl ?? t.realizedPnl ?? 0
-      if (pnl > 0) m[key].wins++
-      m[key].pnl += pnl
-      m[key].r   += t.rrRatio ?? 0
-    }
-    return m
-  }, [filteredTrades])
-
-  const annual = useMemo(() =>
-    MONTHS.map((name, i) => {
-      const key   = `${displayYear}-${String(i + 1).padStart(2, '0')}`
-      const found = monthly[key]
-      const wins = found?.wins ?? 0
-      const t    = found?.trades ?? 0
-      return { month: name, trades: t, wins, losses: t - wins, pnl: found?.pnl ?? 0, r: found?.r ?? 0 }
+    let cum = 0, peak = 0, maxDD = 0
+    const curve = withR.map((t, i) => {
+      cum += t.rrRatio!; peak = Math.max(peak, cum); maxDD = Math.max(maxDD, peak - cum)
+      return { i: i + 1, r: +cum.toFixed(2), date: t.date, asset: t.asset, tr: t.rrRatio! }
     })
-  , [monthly, displayYear])
 
-  const annualTotals = useMemo(() => ({
-    trades: annual.reduce((s, m) => s + m.trades, 0),
-    wins:   annual.reduce((s, m) => s + m.wins, 0),
-    losses: annual.reduce((s, m) => s + m.losses, 0),
-    pnl:    annual.reduce((s, m) => s + m.pnl, 0),
-    r:      annual.reduce((s, m) => s + m.r, 0),
-  }), [annual])
+    // Costs: what the price move made, and what fees and funding took from it.
+    const gross = sum(closed.map(t => t.realizedPnl ?? pnlOf(t) ?? 0))
+    const fees = sum(closed.map(t => (t.entryFeeAmount ?? 0) + (t.exitFeeAmount ?? 0)))
+    const funding = sum(closed.map(t => t.fundingFeeAmount ?? 0))
+    const costR = mean(withR.filter(t => t.realizedPnl != null && t.riskDollars).map(t => (t.realizedPnl! - pnlOf(t)!) / t.riskDollars!))
 
-  // ── Instrument ────────────────────────────────────────────────────────────────
-  const byInstrument = useMemo(() => {
-    const m: Record<string, { pnl: number; trades: number }> = {}
-    for (const t of filteredTrades) {
-      if (!m[t.instrument]) m[t.instrument] = { pnl: 0, trades: 0 }
-      m[t.instrument].pnl += t.netPnl ?? t.realizedPnl ?? 0
-      m[t.instrument].trades++
+    // Risk: what a full stop-out actually costs, and how sizing matched the plan.
+    const stopOuts = rs.filter(r => r <= -0.8)
+    const pastPlan = withR.filter(t => (t.deviationPct ?? 0) > MAX_DEVIATION_PCT).map(t => t.rrRatio!)
+    const sized = closed.filter(t => t.riskSource === 'user' && t.riskAtStop && t.riskDollars && stopTiming(t).kind === 'with-entry')
+      .map(t => t.riskAtStop! / t.riskDollars!)
+    const lateStops = closed.filter(t => stopTiming(t).kind === 'later')
+    const noStop = closed.filter(t => stopTiming(t).kind === 'none')
+    const edges = [-1.5, -1, -0.5, 0, 0.5, 1, 2, 3]
+    const labels = ['< −1.5', '−1.5 to −1', '−1 to −½', '−½ to 0', '0 to ½', '½ to 1', '1 to 2', '2 to 3', '> 3']
+    const dist = labels.map((label, i) => ({ label, n: 0, side: i < 4 ? 'loss' : 'profit' }))
+    for (const r of rs) dist[edges.filter(e => r >= e).length].n++
+    const worst = [...withR].sort((a, b) => a.rrRatio! - b.rrRatio!).slice(0, 5).filter(t => t.rrRatio! < 0)
+
+    // $ per account, when several are mixed (test size and real size don't add up).
+    const perAccount = groupBy(closed, t => accounts.find(a => a.id === t.accountId)?.name ?? 'No account')
+
+    return {
+      c, all, withR, noR: closed.length - withR.length, maxDD, curve, dims,
+      levers: levers(closed, dims).slice(0, 3),
+      gross, fees, funding, costR,
+      stopOuts, pastPlan, sized: median(sized), lateStops, noStop, dist, worst,
+      perAccount,
+      rules: [
+        group('Followed my rules', closed.filter(t => t.rulesMet === 1)),
+        group('Broke a rule', closed.filter(t => t.rulesMet === 0)),
+      ],
+      noMistakes: group('No mistakes', closed.filter(t => Array.isArray(t.mistakes) && t.mistakes.length === 0)),
+      mistakes: groupBy(closed.flatMap(t => (t.mistakes ?? []).map(m => ({ ...t, setupLabel: m }))), t => t.setupLabel!)
+        .map(g => ({ ...g, name: mistakeLabel(g.name) })).sort((a, b) => a.netR - b.netR),
+      months: groupBy(closed, t => t.date.slice(0, 7)).sort((a, b) => b.name.localeCompare(a.name)),
     }
-    return Object.entries(m).map(([name, v]) => ({ name, ...v }))
-  }, [filteredTrades])
+  }, [closed, accounts])
 
   if (isPending) return <PageLoader />
 
-  const selectStyle: React.CSSProperties = { background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }
+  const d = (now: number | null | undefined, then: number | null | undefined, fmt: (x: number) => string, higherIsBetter = true) =>
+    before && now != null && then != null ? { text: `${now - then >= 0 ? '+' : '−'}${fmt(Math.abs(now - then))} vs before`, good: (now - then >= 0) === higherIsBetter } : undefined
+  const rollWin = s ? Math.max(10, Math.min(30, Math.floor(s.withR.length / 3))) : 30
+  const reviewed = s ? s.rules[0].n + s.rules[1].n : 0
 
   return (
-    <div className="space-y-8">
-
-      {/* ── Date filter bar ──────────────────────────────────────────── */}
-      <div className="mb-6">
-        <DateFilter
-          preset={preset}         onPreset={setPreset}
-          customFrom={customFrom} onCustomFrom={setCustomFrom}
-          customTo={customTo}     onCustomTo={setCustomTo}
-        />
+    <div className={nx ? 'tr-an' : 'space-y-10'}>
+      <div className="flex flex-wrap items-center gap-3">
+        <RangePicker preset={preset} onPreset={setPreset} customFrom={customFrom} onCustomFrom={setCustomFrom} customTo={customTo} onCustomTo={setCustomTo} />
+        <button type="button" disabled={!prevRange} onClick={() => setCompare(v => !v)}
+          title={prevRange ? `Compare with ${prevRange.from} → ${prevRange.to}` : 'Pick a date range to compare it with the one before'}
+          className="px-3 py-1.5 rounded-xl text-xs font-medium transition-all disabled:opacity-35"
+          style={compare && prevRange
+            ? { background: 'color-mix(in srgb, var(--c-accent) 16%, transparent)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 45%, transparent)', color: 'var(--c-text-1)' }
+            : { boxShadow: 'inset 0 0 0 1px var(--c-border)', color: 'var(--c-text-2)' }}>
+          vs previous period
+        </button>
+        <span className="text-xs" style={{ color: 'var(--c-text-3)' }}>
+          {closed.length} closed trades{running ? ` · ${running} running, not counted yet` : ''}
+          {s && s.noR > 0 ? ` · ${s.noR} without a planned risk, left out of R figures` : ''}
+          {compare && prevRange ? (before ? ` · compared with ${before.n} trades from ${prevRange.from} to ${prevRange.to}` : ` · no trades from ${prevRange.from} to ${prevRange.to} to compare`) : ''}
+        </span>
       </div>
 
-      {!stats && (
-        <div className="text-center py-20" style={{ color: 'var(--c-text-3)' }}>
-          No trades in the selected period.
+      {!s ? (
+        <div className="text-center py-20" style={{ color: 'var(--c-text-3)' }}>No closed trades in the selected period.</div>
+      ) : <>
+
+      {/* ── Am I making money? ─────────────────────────────────────── */}
+      <Section n={1} q="Am I making money?" a={
+        <>Over {s.all.n} trades you're {s.c.netR >= 0 ? 'up' : 'down'} <b style={{ color: rColor(s.c.netR) }}>{fmtR(s.c.netR, 1)}</b>:
+          {' '}the average trade {s.c.avgR! >= 0 ? 'makes' : 'loses'} <b style={{ color: rColor(s.c.avgR) }}>{fmtR(Math.abs(s.c.avgR ?? 0)).replace(/^[+−]/, '')}</b>.
+          {' '}You win {pct(s.c.winRate)} of trades at {fmtR(s.c.avgWinR)} and lose {pct(s.all.losses / s.all.n)} at {fmtR(s.c.avgLossR)}
+          {s.all.be ? `; ${s.all.be} were scratches` : ''}.</>
+      }>
+        <div className={nx ? 'tr-kpis' : 'grid grid-cols-2 md:grid-cols-5 gap-3 mb-4'}>
+          <Kpi label="Net P&L" value={fmtView(s.c.net)} color={rColor(s.c.net)} delta={d(s.c.net, before?.net, x => fmtView(x).replace('-', ''))}
+            sub={s.perAccount.length > 1 ? s.perAccount.map(g => `${g.name} ${fmtView(g.pnl)}`).join(' · ') : 'after fees and funding'} />
+          <Kpi label="Net R" value={fmtR(s.c.netR, 1)} color={rColor(s.c.netR)} delta={d(s.c.netR, before?.netR, x => `${x.toFixed(1)}R`)} sub={`${s.withR.length} trades with a planned risk`} />
+          <Kpi label="Avg trade" value={fmtR(s.c.avgR)} color={rColor(s.c.avgR)} delta={d(s.c.avgR, before?.avgR, x => `${x.toFixed(2)}R`)} sub="your expectancy, per trade" />
+          <Kpi label="Win rate" value={pct(s.c.winRate)} delta={d(s.c.winRate, before?.winRate, x => `${Math.round(x * 100)} pts`)} sub={`${s.all.wins} W · ${s.all.losses} L · ${s.all.be} BE (±${BE_R}R)`} />
+          <Kpi label="Profit factor" value={s.c.pf != null ? s.c.pf.toFixed(2) : '—'} color={s.c.pf == null ? undefined : s.c.pf >= 1 ? C.profit : C.loss}
+            delta={d(s.c.pf, before?.pf, x => x.toFixed(2))} sub={`R won per R lost · deepest dip ${fmtR(-s.maxDD, 1)}`} />
         </div>
-      )}
-
-      {stats && <>
-
-      {/* ── 1. KPI Overview ───────────────────────────────────────────── */}
-      <Sect label="Performance Overview">
-        <div className="grid grid-cols-4 gap-3 mb-3">
-          <KpiCard label="Total Trades" value={stats.total}
-            sub={`${stats.wins} wins · ${stats.losses} losses`} />
-          <KpiCard label="Win Rate" value={`${(stats.winRate * 100).toFixed(1)}%`}
-            color={stats.winRate >= 0.5 ? C.profit : C.loss}
-            sub={`Loss rate ${(100 - stats.winRate * 100).toFixed(1)}%`} />
-          <KpiCard label="Total P&L" value={fmtView(stats.totalPnl)}
-            color={stats.totalPnl >= 0 ? C.profit : C.loss} />
-          <KpiCard label="Total R" value={fmtR(stats.totalR)}
-            color={rColor(stats.totalR)} />
-        </div>
-        <div className="grid grid-cols-5 gap-3">
-          <KpiCard label="EV (per trade)" value={fmtR(stats.ev)}
-            color={rColor(stats.ev)} sub="winR×avgWin + lossR×avgLoss" />
-          <KpiCard label="Avg Win R"    value={fmtR(stats.avgWinR)}  color={C.profit} />
-          <KpiCard label="Avg Loss R"   value={fmtR(stats.avgLossR)} color={C.loss} />
-          <KpiCard label="Best Trade"   value={fmtR(stats.bestR)}    color={C.profit} />
-          <KpiCard label="Max Drawdown" value={fmtView(stats.maxDD)} color={C.loss} />
-        </div>
-      </Sect>
-
-      {/* ── 2. Equity Curve ───────────────────────────────────────────── */}
-      <Sect label="Equity Curve">
-        <Card className="p-4">
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={equity}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--c-border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false}
-                  tickFormatter={v => `$${Math.abs(v) >= 1000 ? (v / 1000).toFixed(1) + 'k' : v}`} />
-                <Tooltip content={(p: any) => <PnlTip {...p} fmt={fmtView} />} />
-                <Line type="monotone" dataKey="pnl" stroke={C.blue} strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-      </Sect>
-
-      {/* ── 3. Win/Loss + Long/Short ──────────────────────────────────── */}
-      <Sect label="Distribution">
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            { title: 'Win / Loss', data: [{ name: 'Win', value: stats.wins }, { name: 'Loss', value: stats.losses }] },
-            { title: 'Long / Short', data: [{ name: 'Long', value: stats.longs }, { name: 'Short', value: stats.shorts }] },
-          ].map(({ title, data }) => {
-            const tot = data.reduce((s, d) => s + d.value, 0)
-            return (
-              <Card key={title} className="p-4 flex gap-4 items-center">
-                <div style={{ width: 120, height: 120, flexShrink: 0 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={data} cx="50%" cy="50%" outerRadius={52} innerRadius={28} dataKey="value" paddingAngle={3}>
-                        <Cell fill={C.profit} />
-                        <Cell fill={C.loss} />
-                      </Pie>
-                      <Tooltip contentStyle={ttStyle} labelStyle={ttLabel}
-                        formatter={(v: any, name: any) => [`${v} (${tot ? (v/tot*100).toFixed(1) : 0}%)`, name]} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex-1">
-                  <div className="text-sm font-semibold mb-3" style={{ color: 'var(--c-text-2)' }}>{title}</div>
-                  {data.map((d, i) => (
-                    <div key={d.name} className="flex items-center justify-between py-1.5"
-                      style={{ borderBottom: i < data.length - 1 ? '1px solid var(--c-border)' : undefined }}>
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-sm" style={{ background: i === 0 ? C.profit : C.loss }} />
-                        <span className="text-sm" style={{ color: 'var(--c-text-2)' }}>{d.name}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-sm font-bold num" style={{ color: i === 0 ? C.profit : C.loss }}>{d.value}</span>
-                        <span className="text-xs ml-1.5" style={{ color: 'var(--c-text-3)' }}>({tot ? (d.value/tot*100).toFixed(1) : 0}%)</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )
-          })}
-        </div>
-      </Sect>
-
-      {/* ── 4. Day of Week ───────────────────────────────────────────── */}
-      <Sect label="By Day of Week">
-        <Card className="p-4">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="h-44">
+        <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+          <Panel className="p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>Cumulative R, trade by trade</div>
+            <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dow} barSize={14} barGap={2}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--c-border)" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={ttStyle} cursor={barCursor} labelStyle={ttLabel} />
-                  <Legend iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="wins"   name="Wins"   stackId="a" fill={C.profit} radius={[2,2,0,0]} />
-                  <Bar dataKey="losses" name="Losses" stackId="a" fill={C.loss}   radius={[2,2,0,0]} />
-                </BarChart>
+                <AreaChart data={s.curve} margin={{ top: 4, right: 8, bottom: 0, left: -8 }}>
+                  <defs>
+                    <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--c-accent)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--c-accent)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--c-chart-grid)" vertical={false} />
+                  <XAxis dataKey="i" tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} tickFormatter={v => `${v}R`} />
+                  <ReferenceLine y={0} stroke="var(--c-border-mid)" />
+                  <Tooltip cursor={{ stroke: 'var(--c-border-mid)' }} content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null
+                    const p = payload[0].payload
+                    return (
+                      <div style={{ ...ttStyle, padding: '8px 12px' }}>
+                        <div style={{ color: 'var(--c-text-3)' }}>#{p.i} · {p.date} · {p.asset}</div>
+                        <div style={{ color: 'var(--c-text-1)' }}>This trade <b>{fmtR(p.tr)}</b></div>
+                        <div style={{ color: 'var(--c-text-1)' }}>Running total <b>{fmtR(p.r, 1)}</b></div>
+                      </div>
+                    )
+                  }} />
+                  <Area type="monotone" dataKey="r" stroke={C.line} strokeWidth={2} fill="url(#eqFill)" dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--c-bg-card)' }} isAnimationActive={false} baseValue="dataMin" />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
-            <table className="w-full text-xs self-start">
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--c-border)' }}>
-                  {['Day','T','W','L','Win%','Net R'].map(h => (
-                    <th key={h} className="pb-2 text-center font-semibold uppercase"
-                      style={{ color: 'var(--c-text-3)', fontSize: 9 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dow.map(d => (
-                  <tr key={d.day} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: d.trades === 0 ? 0.35 : 1 }}>
-                    <td className="py-1.5 text-center font-medium" style={{ color: 'var(--c-text-2)' }}>{d.day}</td>
-                    <td className="py-1.5 num text-center" style={{ color: 'var(--c-text-3)' }}>{d.trades || ' - '}</td>
-                    <td className="py-1.5 num text-center" style={{ color: C.profit }}>{d.wins || ' - '}</td>
-                    <td className="py-1.5 num text-center" style={{ color: C.loss }}>{d.losses || ' - '}</td>
-                    <td className="py-1.5 num text-center" style={{ color: d.trades ? (d.wins/d.trades >= 0.5 ? C.profit : C.loss) : 'var(--c-text-3)' }}>
-                      {d.trades ? `${(d.wins/d.trades*100).toFixed(0)}%` : ' - '}
-                    </td>
-                    <td className="py-1.5 num text-center" style={{ color: rColor(d.r) }}>
-                      {d.trades ? fmtR(d.r) : ' - '}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </Sect>
-
-      {/* ── 5. System Performance ────────────────────────────────────── */}
-      <Sect label="System Performance">
-        <SystemPerformance trades={filteredTrades} fmtView={fmtView} />
-      </Sect>
-
-      {/* ── 6. Annual Performance ─────────────────────────────────────── */}
-      <Sect label="Annual Performance" action={
-        <div className="flex items-center gap-2">
-          <button onClick={prevYear}
-            className="w-7 h-7 flex items-center justify-center rounded-lg transition-all"
-            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
-            <ChevronLeft size={14} />
-          </button>
-          <span className="text-sm font-bold num min-w-[44px] text-center"
-            style={{ color: hasDataInYear(displayYear) ? 'var(--c-text-1)' : 'var(--c-text-3)' }}>
-            {displayYear}
-          </span>
-          <button onClick={nextYear}
-            className="w-7 h-7 flex items-center justify-center rounded-lg transition-all"
-            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
-            <ChevronRight size={14} />
-          </button>
+          </Panel>
+          <BreakevenGauge winRate={s.c.winRate} avgWin={s.c.avgWinR} avgLoss={s.c.avgLossR} />
         </div>
+      </Section>
+
+
+      {/* ── Am I getting better? ───────────────────────────────────── */}
+      <Section n={2} q="Am I getting better?" a={(() => {
+        const rs = s.withR.map(t => t.rrRatio!)
+        if (rs.length <= rollWin) return <>Not enough trades in this range to see a trend ({rs.length}; it takes more than {rollWin}). Switch to a longer range.</>
+        const roll = (i: number) => mean(rs.slice(i - rollWin, i))!
+        const now = roll(rs.length), vals = Array.from({ length: rs.length - rollWin + 1 }, (_, k) => roll(k + rollWin))
+        const best = Math.max(...vals), worstV = Math.min(...vals)
+        const then = rs.length >= rollWin * 2 ? roll(rs.length - rollWin) : null
+        return <>Your last {rollWin} trades average <b style={{ color: rColor(now) }}>{fmtR(now)}</b>
+          {then != null ? <>, {now > then + 0.05 ? 'better than' : now < then - 0.05 ? 'worse than' : 'about the same as'} the {rollWin} before ({fmtR(then)})</> : null}.
+          {' '}Best stretch {fmtR(best)}, worst {fmtR(worstV)}.</>
+      })()}>
+        {s.withR.length > rollWin && <RollingEdge trades={s.withR} window={rollWin} />}
+      </Section>
+
+
+      {/* ── Biggest levers ─────────────────────────────────────────── */}
+      <Section n={3} q="What moves your results most?" a={s.levers[0] ? <>
+        Every way of slicing your trades, ranked by how much it costs or adds against the rest. Slices need {Math.max(15, Math.ceil(s.withR.length * 0.08))}+ trades to count.
+      </> : s.withR.length < 30
+        ? <>Not enough trades in this range to rank slices ({s.withR.length}; it takes about 30). Switch to 3M or All.</>
+        : <>Nothing stands out: no slice of {Math.max(15, Math.ceil(s.withR.length * 0.08))}+ trades does much better or worse than the rest.</>}>
+        {s.levers[0] && <LeverCards items={s.levers} holdNote />}
+      </Section>
+
+
+      {/* ── Trade management ───────────────────────────────────────── */}
+      <Section n={4} q="How do your trades behave while open?" a={<>How far each trade went for you (best point, MFE) and against you (worst point, MAE) before it closed, in R.</>}>
+        <TradeManagement trades={closed} />
+      </Section>
+
+
+      {/* ── Is my risk under control? ─────────────────────────────── */}
+      <Section n={5} q="Is my risk under control?" a={
+        s.stopOuts.length ? <>
+          A full stop-out costs you <b style={{ color: C.loss }}>{fmtR(mean(s.stopOuts))}</b> on average, not −1R.
+          {' '}{s.pastPlan.length} of {s.withR.length} trades broke your {MAX_DEVIATION_PCT}% deviation rule{s.pastPlan.length ? `, worst ${fmtR(Math.min(...s.pastPlan))}` : ''}.
+          {s.sized != null && <> Your stop typically risked <b>{pct(s.sized)}</b> of the plan.</>}
+          {s.lateStops.length > 0 && <> {s.lateStops.length === 1 ? '1 trade' : `${s.lateStops.length} trades`} got {s.lateStops.length === 1 ? 'its' : 'their'} stop after the entry{s.noStop.length ? `, and ${s.noStop.length} never had one` : ''}.</>}
+          {s.lateStops.length === 0 && s.noStop.length > 0 && <> {s.noStop.length === 1 ? '1 trade' : `${s.noStop.length} trades`} never had a stop.</>}
+        </> : <>No full stop-outs in this period.</>
       }>
-        <Card className="p-4">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--c-border)' }}>
-                  {['Month','Trades','Wins','Losses','Win%','P&L','Net R'].map(h => (
-                    <th key={h} className="pb-2.5 text-center font-semibold uppercase tracking-wider"
-                      style={{ color: 'var(--c-text-3)', fontSize: 10 }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {annual.map(m => {
-                  const wr = m.trades ? m.wins / m.trades : 0
-                  return (
-                    <tr key={m.month} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', opacity: m.trades === 0 ? 0.4 : 1 }}>
-                      <td className="py-2 text-center font-semibold" style={{ color: 'var(--c-text-2)' }}>{m.month}</td>
-                      <td className="py-2 num text-center" style={{ color: 'var(--c-text-2)' }}>{m.trades || ' - '}</td>
-                      <td className="py-2 num text-center" style={{ color: C.profit }}>{m.wins || ' - '}</td>
-                      <td className="py-2 num text-center" style={{ color: C.loss }}>{m.losses || ' - '}</td>
-                      <td className="py-2 num text-center" style={{ color: m.trades ? (wr >= 0.5 ? C.profit : C.loss) : 'var(--c-text-3)' }}>
-                        {m.trades ? `${(wr * 100).toFixed(0)}%` : ' - '}
-                      </td>
-                      <td className="py-2 num text-center">
-                        {m.pnl !== 0 ? (
-                          <span style={{ ...pnlCellBg(m.pnl), padding: '2px 8px', borderRadius: 6, display: 'inline-block' }}>
-                            {fmtView(m.pnl)}
-                          </span>
-                        ) : <span style={{ color: 'var(--c-text-3)' }}> - </span>}
-                      </td>
-                      <td className="py-2 num text-center" style={{ color: m.r !== 0 ? rColor(m.r) : 'var(--c-text-3)' }}>
-                        {m.r !== 0 ? fmtR(m.r) : ' - '}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: '2px solid var(--c-border)' }}>
-                  <td className="py-2.5 text-center font-bold" style={{ color: 'var(--c-text-1)' }}>YTD {displayYear}</td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: 'var(--c-text-1)' }}>{annualTotals.trades || ' - '}</td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: C.profit }}>{annualTotals.wins || ' - '}</td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: C.loss }}>{annualTotals.losses || ' - '}</td>
-                  <td />
-                  <td className="py-2.5 num text-center font-bold" style={{ color: annualTotals.pnl >= 0 ? C.profit : C.loss }}>
-                    {fmtView(annualTotals.pnl)}
-                  </td>
-                  <td className="py-2.5 num text-center font-bold" style={{ color: rColor(annualTotals.r) }}>
-                    {fmtR(annualTotals.r)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </Card>
-      </Sect>
-
-      {/* ── 7. Calendar Heatmap ──────────────────────────────────────── */}
-      <Sect label="Calendar">
-        <CalendarHeatmap trades={filteredTrades} />
-      </Sect>
-
-      {/* ── 8. Diagnostics ───────────────────────────────────────────── */}
-      <Sect label="Diagnostics">
-        <div className="grid grid-cols-2 gap-4">
-          <Card className="p-4">
-            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--c-text-2)' }}>P&L by Instrument</h3>
+        <div className="grid md:grid-cols-5 gap-4">
+          <Panel className="p-4 md:col-span-3">
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>How trades ended, in R</div>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byInstrument} barSize={32}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--c-border)" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: C.muted }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: C.muted }} axisLine={false} tickLine={false}
-                    tickFormatter={v => `$${Math.abs(v) >= 1000 ? (v/1000).toFixed(0)+'k' : v}`} />
-                  <Tooltip content={(p: any) => <PnlTip {...p} fmt={fmtView} />} cursor={barCursor} />
-                  <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
-                    {byInstrument.map((v, i) => <Cell key={i} fill={v.pnl >= 0 ? C.profit : C.loss} />)}
+                <BarChart data={s.dist} barCategoryGap={2} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--c-chart-grid)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 9, fill: C.muted }} tickLine={false} axisLine={false} interval={0} />
+                  <YAxis tick={{ fontSize: 10, fill: C.muted }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip cursor={{ fill: 'rgba(127,127,127,0.08)' }} content={({ active, payload }: any) => active && payload?.length ? (
+                    <div style={{ ...ttStyle, padding: '6px 10px', color: 'var(--c-text-1)' }}>{payload[0].payload.label}R: <b>{payload[0].value} trades</b></div>
+                  ) : null} />
+                  <Bar dataKey="n" radius={[4, 4, 0, 0]}>
+                    {s.dist.map((x, i) => <Cell key={i} fill={x.side === 'loss' ? HEX.loss : HEX.profit} fillOpacity={0.85} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </Card>
-
-          <Card className="p-4">
-            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--c-text-2)' }}>Top Mistakes</h3>
-            {mistakes.length === 0 ? (
-              <div className="flex items-center justify-center h-48 text-text-muted text-sm">No mistakes logged</div>
-            ) : (
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={mistakes.slice(0, 7)} layout="vertical">
-                    <XAxis type="number" tick={{ fontSize: 10, fill: C.muted }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: C.muted }} axisLine={false} tickLine={false} width={110} />
-                    <Tooltip contentStyle={ttStyle} cursor={barCursor} labelStyle={ttLabel} />
-                    <Bar dataKey="count" fill={C.loss} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </Card>
+          </Panel>
+          <Panel className="p-4 md:col-span-2">
+            <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>Biggest losses</div>
+            <table className="w-full text-xs">
+              <tbody>
+                {s.worst.map(t => (
+                  <tr key={t.id} style={{ borderBottom: '1px solid var(--c-border)' }}>
+                    <td className="py-1.5 num" style={{ color: 'var(--c-text-3)' }}>{t.date.slice(2)}</td>
+                    <td className="py-1.5" style={{ color: 'var(--c-text-1)' }}>{t.asset} {t.direction}</td>
+                    <td className="py-1.5" style={{ color: 'var(--c-text-3)' }}>
+                      {stopTiming(t).kind === 'later' ? 'stop added late' : stopTiming(t).kind === 'none' ? 'no stop' : t.mistakes?.length ? t.mistakes.map(mistakeLabel).join(', ') : ''}
+                    </td>
+                    <td className="py-1.5 num text-right font-semibold" style={{ color: C.loss }}>{fmtR(t.rrRatio)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
         </div>
-      </Sect>
+      </Section>
 
+
+      {/* ── Where's my edge? ───────────────────────────────────────── */}
+      <Section n={6} q="Where is your edge?" a={<>Every way of slicing your trades in one table. Rows under {MIN_N} trades are greyed: too few to tell.</>}>
+        <SliceTable closed={closed} dims={s.dims} fmt={fmtView} />
+      </Section>
+
+
+      {/* ── Where does the money go? ───────────────────────────────── */}
+      <Section n={7} fold="costs" q="Where does the money go?" a={
+        <>The price moves {s.gross >= 0 ? 'made' : 'lost'} you <b style={{ color: rColor(s.gross) }}>{fmtView(s.gross)}</b>;
+          {' '}fees and funding took <b>{fmtView(s.gross - s.c.net)}</b> more{s.costR != null ? <>, about <b>{s.costR.toFixed(2)}R per trade</b></> : null}.
+          {s.gross < 0 && s.c.net < 0 && s.gross - s.c.net > 0 ? <> Costs are {pct((s.gross - s.c.net) / Math.abs(s.c.net))} of what you've lost.</> : null}</>
+      }>
+        <Panel className="p-4">
+          <Waterfall rows={[
+            { label: 'Price move (gross)', value: s.gross },
+            { label: 'Trading fees', value: -s.fees },
+            { label: 'Funding', value: -s.funding },
+            { label: 'Net', value: s.c.net, total: true },
+          ]} fmt={fmtView} />
+          <p className="mt-3 text-[11px]" style={{ color: 'var(--c-text-3)' }}>
+            Fees can't be avoided, but they scale with size and with market orders. Limit entries pay 0.02% instead of 0.055%.
+          </p>
+        </Panel>
+      </Section>
+
+
+      {/* ── Mistakes ───────────────────────────────────────────────── */}
+      <Section n={8} fold="mistakes" q="What do your mistakes cost?" a={(() => {
+        const [ok, broke] = s.rules
+        const top = s.mistakes[0]
+        if (reviewed < 10) return <>Only {reviewed} reviewed {reviewed === 1 ? 'trade' : 'trades'} in this period. This fills in as you review trades; it needs about 10 to say anything.</>
+        return <>
+          {ok.n && broke.n ? <>Following your rules averages <b style={{ color: rColor(ok.avgR) }}>{fmtR(ok.avgR)}</b>; breaking one, <b style={{ color: rColor(broke.avgR) }}>{fmtR(broke.avgR)}</b>. </> : null}
+          {top && top.netR < 0 ? <>The costliest mistake is <b>{top.name}</b>: {fmtR(top.netR, 1)} over {top.n} trades.</> : null}
+        </>
+      })()}>
+        {reviewed >= 10 && (
+          <div className="grid md:grid-cols-2 gap-4">
+            <GroupTable title="Rules" groups={s.rules.filter(g => g.n)} fmt={fmtView} />
+            <GroupTable title="Mistakes (a trade can have several)" groups={[...(s.noMistakes.n ? [s.noMistakes] : []), ...s.mistakes]} fmt={fmtView} />
+          </div>
+        )}
+      </Section>
+
+
+      {/* ── Month by month ─────────────────────────────────────────── */}
+      <Section n={9} fold="months" q="Month by month" a={(() => {
+        const [now, ...rest] = s.months
+        const best = [...s.months].filter(g => g.n >= 3).sort((a, b) => b.netR - a.netR)[0]
+        const label = (k: string) => `${MONTHS[Number(k.slice(5)) - 1]} ${k.slice(0, 4)}`
+        return <>{label(now.name)}: <b style={{ color: rColor(now.netR) }}>{fmtR(now.netR, 1)}</b> over {now.n} {now.n === 1 ? 'trade' : 'trades'}
+          {best && rest.length ? <>. Best month: {label(best.name)} at <b style={{ color: rColor(best.netR) }}>{fmtR(best.netR, 1)}</b></> : null}.</>
+      })()}>
+        <div className="grid lg:grid-cols-2 gap-4 items-start">
+          <div>
+            <GroupTable groups={(allMonths ? s.months : s.months.slice(0, 6)).map(g => ({ ...g, name: `${MONTHS[Number(g.name.slice(5)) - 1]} ${g.name.slice(0, 4)}` }))} fmt={fmtView} showPnl />
+            {s.months.length > 6 && (
+              <button onClick={() => setAllMonths(v => !v)} className="mt-2 text-xs hover:underline" style={{ color: 'var(--c-accent)' }}>
+                {allMonths ? 'Show the last 6 months' : `Show all ${s.months.length} months`}
+              </button>
+            )}
+          </div>
+          <CalendarHeatmap trades={closed} />
+        </div>
+      </Section>
       </>}
-
     </div>
+  )
+}
+
+const SLICE_KEY = 'analytics-slice-dim'
+
+/** One table, any cut: hold time, session, setup, coin, weekday, direction, trade # of day, after. */
+function SliceTable({ closed, dims, fmt }: { closed: Trade[]; dims: Dimension[]; fmt: (n: number) => string }) {
+  const [key, setKey] = useState<string>(() => { try { return localStorage.getItem(SLICE_KEY) ?? 'hold' } catch { return 'hold' } })
+  const dim = dims.find(x => x.key === key) ?? dims[0]
+  const groups = useMemo(() => {
+    let gs = groupBy(closed, dim.bucket)
+    if (dim.order) gs.sort((a, b) => dim.order!.indexOf(a.name) - dim.order!.indexOf(b.name))
+    else gs.sort((a, b) => b.n - a.n)
+    if (dim.key === 'setup' || dim.key === 'coin') {
+      // Setups or coins tried once or twice say nothing yet: one row for all of them.
+      const small = gs.filter(g => g.n < 3 && g.name !== 'No setup')
+      if (small.length > 1) {
+        const names = new Set(small.map(g => g.name))
+        gs = [...gs.filter(g => !names.has(g.name)), group(`${small.length} others, under 3 trades each`, closed.filter(t => names.has(dim.bucket(t) ?? '')))]
+      }
+    }
+    return gs
+  }, [closed, dim])
+  const e = extremes(groups.filter(g => !/others|No setup|Outside/.test(g.name)))
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented size="sm" value={dim.key} onChange={v => { setKey(v); try { localStorage.setItem(SLICE_KEY, v) } catch { /* private window */ } }}
+          options={dims.map(x => ({ value: x.key, label: x.label }))} />
+        {e && (
+          <span className="text-xs" style={{ color: 'var(--c-text-2)' }}>
+            Best: <b>{e.best.name.split(' (')[0]}</b> ({fmtR(e.best.avgR)}). Worst: <b>{e.worst.name.split(' (')[0]}</b> ({fmtR(e.worst.avgR)}).
+          </span>
+        )}
+      </div>
+      <GroupTable groups={groups} fmt={fmt} curve />
+    </div>
+  )
+}
+
+// ── Pieces ───────────────────────────────────────────────────────────────────
+
+/**
+ * A numbered question with its one-sentence answer. Reference sections can
+ * fold: shut, the answer still shows, so nothing is hidden, just the detail.
+ */
+function Section({ n, q, a, fold, children }: { n: number; q: string; a?: React.ReactNode; fold?: string; children?: React.ReactNode }) {
+  const nx = useIsNext()
+  const key = `analytics-open-${fold}`
+  const [open, setOpen] = useState(() => { if (!fold) return true; try { return localStorage.getItem(key) === '1' } catch { return false } })
+  const toggle = () => setOpen(o => { try { localStorage.setItem(key, o ? '0' : '1') } catch { /* private window */ } return !o })
+  const Head = fold ? 'button' : 'div'
+  return (
+    <section className={nx ? 'tr-sec' : undefined}>
+      <Head {...(fold ? { type: 'button' as const, onClick: toggle } : {})} className="w-full flex items-center gap-3 mb-1.5 text-left group">
+        {!nx && <span className="text-[10px] font-bold num px-1.5 py-0.5 rounded-md"
+          style={{ color: 'var(--c-accent)', background: 'color-mix(in srgb, var(--c-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--c-accent) 25%, transparent)' }}>
+          {String(n).padStart(2, '0')}
+        </span>}
+        <h2 className="text-base font-semibold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{q}</h2>
+        <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }} />
+        {fold && (
+          <span className="flex items-center gap-1 text-[11px] group-hover:text-[var(--c-accent)]" style={{ color: 'var(--c-text-3)' }}>
+            {open ? 'Hide' : 'Show'} <ChevronDown size={13} style={{ transform: open ? 'rotate(180deg)' : undefined, transition: 'transform 150ms' }} />
+          </span>
+        )}
+      </Head>
+      {a && <p className="text-sm mb-3 leading-relaxed" style={{ color: 'var(--c-text-2)' }}>{a}</p>}
+      {!a && open && <div className="mb-3" />}
+      {open && children}
+    </section>
+  )
+}
+
+function Kpi({ label, value, sub, delta, color = 'var(--c-text-1)' }: { label: string; value: React.ReactNode; sub?: string; delta?: { text: string; good: boolean }; color?: string }) {
+  const nx = useIsNext()
+  if (nx) {
+    return (
+      <div className="tr-kpi">
+        <span className="l">{label}</span>
+        <b className="v num" style={{ color }}>{value}</b>
+        {delta && <span className={`d num ${delta.good ? 'good' : 'bad'}`}>{delta.text}</span>}
+        {sub && <span className="s num">{sub}</span>}
+      </div>
+    )
+  }
+  return (
+    <div className="relative overflow-hidden rounded-xl p-4" style={{
+      background: `radial-gradient(140% 120% at 100% 0%, color-mix(in srgb, ${color} 9%, transparent), transparent 60%), var(--c-bg-card)`,
+      border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)',
+    }}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] mb-2" style={{ color: 'var(--c-text-3)' }}>{label}</div>
+      <div className="text-2xl font-bold num leading-none tracking-tight" style={{ color }}>{value}</div>
+      {delta && <div className="text-[11px] num mt-1.5 font-medium" style={{ color: delta.good ? 'var(--c-profit)' : 'var(--c-loss)' }}>{delta.text}</div>}
+      {sub && <div className="text-[10px] num mt-1.5 leading-snug" style={{ color: 'var(--c-text-3)' }}>{sub}</div>}
+    </div>
+  )
+}
+
+/** Gross, minus each cost, to net: horizontal bars on one zero line. */
+function Waterfall({ rows, fmt }: { rows: { label: string; value: number; total?: boolean }[]; fmt: (n: number) => string }) {
+  const max = Math.max(...rows.map(r => Math.abs(r.value)), 1e-9)
+  return (
+    <div className="space-y-2">
+      {rows.map(r => (
+        <div key={r.label} className="grid items-center gap-3" style={{ gridTemplateColumns: '150px 1fr 90px' }}>
+          <span className="text-xs" style={{ color: r.total ? 'var(--c-text-1)' : 'var(--c-text-2)', fontWeight: r.total ? 600 : 400 }}>{r.label}</span>
+          <div className="relative h-4">
+            <div className="absolute inset-y-0" style={{ left: '50%', width: 1, background: 'var(--c-border-mid)' }} />
+            <div className="absolute inset-y-0.5 rounded" title={fmt(r.value)} style={{
+              background: r.value >= 0 ? HEX.profit : HEX.loss, opacity: r.total ? 0.95 : 0.7,
+              width: `${(Math.abs(r.value) / max) * 50}%`,
+              ...(r.value >= 0 ? { left: '50%' } : { right: '50%' }),
+            }} />
+          </div>
+          <span className="text-xs num text-right" style={{ color: r.total ? 'var(--c-text-1)' : 'var(--c-text-2)', fontWeight: r.total ? 600 : 400 }}>{fmt(r.value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Spark({ pts }: { pts: number[] }) {
+  if (pts.length < 3) return null
+  const W = 80, H = 20, min = Math.min(...pts), max = Math.max(...pts), rng = max - min || 1
+  const d = pts.map((v, i) => `${(i / (pts.length - 1)) * W},${H - ((v - min) / rng) * (H - 2) - 1}`).join(' ')
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block' }}>
+      <polyline points={d} fill="none" stroke={pts[pts.length - 1] >= 0 ? HEX.profit : HEX.loss} strokeWidth={1.5} strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** One row per group: trades, win rate, average R as a bar around zero, net R. */
+function GroupTable({ title, groups, fmt, curve, showPnl }: { title?: string; groups: Group[]; fmt: (n: number) => string; curve?: boolean; showPnl?: boolean }) {
+  const maxAbs = Math.max(...groups.map(g => Math.abs(g.avgR ?? 0)), 0.5)
+  return (
+    <Panel className="p-4">
+      {title && <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>{title}</div>}
+      <table className="w-full text-xs">
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--c-border)' }}>
+            {['', 'Trades', 'Win %', 'Avg R', '', 'Net R', ...(showPnl ? ['P&L'] : []), ...(curve ? ['Over time'] : [])].map((h, i) => (
+              <th key={i} className={`pb-1.5 font-semibold uppercase ${i === 0 ? 'text-left' : 'text-right'}`} style={{ color: 'var(--c-text-3)', fontSize: 9 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map(g => {
+            const few = g.n < MIN_N
+            const decided = g.wins + g.losses
+            return (
+              <tr key={g.name} style={{ borderBottom: '1px solid var(--c-border)', opacity: g.n === 0 ? 0.35 : few ? 0.55 : 1 }}
+                title={few && g.n ? `Only ${g.n} trades: too few to tell` : undefined}>
+                <td className="py-1.5 pr-2 max-w-[220px] truncate" style={{ color: 'var(--c-text-1)' }}>{g.name}</td>
+                <td className="py-1.5 num text-right" style={{ color: 'var(--c-text-2)' }}>{g.n || '—'}</td>
+                <td className="py-1.5 num text-right" style={{ color: 'var(--c-text-2)' }} title={`${g.wins} W · ${g.losses} L · ${g.be} BE`}>
+                  {decided ? pct(g.wins / g.n) : '—'}
+                </td>
+                <td className="py-1.5 num text-right pl-2" style={{ color: rColor(g.avgR) }}>{g.avgR != null ? fmtR(g.avgR) : '—'}</td>
+                <td className="py-1.5 pl-2" style={{ width: 90 }}>
+                  {g.avgR != null && (
+                    <div className="relative h-2.5">
+                      <div className="absolute inset-y-0" style={{ left: '50%', width: 1, background: 'var(--c-border-mid)' }} />
+                      <div className="absolute inset-y-0 rounded-sm" style={{
+                        background: g.avgR >= 0 ? HEX.profit : HEX.loss, opacity: 0.8,
+                        width: `${(Math.abs(g.avgR) / maxAbs) * 50}%`, ...(g.avgR >= 0 ? { left: '50%' } : { right: '50%' }),
+                      }} />
+                    </div>
+                  )}
+                </td>
+                <td className="py-1.5 num text-right pl-2" style={{ color: rColor(g.netR) }}>{g.n ? fmtR(g.netR, 1) : '—'}</td>
+                {showPnl && <td className="py-1.5 num text-right pl-2" style={{ color: rColor(g.pnl) }}>{g.n ? fmt(g.pnl) : '—'}</td>}
+                {curve && <td className="py-1.5 pl-3"><div className="flex justify-end"><Spark pts={g.curve} /></div></td>}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </Panel>
+  )
+}
+
+/** Net R per day for one month. */
+function CalendarHeatmap({ trades }: { trades: Trade[] }) {
+  const last = trades[trades.length - 1]?.date ?? new Date().toISOString().slice(0, 10)
+  const [ym, setYm] = useState(last.slice(0, 7))
+  const months = useMemo(() => [...new Set(trades.map(t => t.date.slice(0, 7)))].sort().reverse(), [trades])
+  const [y, m] = ym.split('-').map(Number)
+  const dayR = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const t of trades) if (t.date.startsWith(ym) && t.rrRatio != null) out[t.date] = (out[t.date] ?? 0) + t.rrRatio
+    return out
+  }, [trades, ym])
+  const first = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 6) % 7
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  const cells = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)]
+  while (cells.length % 7) cells.push(null)
+
+  const bg = (r: number) => {
+    const a = Math.min(0.15 + Math.abs(r) * 0.15, 0.6)
+    return r > 0 ? `rgba(34,197,94,${a})` : r < 0 ? `rgba(239,68,68,${a})` : 'var(--c-bg-input)'
+  }
+
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Net R by day</span>
+        <select value={ym} onChange={e => setYm(e.target.value)} className="text-xs px-2 py-1 rounded-lg outline-none"
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}>
+          {(months.includes(ym) ? months : [ym, ...months]).map(k => <option key={k} value={k}>{MONTHS[Number(k.slice(5)) - 1]} {k.slice(0, 4)}</option>)}
+        </select>
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {DAYS.map(d => <div key={d} className="text-center text-[9px] font-bold uppercase" style={{ color: 'var(--c-text-3)' }}>{d}</div>)}
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} />
+          const key = `${ym}-${String(d).padStart(2, '0')}`
+          const r = dayR[key]
+          return (
+            <div key={i} className="rounded-md py-1.5 text-center" style={{ background: r != null ? bg(r) : 'var(--c-bg-secondary)', border: '1px solid var(--c-border)' }}
+              title={r != null ? `${key}: ${fmtR(r)}` : key}>
+              <div className="text-[10px] num" style={{ color: 'var(--c-text-3)' }}>{d}</div>
+              <div className="text-[11px] num font-medium" style={{ color: r != null ? 'var(--c-text-1)' : 'transparent' }}>{r != null ? fmtR(r, 1) : '·'}</div>
+            </div>
+          )
+        })}
+      </div>
+    </Panel>
   )
 }

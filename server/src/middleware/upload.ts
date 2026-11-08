@@ -23,6 +23,12 @@ export const screenshotUpload = multer({
   limits: { fileSize: 10 * 1024 * 1024 },
 })
 
+export const avatarUpload = multer({
+  storage: makeStorage('profile'),
+  fileFilter: imageFilter,
+  limits: { fileSize: 10 * 1024 * 1024 },
+})
+
 export const noteImageUpload = multer({
   storage: makeStorage('note-images'),
   fileFilter: imageFilter,
