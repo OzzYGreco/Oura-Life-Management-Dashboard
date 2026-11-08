@@ -128,7 +128,7 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
 
   // Inlined form JSX - NOT a component, so typing never causes unmount
   const formJsx = (
-    <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.18)' }}>
+    <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <label className="text-[10px] font-semibold uppercase tracking-widest" style={labelStyle}>Account Name *</label>
@@ -138,8 +138,6 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
             placeholder="Prop Firm A, Binance, IB…"
             value={form.name}
             onChange={e => setField('name', e.target.value)}
-            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
         <div className="flex flex-col gap-1.5">
@@ -150,8 +148,6 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
             placeholder="FTMO, Binance, IBKR…"
             value={form.broker}
             onChange={e => setField('broker', e.target.value)}
-            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
       </div>
@@ -186,8 +182,6 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
             placeholder="e.g. 10000"
             value={form.startingBalance}
             onChange={e => setForm(f => ({ ...f, startingBalance: e.target.value, startingBalanceAt: new Date().toISOString() }))}
-            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
         <div className="flex flex-col gap-1.5">
@@ -200,8 +194,6 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
             placeholder="e.g. 7"
             value={form.fullRisk}
             onChange={e => setField('fullRisk', e.target.value)}
-            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
       </div>
@@ -241,8 +233,6 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
           placeholder="Max drawdown rules, account type, notes…"
           value={form.notes}
           onChange={e => setField('notes', e.target.value)}
-          onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-          onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
         />
       </div>
       {error && <p className="text-xs" style={{ color: 'var(--c-loss)' }}>{error}</p>}
@@ -256,7 +246,7 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
   )
 
   return (
-    <Modal open={open} onClose={onClose} title="Trading Accounts" size="lg">
+    <Modal open={open} onClose={onClose} title="Trading accounts" size="lg">
       <div className="p-5 space-y-4">
         <p className="text-[11px]" style={{ color: 'var(--c-text-3)' }}>
           Star an account to make it load by default on refresh. Your last viewed account is also remembered automatically.
@@ -278,7 +268,7 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
                     style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}
                   >
                     <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                      style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--c-accent)' }}>
+                      style={{ background: 'var(--c-bg-hover)', color: 'var(--c-text-2)' }}>
                       <Wallet size={15} />
                     </div>
 
@@ -287,7 +277,7 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
                         <span className="font-semibold text-sm" style={{ color: 'var(--c-text-1)' }}>{a.name}</span>
                         {a.broker && (
                           <span className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                            style={{ background: 'rgba(129,140,248,0.12)', color: 'var(--c-accent)', border: '1px solid rgba(129,140,248,0.2)' }}>
+                            style={{ background: 'var(--c-bg-hover)', color: 'var(--c-text-1)', border: '1px solid var(--c-border)' }}>
                             {a.broker}
                           </span>
                         )}
@@ -329,33 +319,23 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
                           {/* Star = set as default */}
                           <button
                             onClick={() => onSetDefault(defaultAccountId === a.id ? null : a.id)}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+                            className={`ui-icon warn ${defaultAccountId === a.id ? 'on' : ''}`}
                             title={defaultAccountId === a.id ? 'Remove as default' : 'Set as default (loads on refresh)'}
-                            style={defaultAccountId === a.id
-                              ? { color: '#fbbf24', background: 'rgba(251,191,36,0.1)' }
-                              : { color: 'var(--c-text-3)' }}
-                            onMouseEnter={e => { if (defaultAccountId !== a.id) { (e.currentTarget as HTMLElement).style.color = '#fbbf24'; (e.currentTarget as HTMLElement).style.background = 'rgba(251,191,36,0.08)' } }}
-                            onMouseLeave={e => { if (defaultAccountId !== a.id) { (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)'; (e.currentTarget as HTMLElement).style.background = 'transparent' } }}
+                            aria-pressed={defaultAccountId === a.id}
                           >
-                            <Star size={13} fill={defaultAccountId === a.id ? '#fbbf24' : 'none'} />
+                            <Star size={14} fill={defaultAccountId === a.id ? 'currentColor' : 'none'} />
                           </button>
                           <button
                             onClick={() => startEdit(a)}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
-                            style={{ color: 'var(--c-text-3)', border: '1px solid transparent' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-text-2)'; (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)' }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)'; (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                            className="ui-icon" title="Edit" aria-label={`Edit ${a.name}`}
                           >
-                            <Edit size={13} />
+                            <Edit size={14} />
                           </button>
                           <button
                             onClick={() => setConfirmDeleteId(a.id)}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
-                            style={{ color: 'var(--c-text-3)', border: '1px solid transparent' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-loss)'; (e.currentTarget as HTMLElement).style.background = 'rgba(248,113,113,0.08)' }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)'; (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+                            className="ui-icon danger" title="Delete" aria-label={`Delete ${a.name}`}
                           >
-                            <Trash2 size={13} />
+                            <Trash2 size={14} />
                           </button>
                         </>
                       )}
@@ -376,12 +356,9 @@ export function AccountsModal({ open, onClose, defaultAccountId, onSetDefault }:
         {adding ? formJsx : (
           <button
             onClick={startAdd}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all duration-150"
-            style={{ border: '1px dashed var(--c-border-mid)', color: 'var(--c-text-3)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-accent)'; (e.currentTarget as HTMLElement).style.color = 'var(--c-accent)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--c-border-mid)'; (e.currentTarget as HTMLElement).style.color = 'var(--c-text-3)' }}
+            className="ui-btn secondary md w-full"
           >
-            <Plus size={14} /> Add Account
+            <Plus size={14} /> Add account
           </button>
         )}
       </div>

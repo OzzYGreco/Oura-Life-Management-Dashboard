@@ -13,7 +13,7 @@
 .tr-tool svg { color: var(--k-mute); }
 .tr-tool kbd, .tr-primary kbd { font-family: var(--k-font); font-size: 11px; line-height: 1; padding: 3px 5px; border-radius: 4px; background: rgb(var(--k-fg) / .07); color: var(--k-mute); }
 .tr-tool:not(:disabled):active { scale: .96; }
-@media (hover: hover) { .tr-tool:hover { background: rgb(var(--k-fg) / .08); } }
+@media (hover: hover) { .tr-tool:hover { background: rgb(var(--k-fg) / .1); } }
 .nx-btn.tr-primary { height: 34px; padding: 0 14px 0 12px; border-radius: 10px; font-size: 13px; }
 .tr-primary kbd { background: rgba(0,0,0,.08); color: var(--k-on-acc); opacity: .6; }
 
@@ -37,7 +37,8 @@
 .tr-running > button { display: inline-flex !important; align-items: center; gap: 8px; height: 32px; padding: 0 12px !important; border-radius: 10px !important; font-size: 13px !important; background: var(--k-good-d) !important; border: 0 !important; }
 
 .tr-weeks { margin-top: 24px; display: flex; flex-direction: column; gap: 36px; }
-.tr-week { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 0; background: var(--k-bg); border-bottom: 1px solid var(--k-line2); font-size: 13px; color: var(--k-mute); }
+/* Sticks flush under the title bar: -20px cancels the scroller's top padding. */
+.tr-week { position: sticky; top: -20px; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 0; box-sizing: border-box; min-height: 52px; background: var(--k-bg); border-bottom: 1px solid var(--k-line2); font-size: 13px; color: var(--k-mute); }
 .tr-week b { font-size: 16px; font-weight: 600; color: var(--k-ink); }
 .tr-week .rg { color: var(--k-ink2); font-size: 14px; }
 .tr-week .sp { flex: 1; }
@@ -52,6 +53,9 @@
 .tr-row { border-bottom: 1px solid var(--k-line); }
 .tr-row > div:first-child { padding-left: 4px !important; border-radius: 10px; }
 .tr-row.open { background: rgb(var(--k-fg) / .02); border-radius: 12px; }
+/* An open trade keeps its summary row pinned under the week bar while you read its details. */
+.tr-row { scroll-margin-top: 56px; }
+.tr-row.open > div:first-child { position: sticky; top: 32px; z-index: 4; background: linear-gradient(var(--c-bg-hover), var(--c-bg-hover)), var(--k-bg); }
 .tr-keys { margin: 8px 0 0; font-size: 12px; color: var(--k-mute); text-align: left; }
 .tr-keys kbd { font-family: var(--k-font); font-size: 11px; padding: 2px 5px; margin-right: 3px; border-radius: 4px; background: rgb(var(--k-fg) / .07); color: var(--k-ink2); }
 

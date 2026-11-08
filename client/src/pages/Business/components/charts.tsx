@@ -97,4 +97,4 @@ export function SplitBar({
 }
 
 /** A card that lifts a little under the pointer: the "you can look here" cue. */
-export const hoverCard = 'transition-all duration-150 hover:-translate-y-px hover:shadow-[0_8px_28px_rgba(0,0,0,0.28)] hover:border-[rgba(129,140,248,0.35)]'
+export const hoverCard = 'transition-all duration-150 hover:-translate-y-px hover:shadow-[0_8px_28px_rgba(0,0,0,0.28)] hover:border-[var(--c-border-strong)]'

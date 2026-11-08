@@ -225,7 +225,7 @@ export function RetainerActionModal({
             </p>
             <label htmlFor="ret-voidopen" className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
               <input id="ret-voidopen" type="checkbox" checked={voidOpen} onChange={e => setVoidOpen(e.target.checked)}
-                className="w-4 h-4 mt-0.5 accent-indigo-500" />
+                className="w-4 h-4 mt-0.5 accent-[var(--c-accent)]" />
               <span>Also void its unpaid invoices, so they stop showing as owed. Ones with money on them are kept.</span>
             </label>
           </>
@@ -316,7 +316,7 @@ export function DrawModal({
 
         <label htmlFor="draw-post" className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
           <input id="draw-post" type="checkbox" checked={postToFinances} onChange={e => setPost(e.target.checked)}
-            className="w-4 h-4 mt-0.5 accent-indigo-500" />
+            className="w-4 h-4 mt-0.5 accent-[var(--c-accent)]" />
           <span>
             Also record this as income in Finances, so the money shows on both sides of the transfer.
           </span>

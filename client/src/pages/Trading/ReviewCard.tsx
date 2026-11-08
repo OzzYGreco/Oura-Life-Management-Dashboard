@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Modal } from '../../components/ui/Modal'
 import { Button } from '../../components/ui/Button'
+import { ImageViewer } from '../../components/shared/ImageViewer'
 import { useUpdateTrade, useUploadScreenshots, useSetupLabels, type Trade } from '../../hooks/useTrades'
 import { useTradingAccounts } from '../../hooks/useTradingAccounts'
 import { api } from '../../lib/api'
 import { MISTAKES } from '../../lib/constants'
 import { formatCurrency, fmtPrice, fmtSize } from '../../lib/utils'
-import { fmtMinutes, fmtR, isClosed, pnlOf, stopTiming } from '../../lib/tradeStats'
+import { BE_R, fmtMinutes, fmtR, isClosed, pnlOf, stopTiming } from '../../lib/tradeStats'
 import { ImagePlus, X, Settings2 } from 'lucide-react'
-import { CoinBadge } from './ui'
+import { CoinBadge, outcomeColor } from './ui'
 
 const MULTIPLES = [0.5, 1, 1.5, 2]
 const mLabel = (m: number) => (m === 0.5 ? '½R' : `${m}R`)
@@ -84,6 +85,7 @@ function CardBody({ trade: t, hasNext, onDone, onSkip, onManageSetups }: {
   const [note, setNote] = useState(t.quickNote ?? '')
   const [shots, setShots] = useState<Shot[]>(t.screenshots ?? [])
   const fileRef = useRef<HTMLInputElement>(null)
+  const [view, setView] = useState<number | null>(null)
 
   const addFiles = (files: File[]) => {
     const imgs = files.filter(f => f.type.startsWith('image/'))
@@ -159,11 +161,11 @@ function CardBody({ trade: t, hasNext, onDone, onSkip, onManageSetups }: {
             {account && <span className="text-xs text-text-muted">· {account.name}</span>}
             <span className="text-xs text-text-muted num">· {t.date} {t.time} UTC{t.durationMinutes != null ? ` · held ${fmtMinutes(t.durationMinutes)}` : ''}</span>
             {closed && pnl != null && (
-              <span className="ml-auto num font-semibold" style={{ color: pnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>
+              <span className="ml-auto num font-semibold" style={{ color: outcomeColor(liveR != null ? (liveR >= BE_R ? 'win' : liveR <= -BE_R ? 'loss' : 'be') : pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'be') }}>
                 {pnl >= 0 ? '+' : ''}{formatCurrency(pnl)}{liveR != null && <span className="text-xs font-medium"> · {fmtR(liveR)}</span>}
               </span>
             )}
-            {!closed && <span className="ml-auto text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: 'rgba(99,102,241,0.12)', color: 'var(--c-accent)' }}>Running</span>}
+            {!closed && <span className="ml-auto text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded" style={{ background: 'var(--c-bg-hover)', color: 'var(--c-text-1)' }}>Running</span>}
           </div>
           <div className="mt-1.5 text-xs num text-text-muted flex flex-wrap gap-x-4 gap-y-0.5">
             <span>Entry {fmtPrice(t.entryPrice)}{t.exitPrice != null && <> → exit {fmtPrice(t.exitPrice)}</>}</span>
@@ -183,7 +185,9 @@ function CardBody({ trade: t, hasNext, onDone, onSkip, onManageSetups }: {
           <div className="flex flex-wrap gap-2">
             {shots.map(s => (
               <div key={s.id} className="relative group rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
-                <img src={s.filePath} alt="" className="h-20 w-32 object-cover" />
+                <button type="button" onClick={() => setView(shots.indexOf(s))} aria-label="Open chart" className="block">
+                  <img src={s.filePath} alt="" className="h-20 w-32 object-cover" />
+                </button>
                 <button type="button" onClick={() => removeShot(s.id)}
                   className="absolute top-1 right-1 rounded p-0.5 opacity-0 group-hover:opacity-100" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
                   <X size={11} />
@@ -199,6 +203,7 @@ function CardBody({ trade: t, hasNext, onDone, onSkip, onManageSetups }: {
               onChange={e => { addFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
           </div>
         </Field>
+        {view !== null && <ImageViewer images={shots} start={view} onClose={() => setView(null)} />}
 
         {/* ── Setup ────────────────────────────────────────────────────── */}
         <Field label="Setup" action={

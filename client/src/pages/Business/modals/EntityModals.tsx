@@ -741,7 +741,7 @@ export function CostModal({
 
         {priceChanged && (
           <div className="rounded-lg px-3.5 py-3"
-            style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.22)' }}>
+            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
             <div className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--c-text-3)' }}>
               The price changed from {currentPrice.toFixed(2)} to {amount.toFixed(2)}
             </div>
@@ -758,7 +758,7 @@ export function CostModal({
                     name="price-scope"
                     checked={scope === key}
                     onChange={() => setScope(key)}
-                    className="w-3.5 h-3.5 mt-0.5 accent-indigo-500 shrink-0"
+                    className="w-3.5 h-3.5 mt-0.5 accent-[var(--c-accent)] shrink-0"
                   />
                   <span>
                     <span className="block text-xs" style={{ color: 'var(--c-text-1)' }}>{label}</span>

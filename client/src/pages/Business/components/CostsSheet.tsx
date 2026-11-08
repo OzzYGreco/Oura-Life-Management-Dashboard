@@ -14,10 +14,8 @@ const REPEATS = [
 const PER_MONTH: Record<string, number> = { weekly: 52 / 12, monthly: 1, quarterly: 1 / 3, yearly: 1 / 12 }
 
 const cell = 'px-2 py-1.5 text-xs'
-const input = 'w-full bg-transparent outline-none rounded px-1.5 py-1 text-xs'
-const inputStyle = { color: 'var(--c-text-1)', border: '1px solid transparent' } as const
-const focusStyle = (e: React.FocusEvent<HTMLElement>) => { e.currentTarget.style.borderColor = 'rgba(129,140,248,0.5)'; e.currentTarget.style.background = 'var(--c-bg-input)' }
-const blurStyle = (e: React.FocusEvent<HTMLElement>) => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.background = 'transparent' }
+const input = 'w-full bg-transparent outline-none rounded px-1.5 py-1 text-xs border border-transparent focus:border-[var(--c-border-strong)] focus:bg-[var(--c-bg-input)]'
+const inputStyle = { color: 'var(--c-text-1)' } as const
 
 interface Draft { description: string; vendor: string; clientId: string; amount: string; date: string; repeat: string; paidBy: string }
 const empty = (): Draft => ({ description: '', vendor: '', clientId: '', amount: '', date: today(), repeat: 'once', paidBy: '' })
@@ -111,7 +109,7 @@ export function CostsSheet({
     .reduce((s, e) => s + (e.recurringAmount ?? e.amount) * (PER_MONTH[e.frequency] ?? 0), 0)
 
   const ClientSelect = ({ value, onChange, onBlur, autoSave }: { value: string; onChange: (v: string) => void; onBlur?: () => void; autoSave?: boolean }) => (
-    <select value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur} onFocus={focusStyle}
+    <select value={value} onChange={e => onChange(e.target.value)} onBlur={onBlur}
       className={input} style={{ ...inputStyle, color: value ? 'var(--c-text-1)' : 'var(--c-text-3)' }}
       data-autosave={autoSave ? '1' : undefined}>
       <option value="">The business</option>
@@ -120,7 +118,7 @@ export function CostsSheet({
   )
 
   const PaidBySelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <select aria-label="Paid from" value={value} onChange={e => onChange(e.target.value)} onFocus={focusStyle} onBlur={blurStyle}
+    <select aria-label="Paid from" value={value} onChange={e => onChange(e.target.value)}
       className={input} style={{ ...inputStyle, color: value ? '#f59e0b' : 'var(--c-text-3)' }}
       title="A partner who paid this personally is owed it back">
       <option value="">Business</option>
@@ -161,23 +159,23 @@ export function CostsSheet({
             </thead>
             <tbody>
               {/* The ready row. */}
-              <tr style={{ background: 'rgba(129,140,248,0.05)', borderBottom: '1px solid var(--c-border)' }}>
+              <tr style={{ background: 'var(--c-bg-input)', borderBottom: '1px solid var(--c-border)' }}>
                 <td className={cell}><input ref={first} aria-label="What it was" placeholder="New cost: what it was" value={draft.description}
-                  onChange={e => setDraft({ ...draft, description: e.target.value })} onKeyDown={onEnter} onFocus={focusStyle} onBlur={blurStyle}
+                  onChange={e => setDraft({ ...draft, description: e.target.value })} onKeyDown={onEnter}
                   className={input} style={inputStyle} /></td>
                 <td className={cell}><input aria-label="Paid to" placeholder="Paid to" value={draft.vendor}
-                  onChange={e => setDraft({ ...draft, vendor: e.target.value })} onKeyDown={onEnter} onFocus={focusStyle} onBlur={blurStyle}
+                  onChange={e => setDraft({ ...draft, vendor: e.target.value })} onKeyDown={onEnter}
                   className={input} style={inputStyle} /></td>
                 <td className={cell}><ClientSelect value={draft.clientId} onChange={v => setDraft({ ...draft, clientId: v })} /></td>
                 <td className={cell}><input aria-label="Amount" placeholder="0.00" type="number" step="0.01" value={draft.amount}
-                  onChange={e => setDraft({ ...draft, amount: e.target.value })} onKeyDown={onEnter} onFocus={focusStyle} onBlur={blurStyle}
+                  onChange={e => setDraft({ ...draft, amount: e.target.value })} onKeyDown={onEnter}
                   className={`${input} text-right num`} style={inputStyle} /></td>
                 <td className={cell}><input aria-label="Date" type="date" value={draft.date}
-                  onChange={e => setDraft({ ...draft, date: e.target.value })} onKeyDown={onEnter} onFocus={focusStyle} onBlur={blurStyle}
+                  onChange={e => setDraft({ ...draft, date: e.target.value })} onKeyDown={onEnter}
                   className={`${input} num`} style={inputStyle} /></td>
                 <td className={cell}>
                   <select aria-label="Repeats" value={draft.repeat} onChange={e => setDraft({ ...draft, repeat: e.target.value })} onKeyDown={onEnter}
-                    onFocus={focusStyle} onBlur={blurStyle} className={input} style={inputStyle}>
+                    className={input} style={inputStyle}>
                     {REPEATS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
                 </td>
@@ -197,14 +195,14 @@ export function CostsSheet({
                 return (
                   <tr key={`${e.id}:${e.description}:${amount}:${e.vendor}:${e.clientId}:${repeat}:${e.paidByOwnerId}`} style={{ borderBottom: "1px solid rgba(255,255,255,0.045)" }}>
                     <td className={cell}>
-                      <input aria-label="What it was" defaultValue={e.description} onFocus={focusStyle}
-                        onBlur={ev => { blurStyle(ev); patch(e, 'description', ev.target.value) }}
+                      <input aria-label="What it was" defaultValue={e.description}
+                        onBlur={ev => patch(e, 'description', ev.target.value)}
                         onKeyDown={ev => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur() }}
                         className={input} style={inputStyle} />
                     </td>
                     <td className={cell}>
-                      <input aria-label="Paid to" defaultValue={e.vendor ?? ''} placeholder="--" onFocus={focusStyle}
-                        onBlur={ev => { blurStyle(ev); patch(e, 'vendor', ev.target.value) }}
+                      <input aria-label="Paid to" defaultValue={e.vendor ?? ''} placeholder="--"
+                        onBlur={ev => patch(e, 'vendor', ev.target.value)}
                         onKeyDown={ev => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur() }}
                         className={input} style={{ ...inputStyle, color: 'var(--c-text-2)' }} />
                     </td>
@@ -212,8 +210,8 @@ export function CostsSheet({
                       <ClientSelect value={e.clientId ? String(e.clientId) : ''} onChange={v => patch(e, 'clientId', v)} />
                     </td>
                     <td className={cell}>
-                      <input aria-label="Amount" type="number" step="0.01" defaultValue={amount} onFocus={focusStyle}
-                        onBlur={ev => { blurStyle(ev); patch(e, 'amount', ev.target.value) }}
+                      <input aria-label="Amount" type="number" step="0.01" defaultValue={amount}
+                        onBlur={ev => patch(e, 'amount', ev.target.value)}
                         onKeyDown={ev => { if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur() }}
                         title={isTemplate ? 'A new amount applies from now on; past charges keep theirs' : 'Changes this charge only'}
                         className={`${input} text-right num`} style={{ ...inputStyle, color: 'var(--c-loss)' }} />
@@ -226,7 +224,7 @@ export function CostsSheet({
                         <span className="px-1.5 text-[11px]" style={{ color: 'var(--c-text-3)' }}>{repeat} renewal</span>
                       ) : (
                         <select aria-label="Repeats" value={repeat} onChange={ev => patch(e, 'repeat', ev.target.value)}
-                          onFocus={focusStyle} onBlur={blurStyle} className={input} style={{ ...inputStyle, color: 'var(--c-text-2)' }}>
+                          className={input} style={{ ...inputStyle, color: 'var(--c-text-2)' }}>
                           {REPEATS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                         </select>
                       )}
@@ -248,7 +246,7 @@ export function CostsSheet({
               })}
             </tbody>
             <tfoot>
-              <tr style={{ background: 'rgba(99,102,241,0.06)', borderTop: '2px solid rgba(99,102,241,0.22)' }}>
+              <tr style={{ background: 'var(--c-bg-input)', borderTop: '2px solid var(--c-border-strong)' }}>
                 <td className={`${cell} font-semibold`} colSpan={3} style={{ color: 'var(--c-text-1)' }}>
                   {rows.length} {show === 'all' ? 'charges' : 'repeating costs'}
                 </td>

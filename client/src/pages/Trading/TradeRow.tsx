@@ -1,4 +1,5 @@
-import { forwardRef } from 'react'
+import { forwardRef, useLayoutEffect, useRef, useState } from 'react'
+import { ChartCarousel } from './ChartCarousel'
 import { useQuery } from '@tanstack/react-query'
 import type { Trade } from '../../hooks/useTrades'
 import { api } from '../../lib/api'
@@ -34,7 +35,7 @@ export const TradeRow = forwardRef<HTMLDivElement, Props>(function TradeRow({ t,
     <div ref={ref} className={`tr-row ${expanded ? 'open' : ''}`}>
       <div onClick={onToggle}
         className="group relative flex items-center gap-4 pl-4 pr-3 py-2.5 cursor-pointer transition-colors hover:bg-[var(--c-bg-hover)]"
-        style={{ background: expanded ? 'var(--c-bg-hover)' : undefined, boxShadow: focused ? 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 55%, transparent)' : undefined }}>
+        style={{ boxShadow: focused ? 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 55%, transparent)' : undefined }}>
         <span className="w-11 shrink-0 text-xs num" style={{ color: 'var(--c-text-3)' }}>{t.time ?? '—'}</span>
         <CoinBadge asset={t.asset} instrument={t.instrument} size={30} />
         <div className="w-28 shrink-0 min-w-0">
@@ -65,7 +66,7 @@ export const TradeRow = forwardRef<HTMLDivElement, Props>(function TradeRow({ t,
           {open ? '—' : fmtR(t.rrRatio)}
         </div>
         <div className="w-20 shrink-0 text-right">
-          <div className="text-xs num" style={{ color: pnl == null ? 'var(--c-text-3)' : pnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>
+          <div className="text-xs num" style={{ color: pnl == null || open ? 'var(--c-text-3)' : outcomeColor(o) }}>
             {pnl == null ? '' : `${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)}`}
           </div>
           {dev > 0 && (
@@ -103,15 +104,7 @@ function Expanded({ t, onEdit, onDelete, onDetails }: { t: Trade; onEdit: () => 
       {/* Chart */}
       <div>
         {shots.length ? (
-          <div className="space-y-2">
-            <button onClick={onDetails} className="block w-full rounded-xl overflow-hidden group relative" style={{ border: '1px solid var(--c-border)' }}>
-              <img src={shots[0].filePath} alt="" className="w-full max-h-[340px] object-contain" style={{ background: '#0b0b12' }} />
-              <span className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}><Maximize2 size={13} /></span>
-            </button>
-            {shots.length > 1 && (
-              <div className="flex gap-2">{shots.slice(1).map(s => <img key={s.id} src={s.filePath} alt="" className="h-12 w-20 rounded-lg object-cover" style={{ border: '1px solid var(--c-border)' }} />)}</div>
-            )}
-          </div>
+          <ChartCarousel shots={shots} />
         ) : (
           <button onClick={onEdit} className="w-full h-48 rounded-xl flex flex-col items-center justify-center gap-2 text-xs transition-colors hover:text-[var(--c-accent)]"
             style={{ border: '1.5px dashed var(--c-border-mid)', color: 'var(--c-text-3)' }}>
@@ -138,7 +131,7 @@ function Expanded({ t, onEdit, onDelete, onDetails }: { t: Trade; onEdit: () => 
           <Fact k="Planned risk" v={t.riskDollars != null ? formatCurrency(t.riskDollars) : '—'} sub={t.riskSource === 'user' ? 'set by you' : 'from the stop'} />
           <Fact k="Risk at stop" v={t.riskAtStop != null ? formatCurrency(t.riskAtStop) : '—'}
             sub={timing.kind === 'later' ? `stop ${fmtMinutes(timing.minutes!)} late` : timing.kind === 'none' ? 'no stop' : 'incl. fees'} warn={timing.kind !== 'with-entry' && timing.kind !== 'unknown'} />
-          <Fact k="Result" v={pnl != null ? `${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)}` : '—'} sub={t.rrRatio != null ? fmtR(t.rrRatio) : ''} color={pnl == null ? undefined : pnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)'} />
+          <Fact k="Result" v={pnl != null ? `${pnl >= 0 ? '+' : ''}${formatCurrency(pnl)}` : '–'} sub={t.rrRatio != null ? fmtR(t.rrRatio) : ''} color={pnl == null ? undefined : outcomeColor(outcomeOf(t))} />
           <Fact k="Fees" v={formatCurrency(fees)} sub={t.riskDollars ? `${(fees / t.riskDollars).toFixed(2)}R` : ''} />
           <Fact k="Funding" v={Math.abs(t.fundingFeeAmount ?? 0) < 0.005 ? '$0.00' : formatCurrency(-(t.fundingFeeAmount ?? 0))} sub={(t.fundingFeeAmount ?? 0) > 0 ? 'paid' : (t.fundingFeeAmount ?? 0) < 0 ? 'received' : ''} />
           <Fact k="Held" v={t.durationMinutes != null ? fmtMinutes(t.durationMinutes) : '—'} sub={`opened ${t.time ?? ''} UTC`} />
@@ -173,12 +166,28 @@ function Expanded({ t, onEdit, onDelete, onDetails }: { t: Trade; onEdit: () => 
   )
 }
 
+/** The element's width in px, kept current as it resizes. */
+function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [w, setW] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    setW(el.clientWidth)
+    const ro = new ResizeObserver(() => setW(el.clientWidth))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, w]
+}
+
 /**
  * Stop, entry, exit and targets to scale on one line, with the move from
  * entry to exit shaded and each level's distance in R. Stops moved during
  * the trade show as faint ticks.
  */
 function PriceLadder({ t, bt }: { t: Trade; bt?: BybitTrade }) {
+  const [box, width] = useWidth()
   const stop = t.stopLoss ?? null
   const tps = bt ? bt.protective.filter(p => p.kind === 'tp').map(p => p.price) : (t.takeProfits ?? []).map(x => x.price)
   const movedStops = bt ? [...new Set(bt.protective.filter(p => p.kind === 'sl' && p.price !== stop).map(p => p.price))] : []
@@ -194,20 +203,23 @@ function PriceLadder({ t, bt }: { t: Trade; bt?: BybitTrade }) {
   const rAt = (p: number) => (per ? ((long ? p - t.entryPrice : t.entryPrice - p) / per) : null)
   const win = t.exitPrice != null && (long ? t.exitPrice >= t.entryPrice : t.exitPrice <= t.entryPrice)
 
-  const mark = (p: number, label: string, color: string, row: 0 | 1, strong = true) => {
-    const r = rAt(p)
-    return (
-      <div key={`${label}${p}`} className="absolute -translate-x-1/2 flex flex-col items-center" style={{ left: `${x(p)}%`, top: row ? 34 : 0 }}>
-        {row === 0 && <span className="text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color }}>{label}{r != null && label === 'Target' ? ` ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(1)}R` : ''}</span>}
-        <span className="block" style={{ width: strong ? 2 : 1, height: 14, background: color, opacity: strong ? 1 : 0.5, marginTop: row ? 0 : 2 }} />
-        {row === 1 && <span className="text-[10px] num whitespace-nowrap" style={{ color: 'var(--c-text-2)' }}>{fmtPrice(p)}</span>}
-      </div>
-    )
-  }
+  type Lvl = { p: number; label: string; color: string; strong: boolean; rank: number }
+  const exitColor = win ? 'var(--c-profit)' : 'var(--c-loss)'
+  // rank: who keeps the spot when prices sit too close to all be written out.
+  const lvls: Lvl[] = [
+    { p: t.entryPrice, label: 'Entry', color: 'var(--c-text-1)', strong: true, rank: 0 },
+    ...(t.exitPrice != null ? [{ p: t.exitPrice, label: 'Exit', color: exitColor, strong: true, rank: 1 }] : []),
+    ...(stop != null ? [{ p: stop, label: 'Stop', color: 'var(--c-loss)', strong: true, rank: 2 }] : []),
+    ...tps.map(p => {
+      const r = rAt(p)
+      return { p, label: r != null ? `Target ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(1)}R` : 'Target', color: 'var(--c-profit)', strong: true, rank: 3 }
+    }),
+    ...movedStops.map(p => ({ p, label: 'Moved stop', color: 'var(--c-loss)', strong: false, rank: 4 })),
+  ]
 
   return (
     <div className="rounded-xl px-4 pt-3 pb-2" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
-      <div className="relative h-[62px]">
+      <div ref={box} className="relative h-[62px]">
         <div className="absolute left-0 right-0 top-[22px] h-[6px] rounded-full" style={{ background: 'var(--c-bg-input)' }} />
         {stop != null && (
           <div className="absolute top-[22px] h-[6px]" style={{ left: `${Math.min(x(stop), x(t.entryPrice))}%`, width: `${Math.abs(x(stop) - x(t.entryPrice))}%`, background: 'repeating-linear-gradient(135deg, rgba(248,113,113,0.35) 0 3px, transparent 3px 6px)' }} />
@@ -215,20 +227,65 @@ function PriceLadder({ t, bt }: { t: Trade; bt?: BybitTrade }) {
         {t.exitPrice != null && (
           <div className="absolute top-[22px] h-[6px] rounded-full" style={{
             left: `${Math.min(x(t.exitPrice), x(t.entryPrice))}%`, width: `${Math.max(0.5, Math.abs(x(t.exitPrice) - x(t.entryPrice)))}%`,
-            background: win ? 'var(--c-profit)' : 'var(--c-loss)', opacity: 0.8,
+            background: exitColor, opacity: 0.8,
           }} />
         )}
-        {movedStops.map(p => mark(p, 'moved', 'var(--c-loss)', 0, false))}
-        {stop != null && mark(stop, 'Stop', 'var(--c-loss)', 0)}
-        {tps.map(p => mark(p, 'Target', 'var(--c-profit)', 0))}
-        {mark(t.entryPrice, 'Entry', 'var(--c-text-1)', 0)}
-        {t.exitPrice != null && mark(t.exitPrice, 'Exit', win ? 'var(--c-profit)' : 'var(--c-loss)', 0)}
-        {stop != null && mark(stop, 'Stop', 'var(--c-loss)', 1)}
-        {mark(t.entryPrice, 'Entry', 'var(--c-text-1)', 1)}
-        {t.exitPrice != null && Math.abs(x(t.exitPrice) - x(t.entryPrice)) > 9 && mark(t.exitPrice, 'Exit', 'var(--c-text-1)', 1)}
+        {/* Ticks above and below the line, faint for stops that were moved away from. */}
+        {[...lvls].reverse().map(l => (
+          <span key={`t${l.label}${l.p}`} aria-hidden className="absolute -translate-x-1/2" style={{ left: `${x(l.p)}%`, top: 18, width: l.strong ? 2 : 1, height: 14, background: l.color, opacity: l.strong ? 1 : 0.5 }} />
+        ))}
+        {lvls.filter(l => l.strong).map(l => (
+          <span key={`b${l.label}${l.p}`} aria-hidden className="absolute -translate-x-1/2" style={{ left: `${x(l.p)}%`, top: 34, width: 2, height: 14, background: l.label === 'Exit' ? 'var(--c-text-1)' : l.color }} />
+        ))}
+        {/* Names: levels too close to write apart share one label. */}
+        {clusters(lvls.map(l => ({ ...l, at: x(l.p), w: l.label.length * 6.6 })), width, ' · '.length * 6.6).map(c => (
+          <span key={`n${c.at}`} className="absolute top-0 text-[12px] font-medium whitespace-nowrap leading-[14px]" style={{ left: `${c.left}%`, transform: `translateX(${c.shift})` }}
+            title={c.items.map(l => `${l.label} ${fmtPrice(l.p)}`).join(', ')}>
+            {c.items.map((l, i) => <span key={i}>{i > 0 && <span style={{ color: 'var(--c-text-3)' }}> · </span>}<span style={{ color: l.color }}>{l.label}</span></span>)}
+          </span>
+        ))}
+        {/* Prices: where two crowd each other, the more important one is written. */}
+        {clusters(lvls.filter(l => l.strong).map(l => ({ ...l, at: x(l.p), w: fmtPrice(l.p).length * 6.2 })), width, 0, true).map(c => {
+          const l = c.items.reduce((a, b) => (b.rank < a.rank ? b : a))
+          return (
+            <span key={`p${l.label}${l.p}`} className="absolute text-[12px] num whitespace-nowrap leading-[14px]" style={{ top: 48, left: `${x(l.p)}%`, transform: `translateX(${edgeShift(x(l.p), l.w, width)})`, color: 'var(--c-text-2)' }}>
+              {fmtPrice(l.p)}
+            </span>
+          )
+        })}
       </div>
     </div>
   )
+}
+
+/** Centred on its point, but kept inside the line's box at either end. */
+function edgeShift(at: number, w: number, width: number): string {
+  if (!width) return '-50%'
+  const px = (at / 100) * width
+  if (px - w / 2 < 0) return `-${px}px`
+  if (px + w / 2 > width) return `${width - px - w}px`
+  return '-50%'
+}
+
+/**
+ * Groups labels (positions in %, widths in px) that would overlap, left to
+ * right. A group sits at the middle of its points; `single` keeps each group's
+ * own width (only one of its labels is written) instead of adding them up.
+ */
+function clusters<T extends { at: number; w: number }>(items: T[], width: number, gap: number, single = false) {
+  const sorted = [...items].sort((a, b) => a.at - b.at)
+  const out: { items: T[]; at: number; w: number; left: number; shift: string }[] = []
+  for (const it of sorted) {
+    const last = out[out.length - 1]
+    const px = (v: number) => (v / 100) * width
+    if (last && width && px(it.at) - it.w / 2 < px(last.at) + last.w / 2 + 10) {
+      last.items.push(it)
+      last.w = single ? Math.max(last.w, it.w) : last.w + gap + it.w
+      last.at = last.items.reduce((s, i) => s + i.at, 0) / last.items.length
+    } else out.push({ items: [it], at: it.at, w: it.w, left: 0, shift: '' })
+  }
+  for (const c of out) { c.left = c.at; c.shift = edgeShift(c.at, c.w, width) }
+  return out
 }
 
 function Fact({ k, v, sub, color, warn }: { k: string; v: string; sub?: string; color?: string; warn?: boolean }) {

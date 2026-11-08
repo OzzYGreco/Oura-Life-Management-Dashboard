@@ -19,21 +19,13 @@ export function CurrencySelector({ pageKey, defaultCurrency = 'USD' }: Props) {
   const { data: rates } = useCurrencyRates()
 
   return (
-    <div className="inline-flex items-center p-[2px] rounded-[7px] gap-px" role="radiogroup" aria-label="Display currency"
-      style={{ background: 'var(--c-bg-input)', boxShadow: 'inset 0 0 0 0.5px var(--c-border)' }}
+    <div className="ui-seg" role="radiogroup" aria-label="Display currency"
       title={!rates ? 'Loading live rates…' : undefined}>
       {CURRENCIES.map(c => {
         const on = viewCurrency === c.code
         return (
           <button key={c.code} onClick={() => setViewCurrency(c.code)} role="radio" aria-checked={on}
-            title={c.code}
-            className="h-[22px] min-w-[30px] px-2 rounded-[5px] text-[12px] font-medium transition-colors"
-            style={{
-              background: on ? 'var(--c-seg-on)' : 'transparent',
-              boxShadow: on ? 'var(--c-seg-on-shadow)' : 'none',
-              color: on ? 'var(--c-text-1)' : 'var(--c-text-2)',
-              opacity: !rates && !on ? 0.5 : 1,
-            }}>
+            title={c.code} className={on ? 'on' : ''} style={{ opacity: !rates && !on ? 0.5 : undefined }}>
             {c.symbol}
           </button>
         )

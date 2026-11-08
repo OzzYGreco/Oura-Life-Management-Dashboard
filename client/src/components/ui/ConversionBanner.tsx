@@ -35,13 +35,13 @@ export function ConversionBanner({ native, pageKey, detail }: Props) {
 
   return (
     <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg text-xs"
-      style={{ background: 'rgba(129,140,248,0.07)', border: '1px solid rgba(129,140,248,0.15)', color: 'rgba(139,139,170,0.8)' }}>
-      <span style={{ color: '#818cf8' }}>ℹ</span>
+      style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
+      <span style={{ color: 'var(--c-text-3)' }}>ℹ</span>
       <span className="flex-1">
         Showing in{' '}
-        <strong style={{ color: '#818cf8' }}>{sym} {viewCurrency}</strong>
+        <strong style={{ color: 'var(--c-text-1)' }}>{sym} {viewCurrency}</strong>
         {', converted from '}
-        <strong style={{ color: '#818cf8' }}>{SYMBOL[native] ?? ''} {native}</strong>
+        <strong style={{ color: 'var(--c-text-1)' }}>{SYMBOL[native] ?? ''} {native}</strong>
         {detail ? `. ${detail}` : '.'}
         {' '}Rates update in real time{updatedAt ? ` · last refreshed ${updatedAt}` : ''}.
         {' '}Display only. Logged values are unchanged.
@@ -50,8 +50,8 @@ export function ConversionBanner({ native, pageKey, detail }: Props) {
         onClick={refresh}
         disabled={isFetching}
         title="Refresh exchange rate"
-        className="flex-shrink-0 rounded p-1 transition-colors hover:bg-white/5 disabled:opacity-40"
-        style={{ color: '#818cf8' }}
+        className="flex-shrink-0 rounded p-1 transition-colors hover:bg-[var(--c-bg-hover)] disabled:opacity-40"
+        style={{ color: 'var(--c-accent)' }}
       >
         <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} />
       </button>

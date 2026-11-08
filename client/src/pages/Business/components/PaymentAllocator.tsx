@@ -208,7 +208,7 @@ export function PaymentAllocator({
               const part = i.owed < i.amount - 0.005
               return (
                 <div key={i.id} className="flex items-center gap-3 px-3 py-1.5 text-xs"
-                  style={{ background: on ? 'rgba(129,140,248,0.12)' : 'transparent' }}>
+                  style={{ background: on ? 'rgb(var(--k-fg) / .1)' : 'transparent' }}>
                   <button type="button" onClick={() => toggle(i.id)} className="flex items-center gap-3 flex-1 min-w-0 text-left">
                     <span className="w-3.5 h-3.5 rounded shrink-0"
                       style={on ? { background: 'var(--c-accent)' } : { border: '1.5px solid var(--c-border-strong)' }} />
@@ -243,7 +243,7 @@ export function PaymentAllocator({
           {canAdjust && (
             <label className="flex items-start gap-2 mt-2 text-[11px] cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
               <input type="checkbox" checked={adjust} onChange={e => setAdjust(e.target.checked)}
-                className="w-3.5 h-3.5 mt-0.5 accent-indigo-500" />
+                className="w-3.5 h-3.5 mt-0.5 accent-[var(--c-accent)]" />
               <span>
                 Change the invoice by <span className="num">{fmtView(Math.abs(nearGap))}</span> so it matches the{' '}
                 <span className="num">{fmtView(payment.amountGross)}</span> that was paid. Pennies from splitting a

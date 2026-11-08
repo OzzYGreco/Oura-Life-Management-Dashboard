@@ -132,7 +132,7 @@ export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
     return next
   })
   useEffect(() => {
-    if (expanded != null) setTimeout(() => rowRefs.current.get(expanded)?.scrollIntoView({ block: 'center' }), 50)
+    if (expanded != null) setTimeout(() => rowRefs.current.get(expanded)?.scrollIntoView({ block: 'start' }), 50)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => {

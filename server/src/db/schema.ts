@@ -117,6 +117,8 @@ export const bybitOrders = sqliteTable('bybit_orders', {
   status:        text('status'),
   positionIdx:   integer('position_idx'),
   triggerPrice:  real('trigger_price'),
+  // The trigger when first seen; Bybit amends a stop in place, so a moved stop keeps its id.
+  firstTriggerPrice: real('first_trigger_price'),
   stopLoss:      real('stop_loss'),
   takeProfit:    real('take_profit'),
   createdTime:   integer('created_time').notNull(),

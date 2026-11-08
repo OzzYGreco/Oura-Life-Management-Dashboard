@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Modal } from '../../../components/ui/Modal'
 import { Button } from '../../../components/ui/Button'
@@ -247,7 +248,7 @@ export function NewWorkModal({
               const on = picked[svc.id] != null
               if (editing?.id === svc.id) return (
                 <div key={svc.id} className="flex items-center gap-2 px-3 py-2 rounded-lg"
-                  style={{ background: 'var(--c-bg-input)', border: '1px dashed rgba(129,140,248,0.4)' }}>
+                  style={{ background: 'var(--c-bg-input)', border: '1px dashed var(--c-border-strong)' }}>
                   <input aria-label="Service name" value={editing.name} autoFocus
                     onChange={e => setEditing({ ...editing, name: e.target.value })}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); saveEdit() } if (e.key === 'Escape') setEditing(null) }}
@@ -268,15 +269,15 @@ export function NewWorkModal({
                 <div key={svc.id}
                   className="flex items-center gap-3 px-3 py-2 rounded-lg"
                   style={{
-                    background: on ? 'rgba(129,140,248,0.08)' : 'var(--c-bg-input)',
-                    border: `1px solid ${on ? 'rgba(129,140,248,0.3)' : 'var(--c-border)'}`,
+                    background: on ? 'rgb(var(--k-fg) / .1)' : 'var(--c-bg-input)',
+                    border: `1px solid ${on ? 'var(--c-border-strong)' : 'var(--c-border)'}`,
                   }}>
                   <input
                     id={`svc-${svc.id}`}
                     type="checkbox"
                     checked={on}
                     onChange={() => toggle(svc)}
-                    className="w-4 h-4 shrink-0 cursor-pointer accent-indigo-500"
+                    className="w-4 h-4 shrink-0 cursor-pointer accent-[var(--c-accent)]"
                   />
                   <label htmlFor={`svc-${svc.id}`} className="flex-1 text-sm cursor-pointer" style={{ color: 'var(--c-text-1)' }}>
                     {svc.name}
@@ -312,7 +313,7 @@ export function NewWorkModal({
           )}
           {adding ? (
             <div className="mt-2 rounded-lg p-3 space-y-2.5"
-              style={{ background: 'var(--c-bg-input)', border: '1px dashed rgba(129,140,248,0.4)' }}>
+              style={{ background: 'var(--c-bg-input)', border: '1px dashed var(--c-border-strong)' }}>
               <div className="grid grid-cols-[1fr_auto_7rem] gap-2 items-end">
                 <Input id="svc-new-name" label="New service" value={svcDraft.name} autoFocus placeholder="e.g. Google Ads management"
                   onChange={e => setSvcDraft({ ...svcDraft, name: e.target.value })}
@@ -322,7 +323,7 @@ export function NewWorkModal({
                     <button key={k} type="button" onClick={() => setSvcDraft({ ...svcDraft, kind: k })}
                       className="px-2.5 py-2 text-xs"
                       style={{
-                        background: svcDraft.kind === k ? 'rgba(99,102,241,0.18)' : 'transparent',
+                        background: svcDraft.kind === k ? 'rgb(var(--k-fg) / .1)' : 'transparent',
                         color: svcDraft.kind === k ? 'var(--c-text-1)' : 'var(--c-text-3)',
                       }}>{label}</button>
                   ))}
@@ -337,7 +338,7 @@ export function NewWorkModal({
                   : staging
                     ? <label className="inline-flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" checked={svcDraft.staged} onChange={e => setSvcDraft({ ...svcDraft, staged: e.target.checked })}
-                          className="w-3.5 h-3.5 accent-indigo-500" />
+                          className="w-3.5 h-3.5 accent-[var(--c-accent)]" />
                         Bill it in stages like a website ({staging.map(m => `${m.pct}% ${m.label.toLowerCase()}`).join(', ')}), not all at once
                       </label>
                     : 'Billed in full, once.'}
@@ -352,7 +353,7 @@ export function NewWorkModal({
             </div>
           ) : (
             <div className="mt-2">
-              <MiniBtn tone="accent" onClick={() => setAdding(true)} title="For something you have started selling">+ New service</MiniBtn>
+              <MiniBtn tone="accent" onClick={() => setAdding(true)} title="For something you have started selling"><Plus size={13} aria-hidden />New service</MiniBtn>
             </div>
           )}
         </div>
@@ -380,7 +381,7 @@ export function NewWorkModal({
             <label htmlFor="deal-send" className="col-span-2 flex items-end gap-2 pb-2 text-xs cursor-pointer"
               style={{ color: 'var(--c-text-2)' }}>
               <input id="deal-send" type="checkbox" checked={sendFirst} onChange={e => setSendFirst(e.target.checked)}
-                className="w-4 h-4 accent-indigo-500" />
+                className="w-4 h-4 accent-[var(--c-accent)]" />
               Send the deposit invoice now. The rest stay as drafts until the work reaches them.
             </label>
           )}
@@ -390,7 +391,7 @@ export function NewWorkModal({
           <label htmlFor="deal-deposit" className="flex items-start gap-2 text-xs cursor-pointer px-3 py-2.5 rounded-lg"
             style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.22)', color: 'var(--c-text-2)' }}>
             <input id="deal-deposit" type="checkbox" checked={useDeposit} onChange={e => setUseDeposit(e.target.checked)}
-              className="w-4 h-4 mt-0.5 accent-indigo-500" />
+              className="w-4 h-4 mt-0.5 accent-[var(--c-accent)]" />
             <span>
               {clientName} already paid <span className="num">{fmtView(depositCandidate.amount)}</span> on{' '}
               {formatDate(depositCandidate.issueDate)} ({depositCandidate.invoiceNumber}, not on any website). Use it as the

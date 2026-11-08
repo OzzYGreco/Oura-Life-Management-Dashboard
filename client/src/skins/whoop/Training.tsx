@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { CATEGORIES, catMeta, setLabel, startingSets, useDeleteTemplate, useLogWorkout, useSaveTemplate, useUpdateBody, type BodyMetric, type LogExercise, type Template, type TrainingView, type Workout } from '../../core/training'
@@ -271,7 +272,7 @@ export function Templates({ data, onClose }: { data: TrainingView; onClose: () =
             ))}
           {open === 'new'
             ? <TemplateEdit data={data} onDone={() => setOpen(null)} />
-            : <button className="wh-addrow" onClick={() => setOpen('new')}>+ New template</button>}
+            : <button className="wh-addrow" onClick={() => setOpen('new')}><Plus size={13} aria-hidden />New template</button>}
         </div>
       </div>
     </div>

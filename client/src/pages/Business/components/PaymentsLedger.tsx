@@ -210,7 +210,7 @@ export function PaymentsLedger({ fmtView, onOpenClient }: { fmtView: FmtView; on
                   </Row>
                   {isOpen && r.paymentId && (
                     <tr>
-                      <td colSpan={9} style={{ background: 'rgba(129,140,248,0.04)' }}>
+                      <td colSpan={9} style={{ background: 'var(--c-bg-input)' }}>
                         <PaymentAllocator
                           payment={{
                             id: r.paymentId, amountGross: r.gross, fee: r.fee,

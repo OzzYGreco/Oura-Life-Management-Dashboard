@@ -35,7 +35,7 @@ Tokens live in `client/src/skins/skins.css`. `--k-*` is the theme palette; `--c-
 - **Big display numbers** (dial score, week score, panel figures) use **SF Pro Rounded** (`--k-round`) at weight 600, as iOS Fitness and Health do. SF Pro Rounded is installed in `/Library/Fonts` on the owner's Mac. Safari also reaches it through `ui-rounded`.
 - Tracking follows iOS: about -0.01em for 34px headlines and -0.02em for the 64px score. Never condense.
 - **No monospace** for labels. Times and numbers use tabular figures of the same family.
-- **Scale (px):** 12 · 13 · 15 · 18 · 24 · 34 · 80. Body is 15, rows are 13 or 15, section titles 18, the Now headline 34, and the score 80. Line height is 1.45 for text and 1.05 for display numbers.
+- **Scale (px):** 12 · 13 · 15 · 18 · 24 · 34 · 80. Nothing is smaller than 12. Body is 15, rows are 13 or 15, section titles 18, the Now headline 34, and the score 80. Line height is 1.45 for text and 1.05 for display numbers.
 - **Sentence case** everywhere. No all-caps labels, and no single-word highlight in headlines.
 
 ### Space, radius, depth
@@ -87,10 +87,22 @@ One card holds the Whoop-style score dial and the one thing to do. That's the on
 - No pill tags inline with a row's title: they push titles onto two lines. Use a small coloured caption under the title, and move the flagged row to the top of its list.
 - At most one short line of prose per section, and only when a number can't say it.
 
-## Buttons
-- 44px tall, sentence-case verb, with the key hint inside (`Done D`).
-- Primary is solid accent with an inner highlight. Secondary is a faint fill with a 1px inset line.
-- Press scales to 0.96 over 150ms with ease-out, never when disabled. Hover styles only under `(hover: hover)`.
+## Buttons and controls
+One system, in `client/src/skins/next/controls.css`, loaded last. Use its classes; never style a button inline or fake hover in JavaScript.
+
+| Size | Height | Radius | Label | Use |
+|---|---|---|---|---|
+| L | 44 | 12 | 15 semibold | the main action of a page or sheet (`nx-btn`, `<Button size="lg">`) |
+| M | 34 | 10 | 13 medium | toolbar and dialog actions (`nx-btn sm`, `tr-tool`, `<Button>`) |
+| S | 28 | 8 | 13 medium | actions inside a row or card (`bz-mini`, `wh-chase`, `<Button size="sm">`), chips, segmented items |
+
+- **Roles:** primary is solid accent with an inner highlight, at most one per group. Secondary is a faint fill with a 1px inset line. Tonal (good, warn, bad) is a tint of its meaning with no line. Quiet (`ui-btn ghost`, `nx-link`) is text until hovered. Icon buttons are `ui-icon` (28 square, `.md` 34), with `.danger` and `.warn` hovers.
+- **Labels** are centred on both axes, never wrap, sentence case, verb first. "Add" and "New" carry the plus icon, never a typed "+".
+- **One hover per role,** only under `(hover: hover)`: primary lightens to `--k-acc-hi`, secondary and chips deepen their fill, tonal gains a line in its own colour, quiet gains a faint fill.
+- **Press** scales to 0.96 over 150ms ease-out, never when disabled. **Disabled** is 45% opacity with no hover.
+- **Focus:** a 2px accent outline, 2px out, on everything a keyboard reaches. Inputs show focus with their border instead.
+- **Selected** chips, segments and toggles all look the same: a stronger fill, full ink and a faint 1px line.
+- **Segmented controls** are a 34px track holding 28px items (`tr-seg`, `ui-seg`).
 - Checkboxes are 20px with a 44px hit area.
 
 ## Entry (non-negotiable)

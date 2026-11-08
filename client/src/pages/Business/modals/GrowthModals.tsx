@@ -173,7 +173,7 @@ export function BulkPriceModal({ open, onClose, fmtView }: { open: boolean; onCl
                 <label key={r.retainerId} className="flex items-center gap-3 px-3 py-1.5 text-[12px] cursor-pointer"
                   style={{ borderTop: i ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg-input)', opacity: r.included ? 1 : 0.5 }}>
                   <input type="checkbox" checked={r.included} disabled={!!r.why && !exclude.includes(r.retainerId)}
-                    onChange={() => toggle(r.retainerId)} className="w-3.5 h-3.5 accent-indigo-500" />
+                    onChange={() => toggle(r.retainerId)} className="w-3.5 h-3.5 accent-[var(--c-accent)]" />
                   <span className="flex-1" style={{ color: 'var(--c-text-1)' }}>{r.clientName}</span>
                   <span style={{ color: 'var(--c-text-3)' }}>{r.why ?? `from ${formatDate(r.from)}`}</span>
                   <span className="num w-36 text-right" style={{ color: 'var(--c-text-2)' }}>

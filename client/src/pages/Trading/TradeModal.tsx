@@ -13,7 +13,7 @@ import { useTradingAccounts } from '../../hooks/useTradingAccounts'
 import { loadTradingSettings, computeFees } from '../../hooks/useTradingSettings'
 import { INSTRUMENTS, DIRECTIONS, ORDER_TYPES, MISTAKES } from '../../lib/constants'
 import { formatCurrency, fmtSize } from '../../lib/utils'
-import { Zap, ChevronRight, Layers, Plus, X, Check, ChevronDown } from 'lucide-react'
+import { Zap, ChevronRight, Layers, Plus, X, Check, ChevronDown, TrendingUp, TrendingDown } from 'lucide-react'
 import { Segmented } from './controls'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
@@ -130,10 +130,10 @@ function QuickFill({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="p-4 rounded-xl mb-1" style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.18)' }}>
+    <div className="p-4 rounded-xl mb-1" style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
       <div className="flex items-center gap-2 mb-2">
         <Zap size={13} style={{ color: 'var(--c-accent)' }} />
-        <span className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--c-accent)' }}>Quick Log</span>
+        <span className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--c-accent)' }}>Quick log</span>
         <span className="text-[10px]" style={{ color: 'var(--c-text-3)' }}>Logs immediately. Edit later for full detail.</span>
       </div>
 
@@ -142,10 +142,8 @@ function QuickFill({ onClose }: { onClose: () => void }) {
           value={text}
           onChange={e => handleChange(e.target.value)}
           placeholder="e.g.  BTC 65000 64500  or  BTC 65000 64500 65800"
-          className="flex-1 rounded-lg px-3 py-2 text-sm outline-none font-mono"
-          style={{ background: 'var(--c-bg-input)', border: '1px solid rgba(99,102,241,0.25)', color: 'var(--c-text-1)' }}
-          onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-          onBlur={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.25)'; e.currentTarget.style.boxShadow = 'none' }}
+          className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}
           onKeyDown={e => { if (e.key === 'Enter' && preview) { e.preventDefault(); submit() } }}
         />
         <Button
@@ -209,8 +207,6 @@ function EntryLegRow({
         onChange={e => onChg(e.target.value.replace(/[^0-9.]/g, ''))}
         className="w-full rounded-lg pl-7 pr-3 py-2 text-sm num outline-none transition-all duration-150"
         style={style}
-        onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-        onBlur={e => { e.currentTarget.style.borderColor = style.border!.toString().replace('1px solid ', ''); e.currentTarget.style.boxShadow = 'none' }}
       />
     </div>
   )
@@ -219,7 +215,7 @@ function EntryLegRow({
     <div>
       {showHeaders && (
         <div className="grid gap-2 mb-1" style={{ gridTemplateColumns: '1fr 100px 1fr 28px' }}>
-          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Entry Price</span>
+          <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Entry price</span>
           <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Size</span>
           <span className="text-[10px] font-semibold uppercase tracking-widest flex items-center gap-1" style={{ color: 'rgba(248,113,113,0.7)' }}>
             SL moved to
@@ -237,8 +233,6 @@ function EntryLegRow({
           onChange={e => onChange('size', e.target.value)}
           className="w-full rounded-lg px-3 py-2 text-sm num outline-none transition-all duration-150"
           style={inputBase}
-          onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-          onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
         />
         {/* SL moved to */}
         {priceInput(leg.sl, v => onChange('sl', v), slBase)}
@@ -293,8 +287,6 @@ function TPLegRow({
             onChange={e => onChange('price', e.target.value.replace(/[^0-9.]/g, ''))}
             className="w-full rounded-lg pl-7 pr-3 py-2 text-sm num outline-none transition-all duration-150"
             style={inputBase}
-            onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-            onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
           />
         </div>
         <input
@@ -303,8 +295,6 @@ function TPLegRow({
           onChange={e => onChange('size', e.target.value)}
           className="w-full rounded-lg px-3 py-2 text-sm num outline-none transition-all duration-150"
           style={inputBase}
-          onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-          onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
         />
         <button
           type="button" onClick={onRemove} disabled={total === 1}
@@ -330,12 +320,9 @@ function SubHeader({ label, onAdd, addLabel }: { label: string; onAdd: () => voi
       <button
         type="button"
         onClick={onAdd}
-        className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all duration-150"
-        style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', color: 'var(--c-accent)' }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.15)' }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.08)' }}
+        className="ui-btn secondary sm"
       >
-        <Plus size={9} /> {addLabel}
+        <Plus size={13} /> {addLabel}
       </button>
     </div>
   )
@@ -403,7 +390,7 @@ function SystemCombobox({ value, onChange, options }: {
 
   return (
     <div className="flex flex-col gap-1.5" ref={ref} style={{ position: 'relative' }}>
-      <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>System Name</label>
+      <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>System name</label>
       <button type="button" onClick={() => { setOpen(o => !o); setPending(null) }}
         className="h-[38px] w-full flex items-center justify-between px-3 rounded-lg text-sm text-left transition-all"
         style={{ ...inputStyle, color: value ? 'var(--c-text-1)' : 'var(--c-text-3)' }}>
@@ -433,10 +420,7 @@ function SystemCombobox({ value, onChange, options }: {
               const isPending   = o === pending
               return (
                 <div key={o}
-                  className="flex items-center group transition-colors"
-                  style={{ background: isSelected ? 'rgba(99,102,241,0.08)' : 'transparent' }}
-                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--c-bg-hover)' }}
-                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                  className={`flex items-center group transition-colors ${isSelected ? 'bg-[var(--c-bg-hover)]' : 'hover:bg-[var(--c-bg-hover)]'}`}>
                   {/* Select area */}
                   <button type="button" onClick={() => pick(o)}
                     className="flex-1 text-left px-3 py-2.5 text-sm flex items-center gap-2.5"
@@ -462,10 +446,8 @@ function SystemCombobox({ value, onChange, options }: {
             })}
             {showCreate && (
               <button type="button" onClick={() => pick(query.trim())}
-                className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors"
-                style={{ color: 'var(--c-accent)', borderTop: '1px solid var(--c-border)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.06)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent' }}>
+                className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2.5 transition-colors hover:bg-[var(--c-bg-hover)]"
+                style={{ color: 'var(--c-accent)', borderTop: '1px solid var(--c-border)' }}>
                 <Plus size={12} className="shrink-0" />
                 Create &ldquo;{query.trim()}&rdquo;
               </button>
@@ -811,7 +793,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
         <div>
           <SectionHeader n={1} label="The trade" />
           {trade?.source === 'bybit' && (
-            <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: 'rgba(99,102,241,0.08)', color: 'var(--c-text-2)' }}>
+            <p className="text-xs mb-3 px-3 py-2 rounded-lg" style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
               Synced from Bybit: times, prices, size, fees and P&L come from the exchange and stay as Bybit has them.
               What you change here that counts is your planned risk, stop, setup, notes, mistakes and rules.
             </p>
@@ -821,14 +803,14 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
             <Controller name="accountId" control={control} render={({ field }) => (
               <div className="flex flex-col gap-1.5 col-span-4">
                 <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Account</label>
-                <Segmented value={String(field.value ?? '')} onChange={v => field.onChange(v ? Number(v) : null)}
+                <Segmented fill value={String(field.value ?? '')} onChange={v => field.onChange(v ? Number(v) : null)}
                   options={[...(accounts ?? []).map(a => ({ value: String(a.id), label: a.name })), { value: '', label: 'None' }]} />
               </div>
             )} />
             <Controller name="instrument" control={control} render={({ field }) => (
               <div className="flex flex-col gap-1.5 col-span-2">
                 <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Instrument</label>
-                <Segmented size="sm" value={field.value} onChange={v => { setPickedFor(assetTyped || null); field.onChange(v) }} options={INSTRUMENTS.map(v => ({ value: v, label: v }))} />
+                <Segmented fill value={field.value} onChange={v => { setPickedFor(assetTyped || null); field.onChange(v) }} options={INSTRUMENTS.map(v => ({ value: v, label: v }))} />
                 <InstrumentHint ticker={ticker} typing={ticker !== assetTyped || identifying} known={known} current={field.value}
                   handPicked={handPicked} onUse={v => { setPickedFor(null); field.onChange(v) }} />
               </div>
@@ -838,23 +820,18 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
             <Controller name="direction" control={control} render={({ field }) => (
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Direction</label>
-                <div className="flex rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border-mid)' }}>
+                <div className="ui-seg fill" role="radiogroup" aria-label="Direction">
                   {(['Long', 'Short'] as const).map(d => (
-                    <button key={d} type="button" onClick={() => field.onChange(d)}
-                      className="flex-1 py-2 text-sm font-semibold transition-all duration-200"
-                      style={field.value === d ? {
-                        background: d === 'Long' ? 'linear-gradient(180deg, rgba(52,211,153,0.28), rgba(52,211,153,0.12))' : 'linear-gradient(180deg, rgba(248,113,113,0.28), rgba(248,113,113,0.12))',
-                        color: d === 'Long' ? 'var(--c-profit)' : 'var(--c-loss)',
-                        boxShadow: `inset 0 0 0 1px ${d === 'Long' ? 'rgba(52,211,153,0.45)' : 'rgba(248,113,113,0.45)'}`,
-                      } : { color: 'var(--c-text-3)', background: 'var(--c-bg-input)' }}>
-                      {d === 'Long' ? '▲ Long' : '▼ Short'}
+                    <button key={d} type="button" role="radio" aria-checked={field.value === d} onClick={() => field.onChange(d)}
+                      className={field.value === d ? `on ${d === 'Long' ? 'good' : 'bad'}` : ''}>
+                      {d === 'Long' ? <TrendingUp size={14} aria-hidden /> : <TrendingDown size={14} aria-hidden />}{d}
                     </button>
                   ))}
                 </div>
               </div>
             )} />
-            <Select label="Entry Order Type" options={ORDER_TYPES.map(v => ({ value: v, label: v }))} {...register('orderType')} />
-            <Select label="Exit Order Type" options={ORDER_TYPES.map(v => ({ value: v, label: v }))} {...register('exitOrderType')} />
+            <Select label="Entry order type" options={ORDER_TYPES.map(v => ({ value: v, label: v }))} {...register('orderType')} />
+            <Select label="Exit order type" options={ORDER_TYPES.map(v => ({ value: v, label: v }))} {...register('exitOrderType')} />
             <div className="grid grid-cols-2 gap-3 col-span-2">
               <Input label="Date" type="date" {...register('date', { required: true })} />
               <Input label="Time (UTC)" type="time" {...register('time')} />
@@ -895,7 +872,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                 <SubHeader
                   label="Entries"
                   onAdd={() => setEntries(prev => [...prev, { price: '', size: '', sl: '' }])}
-                  addLabel="Add Entry"
+                  addLabel="Add entry"
                 />
                 <div className="mt-2 space-y-2">
                   {entries.map((leg, i) => (
@@ -929,7 +906,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
 
               {/* ── Take Profits ─────────────────────────────────────── */}
               <div>
-                <SubHeader label="Take Profits" onAdd={() => setTakeProfits(prev => [...prev, { price: '', size: '' }])} addLabel="Add TP" />
+                <SubHeader label="Take-profits" onAdd={() => setTakeProfits(prev => [...prev, { price: '', size: '' }])} addLabel="Add take-profit" />
                 <div className="mt-2 space-y-2">
                   {takeProfits.map((leg, i) => (
                     <TPLegRow
@@ -959,7 +936,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                   <span className="text-[9px]" style={{ color: 'var(--c-text-3)' }}>Full position stopped out - leave blank when all size closed via TPs above</span>
                 </div>
                 <Controller name="exitPrice" control={control} render={({ field }) => (
-                  <PriceInput label="Exit Price (if stopped out)" placeholder="0.00" value={field.value} onChange={field.onChange} />
+                  <PriceInput label="Exit price (if stopped out)" placeholder="0.00" value={field.value} onChange={field.onChange} />
                 )} />
               </div>
             </div>
@@ -967,15 +944,15 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
             /* ── Simple mode (original) ───────────────────────────────── */
             <div className="grid grid-cols-4 gap-3">
               <Controller name="entryPrice" control={control} render={({ field }) => (
-                <PriceInput label="Entry Price" placeholder="0.00" value={field.value} onChange={field.onChange} />
+                <PriceInput label="Entry price" placeholder="0.00" value={field.value} onChange={field.onChange} />
               )} />
               <Controller name="stopLoss" control={control} render={({ field }) => (
-                <PriceInput label="Stop Loss" placeholder="0.00" value={field.value} onChange={field.onChange} />
+                <PriceInput label="Stop loss" placeholder="0.00" value={field.value} onChange={field.onChange} />
               )} />
               <Controller name="exitPrice" control={control} render={({ field }) => (
-                <PriceInput label="Exit Price" placeholder="0.00" value={field.value} onChange={field.onChange} />
+                <PriceInput label="Exit price" placeholder="0.00" value={field.value} onChange={field.onChange} />
               )} />
-              <Input label="Size / Lots" type="number" step="any" placeholder="1" {...register('size', { required: true })} />
+              <Input label="Size or lots" type="number" step="any" placeholder="1" {...register('size', { required: true })} />
             </div>
           )}
         </div>
@@ -988,7 +965,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
               <PriceInput label="Risk ($)" placeholder="0.00" value={field.value} onChange={field.onChange} />
             )} />
             <Controller name="expectedLoss" control={control} render={({ field }) => (
-              <PriceInput label="Expected Loss ($)" placeholder="0.00" value={field.value} onChange={field.onChange} />
+              <PriceInput label="Expected loss ($)" placeholder="0.00" value={field.value} onChange={field.onChange} />
             )} />
             {/* Actual broker P&L - shown for both simple and compounded trades */}
             <div className="flex flex-col gap-1.5">
@@ -1002,8 +979,6 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
                 {...register('actualPnl')}
                 className="rounded-lg px-3 py-2 text-sm num outline-none transition-all duration-150"
                 style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border-mid)', color: 'var(--c-text-1)' }}
-                onFocus={e => { e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)' }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'var(--c-border-mid)'; e.currentTarget.style.boxShadow = 'none' }}
               />
               <span className="text-[10px]" style={{ color: 'var(--c-text-3)' }}>
                 Enter to back-calculate slippage
@@ -1027,24 +1002,13 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
 
             <Controller name="rulesMet" control={control} render={({ field }) => (
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Rules Met?</label>
-                <div className="flex rounded-lg overflow-hidden h-[38px]" style={{ border: '1px solid var(--c-border-mid)' }}>
-                  <button type="button" onClick={() => field.onChange(false)}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold transition-all duration-150"
-                    style={!field.value ? {
-                      background: 'rgba(248,113,113,0.15)',
-                      color: 'var(--c-loss)',
-                      borderRight: '1px solid rgba(248,113,113,0.2)',
-                    } : { color: 'var(--c-text-3)', background: 'var(--c-bg-input)', borderRight: '1px solid var(--c-border)' }}>
-                    <span style={{ fontSize: 15 }}>✗</span> No
+                <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--c-text-3)' }}>Rules met?</label>
+                <div className="ui-seg fill" role="radiogroup" aria-label="Rules met?">
+                  <button type="button" role="radio" aria-checked={!field.value} onClick={() => field.onChange(false)} className={!field.value ? 'on bad' : ''}>
+                    <X size={14} aria-hidden />No
                   </button>
-                  <button type="button" onClick={() => field.onChange(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold transition-all duration-150"
-                    style={field.value ? {
-                      background: 'rgba(52,211,153,0.15)',
-                      color: 'var(--c-profit)',
-                    } : { color: 'var(--c-text-3)', background: 'var(--c-bg-input)' }}>
-                    <span style={{ fontSize: 15 }}>✓</span> Yes
+                  <button type="button" role="radio" aria-checked={!!field.value} onClick={() => field.onChange(true)} className={field.value ? 'on good' : ''}>
+                    <Check size={14} aria-hidden />Yes
                   </button>
                 </div>
               </div>
@@ -1101,7 +1065,7 @@ export function TradeModal({ open, onClose, trade, defaultAccountId }: Props) {
         {/* ── Section 6: Notes & Screenshots ───────────────────────── */}
         <div>
           <SectionHeader n={6} label="Notes and charts" />
-          <Textarea label="Quick Note" rows={3} placeholder="Setup context, execution notes, what you'd do differently…" {...register('quickNote')} />
+          <Textarea label="Quick note" rows={3} placeholder="Setup context, execution notes, what you'd do differently…" {...register('quickNote')} />
           <div className="mt-3">
             <ImageUpload images={images} onChange={setImages} label="Screenshots" />
           </div>

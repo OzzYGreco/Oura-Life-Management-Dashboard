@@ -23,7 +23,7 @@
 .nmo-usual button { height: 32px; padding: 0 12px; border-radius: 8px; font-size: 13px; color: var(--k-ink2); background: rgb(var(--k-fg) / .04); box-shadow: inset 0 0 0 1px var(--k-line); transition-property: background-color, scale; transition-duration: .15s; transition-timing-function: ease-out; }
 .nmo-usual button b { font-weight: 500; color: var(--k-mute); margin-left: 4px; }
 .nmo-usual button:active { scale: .96; }
-@media (hover: hover) { .nmo-usual button:hover { background: rgb(var(--k-fg) / .08); color: var(--k-ink); } }
+@media (hover: hover) { .nmo-usual button:hover { background: rgb(var(--k-fg) / .1); color: var(--k-ink); } }
 .nmo-cat { height: 30px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--k-line2); background: rgb(var(--k-fg) / .04); color: var(--k-ink); font-family: var(--k-font); font-size: 13px; color-scheme: dark; }
 .nmo-cat.need { border-color: rgba(233,182,94,.6); color: var(--k-warn); }
 
@@ -85,7 +85,7 @@
 .nmo-month { display: inline-flex; align-items: center; gap: 4px; }
 .nmo-month > button:not(.ntr-lnk) { width: 26px; height: 26px; border-radius: 7px; color: var(--k-mute); font-size: 16px; }
 .nmo-month > button:disabled { opacity: .3; }
-@media (hover: hover) { .nmo-month > button:not(.ntr-lnk):not(:disabled):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); } }
+@media (hover: hover) { .nmo-month > button:not(.ntr-lnk):not(:disabled):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); } }
 .nmo-month b { font-size: 13px; font-weight: 600; color: var(--k-ink); min-width: 110px; text-align: center; }
 .nmo-month .ntr-lnk { margin-left: 8px; }
 .nmo-rows { margin-top: 10px; }

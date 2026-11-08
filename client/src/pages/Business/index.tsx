@@ -338,9 +338,7 @@ function NewMenu({
               <button
                 type="button"
                 onClick={() => { setOpen(false); it.run() }}
-                className="flex-1 text-left px-3.5 py-2.5"
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--c-bg-hover)')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                className="flex-1 text-left px-3.5 py-2.5 transition-colors hover:bg-[var(--c-bg-hover)]"
               >
                 <span className="block text-xs font-semibold" style={{ color: 'var(--c-text-1)' }}>{it.label}</span>
                 <span className="block text-[10.5px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>{it.hint}</span>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Plus } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Th, Td, TablePanel, THead, Row, MiniBtn, StatusDot, Pill, EmptyRow, fmtHours } from '../components/primitives'
@@ -187,7 +187,7 @@ export function ClientDetail({
       {/* ── What do they pay? ─────────────────────────────────────────────── */}
       <Question q="What do they pay?"
         answer={churned ? 'Nothing now: they left.' : planParts.length ? <>{planParts.join(' and ')}{nextDue ? <>, next invoice {formatDate(nextDue)}</> : null}.</> : 'No monthly plan.'}
-        action={<MiniBtn tone="accent" onClick={() => onAddRetainer(clientId)}>+ Add retainer</MiniBtn>}>
+        action={<MiniBtn tone="accent" onClick={() => onAddRetainer(clientId)}><Plus size={13} aria-hidden />Add retainer</MiniBtn>}>
         <TablePanel>
           <table className="w-full">
             <THead>
@@ -215,6 +215,21 @@ export function ClientDetail({
                   <Td><StatusDot status={r.status} /></Td>
                   <Td align="right">
                     <div className="flex gap-1.5 justify-end">
+                      {(() => {
+                        // This plan's bills still open, oldest first: paying the plan
+                        // from its own row, not hunting for the invoice further down.
+                        const due = openInvoices
+                          .filter((i: any) => i.retainerId === r.id)
+                          .sort((a: any, b: any) => (a.periodStart ?? a.issueDate).localeCompare(b.periodStart ?? b.issueDate))
+                        const first = due[0]
+                        return first ? (
+                          <MiniBtn tone="good"
+                            title={`Mark ${first.invoiceNumber} (${fmtView(first.owed)}) paid${due.length > 1 ? `, the oldest of ${due.length} open` : ''}`}
+                            onClick={() => onPay({ id: first.id, invoiceNumber: first.invoiceNumber, clientName: client.name })}>
+                            Mark {first.invoiceNumber} paid
+                          </MiniBtn>
+                        ) : null
+                      })()}
                       <MiniBtn onClick={() => onRetainerAction(r, 'edit')}>Edit</MiniBtn>
                       {r.status === 'active' && <MiniBtn tone="warn" onClick={() => onRetainerAction(r, 'pause')}>Pause</MiniBtn>}
                       {r.status === 'paused' && <MiniBtn tone="good" onClick={() => onRetainerAction(r, 'resume')}>Resume</MiniBtn>}
@@ -234,7 +249,7 @@ export function ClientDetail({
         answer={owes > 0
           ? <>No: they owe <b className="num" style={{ color: '#f59e0b' }}>{fmtView(owes)}</b> across {openInvoices.length} invoice{openInvoices.length === 1 ? '' : 's'}{lateCount ? <>, <span style={{ color: 'var(--c-loss)' }}>{lateCount} overdue</span></> : null}.</>
           : <>Yes, nothing owed.{lastPaid ? <> Last paid {formatDate(lastPaid)}.</> : null}</>}
-        action={<MiniBtn tone="accent" onClick={() => onAddInvoice(clientId)}>+ New invoice</MiniBtn>}>
+        action={<MiniBtn tone="accent" onClick={() => onAddInvoice(clientId)}><Plus size={13} aria-hidden />New invoice</MiniBtn>}>
         {openInvoices.length > 0 && (
           <div className="rounded-xl overflow-hidden" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
             {openInvoices.map((i: any, idx: number) => {
@@ -364,7 +379,7 @@ export function ClientDetail({
         </Fold>
         <Fold id="client-websites" title="Websites"
           summary={projects.length ? projects.map((p: any) => p.name).join(', ') : 'none'}
-          action={<MiniBtn tone="accent" onClick={() => onAddProject(clientId)}>+ Add website</MiniBtn>}>
+          action={<MiniBtn tone="accent" onClick={() => onAddProject(clientId)}><Plus size={13} aria-hidden />Add website</MiniBtn>}>
         {projects.length === 0 ? (
           <EmptyLine>No website for this client.</EmptyLine>
         ) : (
@@ -423,7 +438,7 @@ export function ClientDetail({
         </Fold>
         <Fold id="client-costs" title="What they cost you"
           summary={costs.length ? `${fmtView(e.costs)} across ${costs.length} cost${costs.length === 1 ? '' : 's'}` : 'nothing attributed'}
-          action={<MiniBtn tone="accent" onClick={() => onAddCost(clientId)}>+ Add cost</MiniBtn>}>
+          action={<MiniBtn tone="accent" onClick={() => onAddCost(clientId)}><Plus size={13} aria-hidden />Add cost</MiniBtn>}>
         {costs.length === 0 ? (
           <EmptyLine>No costs attributed, so their margin reads as pure profit.</EmptyLine>
         ) : (
@@ -453,7 +468,7 @@ export function ClientDetail({
         </Fold>
         <Fold id="client-notes" title="Notes"
           summary={meetingNotes.length ? `${meetingNotes.length} note${meetingNotes.length === 1 ? '' : 's'}` : client.notes ? 'what was agreed' : 'nothing written down'}
-          action={<MiniBtn tone="accent" onClick={() => onAddNote(clientId)}>+ Add note</MiniBtn>}>
+          action={<MiniBtn tone="accent" onClick={() => onAddNote(clientId)}><Plus size={13} aria-hidden />Add note</MiniBtn>}>
         <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
           {client.notes && (
             <div>

@@ -17,7 +17,7 @@ function formatWithCommas(raw: string): string {
 }
 
 export const PriceInput = forwardRef<HTMLInputElement, PriceInputProps>(
-  ({ label, error, value, onChange, prefix = '$', className, onFocus, onBlur, placeholder, ...props }, ref) => {
+  ({ label, error, value, onChange, prefix = '$', className, placeholder, ...props }, ref) => {
     const [display, setDisplay] = useState(() => {
       const v = String(value ?? '')
       return v ? formatWithCommas(v) : ''
@@ -59,16 +59,6 @@ export const PriceInput = forwardRef<HTMLInputElement, PriceInputProps>(
             inputMode="decimal"
             className={cn('w-full rounded-lg pl-7 pr-3 py-2 text-sm num outline-none transition-all duration-150', className)}
             style={{ background: 'var(--c-bg-input)', border: `1px solid ${error ? 'rgba(239,68,68,0.5)' : 'var(--c-border-mid)'}`, color: 'var(--c-text-1)' }}
-            onFocus={e => {
-              e.currentTarget.style.borderColor = 'rgba(99,102,241,0.5)'
-              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(99,102,241,0.1)'
-              onFocus?.(e)
-            }}
-            onBlur={e => {
-              e.currentTarget.style.borderColor = error ? 'rgba(239,68,68,0.5)' : 'var(--c-border-mid)'
-              e.currentTarget.style.boxShadow = 'none'
-              onBlur?.(e)
-            }}
             {...props}
           />
         </div>

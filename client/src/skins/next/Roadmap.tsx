@@ -3,6 +3,7 @@
  * per 3-year direction plus Foundation (habits). Milestones are reached or not,
  * never scored. Data: core/goals.ts (/api/milestones).
  */
+import { Plus } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   useDirectionActions, useMilestoneActions, useMilestones,
@@ -78,8 +79,8 @@ export function Roadmap() {
           ? `Milestones due by 31 Dec ${new Date().getFullYear()}. Reached or not, never scored.`
           : 'Your directions and every milestone on the way. Reached or not, never scored.'}</span>
         <span className="nr-grow" />
-        <button className="nx-btn ghost sm" onClick={() => setSheet({ kind: 'direction' })}>+ Direction</button>
-        <button className="nx-btn sm" onClick={() => setSheet({ kind: 'milestone', directionId: data.directions[0]?.id ?? null, due: span === 'year' ? endOfYear() : endOfYear(1) })}>+ Milestone</button>
+        <button className="nx-btn ghost sm" onClick={() => setSheet({ kind: 'direction' })}><Plus size={13} aria-hidden />Direction</button>
+        <button className="nx-btn sm" onClick={() => setSheet({ kind: 'milestone', directionId: data.directions[0]?.id ?? null, due: span === 'year' ? endOfYear() : endOfYear(1) })}><Plus size={13} aria-hidden />Milestone</button>
       </div>
 
       {span === 'year' && live.filter(m => m.dueDate <= endOfYear()).length === 0 ? (
@@ -207,7 +208,7 @@ function RoadmapChart({ directions, milestones, span, selected, onPick, onAdd }:
                 {now > 0 && now < 100 && <i className="today" style={{ left: `${now}%` }} />}
                 <i className="line" />
                 {items.length === 0 && (
-                  <button className="nr-addin" onClick={() => onAdd(l.directionId, l.foundation)}>+ Add {l.foundation ? 'a Foundation habit' : 'a milestone'}</button>
+                  <button className="nr-addin" onClick={() => onAdd(l.directionId, l.foundation)}><Plus size={13} aria-hidden />Add {l.foundation ? 'a Foundation habit' : 'a milestone'}</button>
                 )}
                 {items.map(m => {
                   const at = x(m.dueDate)
@@ -369,7 +370,7 @@ function Trajectory({ m }: { m: Milestone }) {
 function Directions({ directions, milestones, onEdit, onAdd }: { directions: Direction[]; milestones: Milestone[]; onEdit: (d: Direction) => void; onAdd: () => void }) {
   return (
     <section className="nx-sec">
-      <div className="nx-head"><h2 className="nx-h">Directions</h2><div className="nx-aside"><button className="nx-link" onClick={onAdd}>+ Add</button></div></div>
+      <div className="nx-head"><h2 className="nx-h">Directions</h2><div className="nx-aside"><button className="nx-link" onClick={onAdd}><Plus size={13} aria-hidden />Add</button></div></div>
       {directions.length === 0 ? <p className="nx-answer">No directions yet. A direction is where you want to be in three years.</p>
         : directions.map(d => {
           const own = milestones.filter(m => m.directionId === d.id)

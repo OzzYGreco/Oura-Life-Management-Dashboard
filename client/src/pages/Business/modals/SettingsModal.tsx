@@ -63,7 +63,7 @@ export function BusinessSettingsModal({
               type="checkbox"
               checked={taxOn}
               onChange={e => setTaxOn(e.target.checked)}
-              className="w-4 h-4 mt-0.5 accent-indigo-500 shrink-0"
+              className="w-4 h-4 mt-0.5 accent-[var(--c-accent)] shrink-0"
             />
             <span>
               <span className="block text-xs font-semibold" style={{ color: 'var(--c-text-1)' }}>
@@ -118,7 +118,7 @@ export function BusinessSettingsModal({
 
         {/* ── What the rules do right now ─────────────────────────────── */}
         <div className="rounded-lg px-3.5 py-3 text-[11px] space-y-1"
-          style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.2)' }}>
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
           <div className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>
             With these settings, right now
           </div>

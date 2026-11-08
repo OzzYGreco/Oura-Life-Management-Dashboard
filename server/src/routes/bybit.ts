@@ -104,10 +104,87 @@ router.get('/fee-rates', (_req, res, next) => {
         .all()
       const med = (xs: number[]) => { if (!xs.length) return null; const s = [...xs].sort((x, y) => x - y); return s[Math.floor(s.length / 2)] }
       const rate = (maker: number) => med(fills.filter(f => f.isMaker === maker).map(f => f.fee / (f.price * f.qty) * 100))
-      return { accountId: a.id, name: a.name, makerPct: rate(1), takerPct: rate(0), fills: fills.length }
+      return { accountId: a.id, name: a.name, makerPct: rate(1), takerPct: rate(0), fills: fills.length, ...fillHabits(a.id) }
     })
     res.json(out)
   } catch (e) { next(e) }
 })
+
+/**
+ * How this account's orders really fill, for the size calculator. It learns as
+ * you trade: every stop-out counts, but each one's weight halves with every
+ * HALF_LIFE newer stop-outs on the same coin, so the estimate follows how your
+ * fills are going now, better or worse, without jumping on one bad fill.
+ *
+ * Slippage: how far each stop-out filled past its trigger, as % of price (a
+ * fill better than the trigger counts as 0). Per coin, with weighted
+ * percentiles: p50 = typical, p90 = 9 stop-outs in 10.
+ * A coin with little history on this account leans on the same coin on your
+ * other accounts, and failing that on every coin, until it has enough of its
+ * own (PRIOR effective stop-outs of pull).
+ * Trend: the weighted typical fill over the last RECENT stop-outs against the
+ * ones before them.
+ * Entries: how often an entry paid the taker fee, weighted the same way.
+ */
+const HALF_LIFE = 20
+const PRIOR = 5
+const RECENT = 10
+
+type Pt = { v: number; w: number }
+const decay = (i: number) => 0.5 ** (i / HALF_LIFE)
+function wq(pts: Pt[], q: number): number {
+  const s = [...pts].sort((a, b) => a.v - b.v), total = s.reduce((t, p) => t + p.w, 0)
+  let acc = 0
+  for (const p of s) { acc += p.w; if (acc >= q * total - 1e-12) return p.v }
+  return s[s.length - 1]?.v ?? 0
+}
+const nEff = (pts: Pt[]) => { const a = pts.reduce((t, p) => t + p.w, 0), b = pts.reduce((t, p) => t + p.w * p.w, 0); return b ? (a * a) / b : 0 }
+
+function fillHabits(accountId: number) {
+  const rows = db.all<{ acct: number; symbol: string; side: string; trig: number; avgp: number; t: number }>(sql`
+    with f as (
+      select account_id, order_id, sum(price * qty) / sum(qty) avgp, min(exec_time) t from bybit_executions
+      where exec_type = 'Trade' and qty > 0 group by account_id, order_id)
+    select o.account_id acct, o.symbol, o.side, o.trigger_price trig, f.avgp, f.t from bybit_orders o
+    join f on f.account_id = o.account_id and f.order_id = o.order_id
+    where o.trigger_price > 0 and o.stop_order_type in ('StopLoss', 'PartialStopLoss', 'Stop')
+    order by f.t desc`)
+  type Row = typeof rows[number]
+  const slipOf = (r: Row) => Math.max(0, (r.side === 'Sell' ? r.trig - r.avgp : r.avgp - r.trig) / r.trig * 100)
+  const pts = (rs: Row[]): Pt[] => rs.map((r, i) => ({ v: slipOf(r), w: decay(i) }))
+  const blend = (own: Pt[], prior: number, q: number) => {
+    const n = nEff(own)
+    return own.length ? (n * wq(own, q) + PRIOR * prior) / (n + PRIOR) : prior
+  }
+
+  // Priors, newest first: every coin on every account, then each coin on every account.
+  const everything = pts(rows)
+  const coinAll = (sym: string, q: number) => blend(pts(rows.filter(r => r.symbol === sym)), everything.length ? wq(everything, q) : 0, q)
+
+  const mine = rows.filter(r => r.acct === accountId)
+  const pooled = pts(mine)
+  const symbols = [...new Set(mine.map(r => r.symbol))]
+  const slippage = symbols.map(symbol => {
+    const own = mine.filter(r => r.symbol === symbol), p = pts(own)
+    const recent = p.slice(0, RECENT), before = p.slice(RECENT, RECENT + 3 * HALF_LIFE)
+    return {
+      symbol, n: p.length, nEff: +nEff(p).toFixed(1), lastPrice: own[0].avgp, lastAt: new Date(own[0].t).toISOString(),
+      p50: blend(p, coinAll(symbol, 0.5), 0.5), p90: blend(p, coinAll(symbol, 0.9), 0.9), max: Math.max(...p.map(x => x.v)),
+      trend: recent.length >= 5 && before.length >= 5 ? { recent: wq(recent, 0.5), before: wq(before, 0.5) } : null,
+    }
+  })
+  const all = pooled.length ? { n: pooled.length, p50: wq(pooled, 0.5), p90: wq(pooled, 0.9) } : null
+
+  const entryRows = db.all<{ taker: number }>(sql`
+    select max(case when is_maker = 0 then 1 else 0 end) taker, min(exec_time) t from bybit_executions
+    where account_id = ${accountId} and exec_type = 'Trade' and qty > 0 and coalesce(closed_size, 0) = 0
+    group by order_id order by t desc`)
+  const ew = entryRows.map((r, i) => ({ v: r.taker, w: decay(i) }))
+  const wsum = ew.reduce((t, p) => t + p.w, 0)
+  return {
+    slippage, all, halfLife: HALF_LIFE,
+    entries: { n: entryRows.length, takerShare: wsum ? ew.reduce((t, p) => t + p.v * p.w, 0) / wsum : null },
+  }
+}
 
 export default router

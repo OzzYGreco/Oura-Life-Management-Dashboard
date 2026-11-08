@@ -12,9 +12,9 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
         <div
           className="w-14 h-14 rounded-2xl flex items-center justify-center mb-1"
           style={{
-            background: 'rgba(129,140,248,0.08)',
-            border: '1px solid rgba(129,140,248,0.15)',
-            color: 'var(--c-accent)',
+            background: 'var(--c-bg-input)',
+            border: '1px solid var(--c-border)',
+            color: 'var(--c-text-2)',
           }}
         >
           {icon}

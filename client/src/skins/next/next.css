@@ -11,7 +11,7 @@
 .nx .mute { color: var(--k-mute); }
 .nx .faint { color: var(--k-faint); }
 .nx kbd { font-family: var(--k-font); font-size: 12px; line-height: 1; padding: 3px 5px; border-radius: 4px; border: 1px solid currentColor; opacity: .45; margin-left: 6px; }
-.nx button:focus-visible, .nx a:focus-visible, .nx input:focus-visible { outline: 2px solid rgba(220,227,238,.6); outline-offset: 2px; }
+.nx button:focus-visible, .nx a:focus-visible, .nx input:focus-visible { outline: 2px solid var(--k-acc); outline-offset: 2px; }
 
 /* One 3-column grid for the whole page, one gap: every row's edges line up. */
 .nx { --gap: 40px; }
@@ -32,14 +32,14 @@
 /* ─── Date ─────────────────────────────────────────────── */
 .nx-date { display: flex; align-items: center; gap: 4px; margin: 0 0 16px -8px; color: var(--k-mute); font-size: 13px; }
 .nx-date > button:not(.nx-link) { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--k-mute); }
-.nx-date > button:not(.nx-link):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); }
+.nx-date > button:not(.nx-link):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
 .nx-pick { position: relative; display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
 .nx-pick:hover { background: rgb(var(--k-fg) / .04); }
 .nx-pick b { font-weight: 600; color: var(--k-ink); font-size: 13px; }
 .nx-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .nx-pick input::-webkit-calendar-picker-indicator { position: absolute; inset: 0; width: auto; height: auto; cursor: pointer; }
 .nx-link { color: var(--k-ink2); font-size: 13px; padding: 4px 8px; border-radius: 8px; margin-left: 8px; }
-.nx-link:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); }
+.nx-link:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
 
 /* ─── Hero: dial + the one thing to do, the only box on the page ─── */
 .nx-hero { display: flex; flex-direction: column; background: var(--k-card); border: 1px solid transparent; border-radius: 20px; box-shadow: 0 0 0 1px var(--k-line), 0 1px 0 rgb(var(--k-fg) / .03) inset, 0 32px 64px -40px rgba(0,0,0,.8); }
@@ -78,7 +78,7 @@
 .nx-btn.ghost kbd { background: rgb(var(--k-fg) / .07); }
 @media (hover: hover) {
   .nx-btn:not(:disabled):hover { background: var(--k-acc-hi); }
-  .nx-btn.ghost:not(:disabled):hover { background: rgb(var(--k-fg) / .08); }
+  .nx-btn.ghost:not(:disabled):hover { background: rgb(var(--k-fg) / .1); }
 }
 
 /* Facts strip: label over number, no sentences */
@@ -134,7 +134,7 @@ button.nx-h:hover svg { color: var(--k-ink2); transform: translateX(2px); }
 .nx-check:disabled { cursor: default; }
 .nx-row.open .nx-check { box-shadow: inset 0 0 0 1.5px var(--k-good); }
 .nx-more { width: 28px; height: 28px; border-radius: 8px; color: var(--k-faint); font-size: 15px; display: grid; place-items: center; }
-.nx-more:not(:disabled):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); }
+.nx-more:not(:disabled):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
 .nx-hidden { margin: 8px 0 0 32px; font-size: 13px; color: var(--k-faint); }
 .nx-quick { margin-top: 8px; }
 .nx-quick .rt-quick textarea { border-radius: 10px; font-family: var(--k-font); font-size: 15px; }
@@ -324,19 +324,19 @@ button.nx-h:hover svg { color: var(--k-ink2); transform: translateX(2px); }
 :root[data-skin="next"] .wh-sheet .in { height: 38px; font-size: 14px; }
 :root[data-skin="next"] .wh-sheet .in:focus,
 :root[data-skin="next"] .wh-sheet select:focus,
-:root[data-skin="next"] .wh-logger input:focus { border-color: rgba(220,227,238,.55); background: rgb(var(--k-fg) / .05); }
+:root[data-skin="next"] .wh-logger input:focus { border-color: rgb(var(--k-fg) / .35); background: rgb(var(--k-fg) / .05); }
 :root[data-skin="next"] .wh-sheet .chips button,
 :root[data-skin="next"] .wh-sheet .chips span { height: 30px; padding: 0 11px; border-radius: 8px; border: 0; background: rgb(var(--k-fg) / .05); color: var(--k-ink2); font-size: 13px; transition-property: background-color, color; transition-duration: .15s; }
 :root[data-skin="next"] .wh-sheet .chips button.on { background: rgba(220,227,238,.16); color: var(--k-ink); box-shadow: inset 0 0 0 1px rgba(220,227,238,.35); }
 :root[data-skin="next"] .wh-sheet .chips button.on small { color: var(--k-ink2); }
-@media (hover: hover) { :root[data-skin="next"] .wh-sheet .chips button:not(.on):hover { background: rgb(var(--k-fg) / .08); color: var(--k-ink); } }
+@media (hover: hover) { :root[data-skin="next"] .wh-sheet .chips button:not(.on):hover { background: rgb(var(--k-fg) / .1); color: var(--k-ink); } }
 :root[data-skin="next"] .wh-sheet .lnk { color: var(--k-ink2); }
 /* Primary and close buttons match .nx-btn and .nx-btn.ghost.sm */
 :root[data-skin="next"] .wh-sheet .wh-btn { height: 44px; padding: 0 18px; border-radius: 12px; background: var(--k-acc); font-size: 15px; box-shadow: inset 0 1px 0 rgb(var(--k-fg) / .7), 0 1px 2px rgba(0,0,0,.45); transition-property: scale, background-color; transition-duration: .15s; }
 :root[data-skin="next"] .wh-sheet .wh-btn:not(:disabled):active { transform: none; scale: .96; }
 :root[data-skin="next"] .wh-sheet .wh-btn.ghost { background: rgb(var(--k-fg) / .04); color: var(--k-ink); border: 0; box-shadow: inset 0 0 0 1px var(--k-line2); font-weight: 500; }
 :root[data-skin="next"] .wh-sheet .wh-chase { height: 32px; padding: 0 12px; border: 0; border-radius: 8px; background: rgb(var(--k-fg) / .04); box-shadow: inset 0 0 0 1px var(--k-line2); font-size: 13px; }
-@media (hover: hover) { :root[data-skin="next"] .wh-sheet .wh-chase:hover { background: rgb(var(--k-fg) / .08); } }
+@media (hover: hover) { :root[data-skin="next"] .wh-sheet .wh-chase:hover { background: rgb(var(--k-fg) / .1); } }
 :root[data-skin="next"] .wh-sheet .pts button,
 :root[data-skin="next"] .wh-logger .set .chk { border-radius: 8px; }
 :root[data-skin="next"] .wh-sheet .foot { border-top-color: var(--k-line); }
@@ -371,7 +371,7 @@ button.nx-h:hover svg { color: var(--k-ink2); transform: translateX(2px); }
 /* Shortcuts sheet (Notes, ?) */
 .nno-keys { width: min(720px, 100%); }
 .nno-keys .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 32px; }
-.nno-keys h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--k-mute); }
+.nno-keys h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--k-mute); }
 .nno-keys p { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 10px; margin: 0; padding: 5px 0; border-top: 1px solid var(--k-line); font-size: 13.5px; color: var(--k-ink2); }
 .nno-keys kbd { justify-self: start; font-family: var(--k-font); font-size: 12px; color: var(--k-ink); padding: 2px 7px; border-radius: 6px; border: 0; opacity: 1; margin: 0; background: rgb(var(--k-fg) / .07); box-shadow: inset 0 -1px 0 rgb(var(--k-fg) / .1); }
 @media (max-width: 640px) { .nno-keys .cols { grid-template-columns: minmax(0, 1fr); } }

@@ -14,6 +14,7 @@ import {
 } from './day'
 import { localToday } from './date'
 import { loadBusinessData, currentMrr, businessDashboardSummary } from './businessMetrics'
+import { outcomeOf } from './outcome'
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 const round2 = (n: number) => Math.round(n * 100) / 100
@@ -347,7 +348,8 @@ async function pulseBlock(date: string) {
       pnl: round2(rows.filter(t => tradeDay(t) === iso).reduce((s, t) => s + tradePnl(t), 0)),
     }
   })
-  const monthWins = monthRows.filter(t => tradePnl(t) > 0).length
+  // Inside ±0.1R is breakeven: neither a win nor a loss.
+  const monthWins = monthRows.filter(t => outcomeOf(rOf(t), tradePnl(t)) === 'win').length
   const tradingDay = {
     pnl: round2(todayRows.reduce((s, t) => s + tradePnl(t), 0)),
     count: todayRows.length,

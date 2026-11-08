@@ -21,7 +21,7 @@
 
 /* ── Quick add: one line, or a pasted list ──────────────────────────────── */
 .rt-quick textarea { display: block; width: 100%; min-height: 42px; resize: none; border-radius: 12px; background: rgb(var(--k-fg) / .04); border: 1px solid var(--k-line2); color: var(--k-ink); font-size: 14px; line-height: 20px; padding: 10px 14px; font-family: var(--k-display); outline: none; }
-.rt-quick textarea:focus { border-color: rgba(236,239,244,.4); background: rgb(var(--k-fg) / .05); }
+.rt-quick textarea:focus { border-color: rgb(var(--k-fg) / .35); background: rgb(var(--k-fg) / .05); }
 .rt-quick textarea::placeholder { color: var(--k-faint); }
 .rt-many { margin-top: 8px; padding: 8px 12px 10px; border-radius: 12px; background: rgb(var(--k-fg) / .025); border: 1px solid var(--k-line); }
 .rt-many .hd { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--k-mute); }
@@ -43,7 +43,7 @@
 .rt-wrow { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto 120px 24px; gap: 12px; align-items: center; min-height: 42px; padding: 0 8px; border-top: 1px solid var(--k-line); }
 .rt-wrow input { height: 32px; min-width: 0; background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--k-ink); font-size: 13.5px; padding: 0 8px; font-family: var(--k-display); outline: none; }
 .rt-wrow input:hover { border-color: var(--k-line2); }
-.rt-wrow input:focus { border-color: rgba(236,239,244,.4); background: rgb(var(--k-fg) / .03); }
+.rt-wrow input:focus { border-color: rgb(var(--k-fg) / .35); background: rgb(var(--k-fg) / .03); }
 .rt-wrow .rt-streak { margin-left: 0; }
 .rt-wst { font-size: 12.5px; color: var(--k-mute); text-align: right; }
 .rt-wst.good { color: var(--k-good); }
@@ -55,7 +55,7 @@
 .rt-field > span { font-size: 12.5px; color: var(--k-mute); }
 .rt-field.dim > span { color: var(--k-faint); }
 .rt-field input { height: 32px; width: 104px; border-radius: 9px; background: rgb(var(--k-fg) / .04); border: 1px solid var(--k-line2); color: var(--k-ink); font-size: 13.5px; padding: 0 8px; outline: none; }
-.rt-field input:focus { border-color: rgba(236,239,244,.4); }
+.rt-field input:focus { border-color: rgb(var(--k-fg) / .35); }
 .rt-field input:disabled { opacity: .45; }
 .rt-field input::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .rt-seg { display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 3px; border-radius: 11px; background: rgb(var(--k-fg) / .04); border: 1px solid var(--k-line); justify-self: start; }
@@ -73,9 +73,9 @@
 .rt-datebar { display: flex; align-items: center; gap: 12px; margin-bottom: -6px; }
 .rt-step { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: rgb(var(--k-fg) / .03); border: 1px solid var(--k-line); }
 .rt-step > button { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--k-ink2); }
-.rt-step > button:hover { background: rgb(var(--k-fg) / .06); color: var(--k-ink); }
+.rt-step > button:hover { background: rgb(var(--k-fg) / .07); color: var(--k-ink); }
 .rt-pick { position: relative; display: inline-flex; align-items: baseline; gap: 8px; height: 32px; padding: 0 14px; border-radius: 999px; font-size: 14px; color: var(--k-ink); cursor: pointer; line-height: 32px; }
-.rt-pick:hover { background: rgb(var(--k-fg) / .05); }
+.rt-pick:hover { background: rgb(var(--k-fg) / .07); }
 .rt-pick:focus-within { outline: 2px solid rgba(160,185,230,.55); outline-offset: 0; }
 .rt-pick small { font-size: 12px; color: var(--k-mute); }
 .rt-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; color-scheme: dark; }
@@ -88,7 +88,7 @@
 .rt-grp { border-top: 1px solid var(--k-line); }
 .rt-grp:first-of-type { margin-top: 8px; }
 .rt-gh { width: 100%; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 84px; gap: 12px; align-items: center; min-height: 44px; padding: 0 4px; text-align: left; color: var(--k-ink); border-radius: 10px; }
-.rt-gh:hover { background: rgb(var(--k-fg) / .025); }
+.rt-gh:hover { background: rgb(var(--k-fg) / .04); }
 .rt-gh svg { color: var(--k-mute); transition: transform .15s; }
 .rt-gh svg.open { transform: rotate(90deg); }
 .rt-gh .nm { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -105,7 +105,7 @@
 .rt-row.done .lb { color: var(--k-mute); }
 .rt-row.missed .lb { color: var(--k-mute); text-decoration: line-through; text-decoration-color: rgba(236,124,110,.5); }
 .rt-more { width: 24px; height: 24px; border-radius: 50%; color: var(--k-mute); font-size: 15px; line-height: 1; }
-.rt-more:hover:not(:disabled) { background: rgb(var(--k-fg) / .06); color: var(--k-ink); }
+.rt-more:hover:not(:disabled) { background: rgb(var(--k-fg) / .07); color: var(--k-ink); }
 .rt-more:disabled { opacity: .3; cursor: default; }
 .rt-hidden { margin: 4px 0 0; font-size: 12px; color: var(--k-faint); }
 .rt-rows .rt-quick { margin-top: 8px; }

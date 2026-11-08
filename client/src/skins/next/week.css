@@ -49,9 +49,9 @@
 .nw .seg { grid-template-columns: 30px minmax(0, 1fr) 58px; }
 /* The score is a visible field: click it and type. */
 .nw .seg .wk-val, .nw .seg .wk-typed { width: 58px; height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--k-line2); background: rgb(var(--k-fg) / .03); font-family: var(--k-font); font-size: 15px; font-weight: 600; text-align: right; color: var(--k-ink); cursor: text; transition-property: border-color, background-color; transition-duration: .15s; }
-.nw .seg .wk-typed { border-color: rgba(220,227,238,.6); background: rgb(var(--k-fg) / .06); outline: none; -moz-appearance: textfield; }
+.nw .seg .wk-typed { border-color: rgb(var(--k-fg) / .35); background: rgb(var(--k-fg) / .06); outline: none; -moz-appearance: textfield; }
 .nw .seg .wk-typed::-webkit-outer-spin-button, .nw .seg .wk-typed::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-@media (hover: hover) { .nw .seg .wk-val:hover { border-color: rgb(var(--k-fg) / .22); background: rgb(var(--k-fg) / .06); } }
+@media (hover: hover) { .nw .seg .wk-val:hover { border-color: rgb(var(--k-fg) / .22); background: rgb(var(--k-fg) / .07); } }
 
 .nw-closed { margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border-radius: 12px; background: rgb(var(--k-fg) / .04); font-size: 14px; color: var(--k-ink2); }
 .nw-foot { margin: 16px -28px 0; padding: 16px 28px 18px; border-top: 1px solid var(--k-line); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }

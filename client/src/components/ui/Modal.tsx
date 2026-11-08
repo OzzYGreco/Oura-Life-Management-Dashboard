@@ -39,14 +39,8 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
           }}
         >
           <h2 className="text-sm font-semibold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{title}</h2>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-150"
-            style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-3)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-hover)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--c-text-1)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--c-bg-input)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--c-text-3)' }}
-          >
-            <X size={13} />
+          <button onClick={onClose} className="ui-icon" aria-label="Close" title="Close (Esc)">
+            <X size={15} />
           </button>
         </div>
         <div className="overflow-y-auto flex-1">{children}</div>

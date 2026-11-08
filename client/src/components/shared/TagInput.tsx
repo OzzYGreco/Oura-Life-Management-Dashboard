@@ -33,7 +33,7 @@ export function TagInput({ value = [], onChange, placeholder = 'Add tag...', lab
           <span
             key={tag}
             className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-md font-medium"
-            style={{ background: 'rgba(129,140,248,0.15)', color: 'var(--c-accent)', border: '1px solid rgba(129,140,248,0.2)' }}
+            style={{ background: 'var(--c-bg-hover)', color: 'var(--c-text-1)', border: '1px solid var(--c-border)' }}
           >
             {tag}
             <button type="button" onClick={() => onChange(value.filter(t => t !== tag))} className="transition-opacity hover:opacity-60">

@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useUrlState } from '../lib/useUrlState'
 import { KpiCard } from '../../../components/ui/KpiCard'
@@ -115,7 +116,7 @@ export function Money({
           summary={`${fmtView(m.costs.adSpend)} on ads ${periodLabel} · ${m.clients.cac ? `${fmtView(m.clients.cac)} per client won` : 'no clients won in this window'}`}
           action={<>
             <MiniBtn tone="accent" onClick={() => onLogAdSpend(null)}>Log ad spend</MiniBtn>
-            <MiniBtn tone="accent" onClick={onNewCampaign}>+ New campaign</MiniBtn>
+            <MiniBtn onClick={onNewCampaign}><Plus size={13} aria-hidden />New campaign</MiniBtn>
           </>}>
           <div className="mb-3"><AdSpendBars m={m} fmtView={fmtView} /></div>
           <div className="mb-3">

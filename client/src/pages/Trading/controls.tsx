@@ -9,13 +9,15 @@ import { CalendarRange } from 'lucide-react'
  * action, and a small popover for status menus.
  */
 
-export function Segmented<T extends string>({ options, value, onChange, size = 'md', keep = false }: {
+export function Segmented<T extends string>({ options, value, onChange, size = 'md', keep = false, fill = false }: {
   options: { value: T; label: React.ReactNode; title?: string }[]
   value: T
   onChange: (v: T) => void
   size?: 'sm' | 'md'
   /** Keep the original look in every skin (the account switcher above the pulse). */
   keep?: boolean
+  /** In a form: span the field and share the width evenly, at input height. */
+  fill?: boolean
 }) {
   const wrap = useRef<HTMLDivElement>(null)
   const [pill, setPill] = useState<{ left: number; width: number } | null>(null)
@@ -37,7 +39,7 @@ export function Segmented<T extends string>({ options, value, onChange, size = '
   if (!keep) {
     // New style: a quiet track, the chosen option on a faint fill. No glow, no gradient.
     return (
-      <div className={`tr-seg ${size}`}>
+      <div className={`tr-seg ${size} ${fill ? 'fill' : ''}`}>
         {options.map(o => (
           <button key={o.value} type="button" title={o.title} onClick={() => onChange(o.value)} className={value === o.value ? 'on' : ''} aria-pressed={value === o.value}>
             {o.label}

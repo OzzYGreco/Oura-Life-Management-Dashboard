@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, EmptyRow } from './primitives'
 import { formatDate } from '../../../lib/utils'
@@ -31,7 +32,7 @@ export function OwnerPayPanel({
       action={
         <>
           <MiniBtn onClick={onSettings}>What to hold back</MiniBtn>
-          <MiniBtn tone="good" onClick={onRecordDraw}>+ Record a draw</MiniBtn>
+          <MiniBtn tone="good" onClick={onRecordDraw}><Plus size={13} aria-hidden />Record a draw</MiniBtn>
         </>
       }
     >

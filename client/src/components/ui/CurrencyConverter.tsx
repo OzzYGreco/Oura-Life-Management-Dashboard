@@ -16,7 +16,7 @@ export function CurrencyConverter() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <ArrowLeftRight size={14} className="text-accent-blue" />
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Currency Converter</h3>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>Currency converter</h3>
         </div>
         {updatedMinsAgo !== null && (
           <span className="text-[10px] text-text-muted">

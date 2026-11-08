@@ -17,10 +17,20 @@ import { Copy, Check, ChevronDown } from 'lucide-react'
  * Sizing for 1.1 x risk is what keeps the loss with fees inside the 10% rule.
  * One refinement: the entry fee is priced at the entry (the sheet used the stop
  * for both fees); the sheet's own fee rows already did it this way.
+ *
+ * Learned from the account's own Bybit fills, when there are any:
+ *  - fees: what Bybit actually charged on limit (maker) and market (taker)
+ *    fills. A stop always exits at market, so the exit pays taker.
+ *  - slippage: how far past the trigger this coin's stop-outs have filled,
+ *    added to the distance, so a stop-out with a bad fill still stays inside
+ *    the rule. Sized for 9 stop-outs in 10 unless set otherwise. The server
+ *    weights recent stop-outs most, so it adapts as your fills change.
  */
 
-interface Settings { entryFeePct: number; exitFeePct: number; fundingPct: number; minSize: number; maxDevPct: number }
-const DEFAULTS: Settings = { entryFeePct: 0.018, exitFeePct: 0.0495, fundingPct: 0.001, minSize: 0.001, maxDevPct: 10 }
+type EntryKind = 'limit' | 'market'
+type SlipMode = 'off' | 'typical' | 'bad'
+interface Settings { entryFeePct: number; exitFeePct: number; fundingPct: number; minSize: number; maxDevPct: number; slippagePct: number; entryKind: EntryKind; slipMode: SlipMode }
+const DEFAULTS: Settings = { entryFeePct: 0.018, exitFeePct: 0.0495, fundingPct: 0.001, minSize: 0.001, maxDevPct: 10, slippagePct: 0.03, entryKind: 'limit', slipMode: 'bad' }
 const KEY = 'oura-size-calculator'
 const MULTIPLES = [0.5, 1, 1.5, 2]
 const mLabel = (m: number) => (m === 0.5 ? '½R' : `${m}R`)
@@ -37,7 +47,23 @@ const num = (s: string) => { const n = Number(String(s).replace(/[,$\s]/g, ''));
 const decimals = (step: number) => Math.max(0, Math.round(Math.log10(1 / step)))
 const roundDown = (x: number, dp: number) => Math.floor(x * 10 ** dp + 1e-9) / 10 ** dp
 
-interface FeeRate { accountId: number; makerPct: number | null; takerPct: number | null; fills: number }
+interface Slip {
+  symbol: string; n: number; nEff: number; lastPrice: number; p50: number; p90: number; max: number
+  /** Typical fill over the last 10 stop-outs against the ones before. */
+  trend: { recent: number; before: number } | null
+}
+interface FeeRate {
+  accountId: number; makerPct: number | null; takerPct: number | null; fills: number
+  slippage?: Slip[]; all?: { n: number; p50: number; p90: number } | null; halfLife?: number
+  entries?: { n: number; takerShare: number | null }
+}
+
+/** The coin this entry is most likely on: the one whose last stop fill is nearest in price (within 30%). */
+function slipFor(list: Slip[] | undefined, entry: number | null): Slip | null {
+  if (!list?.length || !entry) return null
+  const near = list.map(s => ({ s, d: Math.abs(Math.log(entry / s.lastPrice)) })).filter(x => x.d < Math.log(1.3)).sort((a, b) => a.d - b.d)
+  return near[0]?.s ?? null
+}
 
 export function SizeCalculator({ open, onClose, accountId }: { open: boolean; onClose: () => void; accountId: number | null }) {
   const { data: accounts = [] } = useTradingAccounts()
@@ -63,24 +89,40 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
   const portfolioStr = portfolios[String(acct)] ?? (account?.startingBalance != null ? String(account.startingBalance) : '')
   const portfolio = num(portfolioStr)
   const E = num(entry), S = num(stop), risk = num(riskStr) ?? fullRisk
-  const fe = settings.entryFeePct / 100, fx = settings.exitFeePct / 100
+  const rate = charged.find(c => c.accountId === acct)
+  // Fees: what Bybit charged this account, else the settings. A stop exits at market.
+  const makerPct = rate?.makerPct ?? settings.entryFeePct
+  const takerPct = rate?.takerPct ?? settings.exitFeePct
+  const fromFills = rate?.makerPct != null || rate?.takerPct != null
+  const fe = (settings.entryKind === 'market' ? takerPct : makerPct) / 100, fx = takerPct / 100
+  // Slippage: this coin's stop-outs on this account, else the setting.
+  const coin = slipFor(rate?.slippage, E)
+  const learned = coin ?? rate?.all ?? null
+  const slipPct = settings.slipMode === 'off' ? 0
+    : learned ? (settings.slipMode === 'bad' ? learned.p90 : learned.p50)
+    : settings.slipMode === 'bad' ? settings.slippagePct : settings.slippagePct / 2
+  // Has the typical fill moved by at least a third, and by a meaningful amount?
+  const drift = coin?.trend && Math.abs(coin.trend.recent - coin.trend.before) >= Math.max(0.003, coin.trend.before / 3)
+    ? (coin.trend.recent > coin.trend.before ? 'worse' : 'better') : null
+  const fs = slipPct / 100
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setSettings(x => ({ ...x, [k]: v }))
   const dp = decimals(settings.minSize)
 
   let r: null | {
-    size: number; long: boolean; dist: number; expLoss: number; entryFee: number; exitFee: number; lossFees: number
+    size: number; long: boolean; dist: number; expLoss: number; entryFee: number; exitFee: number; slip: number; lossFees: number
     deviation: number; leverage: number | null; expR: number; funding: number; notional: number; wonR: number | null; inside: number
   } = null
   if (E && S && risk && risk > 0 && E !== S) {
     const dist = Math.abs(E - S)
-    const perUnit = dist + E * fe + S * fx
+    const perUnit = dist + E * fe + S * fx + S * fs
     const size = Math.max(settings.minSize, roundDown(((1 + settings.maxDevPct / 100) * risk) / perUnit, dp))
-    const entryFee = size * E * fe, exitFee = size * S * fx, expLoss = dist * size
-    const lossFees = expLoss + entryFee + exitFee
+    const entryFee = size * E * fe, exitFee = size * S * fx, slip = size * S * fs, expLoss = dist * size
+    const lossFees = expLoss + entryFee + exitFee + slip
     const notional = size * E
     const long = E > S
     const m = num(made)
     r = {
-      size, long, dist, expLoss, entryFee, exitFee, lossFees, notional,
+      size, long, dist, expLoss, entryFee, exitFee, slip, lossFees, notional,
       deviation: Math.abs(lossFees - risk) / lossFees,
       leverage: portfolio && portfolio > notional * 0.004 ? Math.ceil((notional / (portfolio - notional * 0.004)) * 10 - 1e-9) / 10 : null,
       expR: lossFees / risk,
@@ -92,7 +134,6 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
   const off = r != null && r.deviation * 100 > settings.maxDevPct + 1e-9
   const breaks = off && r!.lossFees > (risk ?? 0)          // over plan: the rule is broken
   const under = off && !breaks                              // size steps leave it well under plan
-  const rate = charged.find(c => c.accountId === acct)
   // The tightest loss limit left right now, in $, to check the risk against.
   const { data: allTrades = [] } = useTrades({})
   const lim = account ? accountLimits(account, allTrades) : null
@@ -146,6 +187,42 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <span className={lbl} style={{ color: 'var(--c-text-3)' }}>Entry order</span>
+              <div className="ui-seg fill" role="radiogroup" aria-label="Entry order">
+                {([['limit', 'Limit'], ['market', 'Market']] as const).map(([k, l]) => (
+                  <button key={k} type="button" role="radio" aria-checked={settings.entryKind === k} className={settings.entryKind === k ? 'on' : ''}
+                    onClick={() => set('entryKind', k)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className={lbl} style={{ color: 'var(--c-text-3)' }}>Plan for slippage</span>
+              <div className="ui-seg fill" role="radiogroup" aria-label="Plan for slippage">
+                {([['off', 'None'], ['typical', 'Typical'], ['bad', '9 in 10']] as const).map(([k, l]) => (
+                  <button key={k} type="button" role="radio" aria-checked={settings.slipMode === k} className={settings.slipMode === k ? 'on' : ''}
+                    onClick={() => set('slipMode', k)}>{l}</button>
+                ))}
+              </div>
+            </div>
+            <p className="col-span-2 text-[12px] leading-relaxed -mt-1" style={{ color: 'var(--c-text-3)' }}>
+              Entry fee {fmtPct(settings.entryKind === 'market' ? takerPct : makerPct)}, stop exit {fmtPct(takerPct)}{fromFills ? ', as Bybit charged you' : ''}. {settings.entryKind === 'limit' && rate?.entries?.takerShare != null && rate.entries.takerShare >= 0.2
+                ? <>{Math.round(rate.entries.takerShare * 100)}% of your entries paid the market fee even as limits (they filled instantly). Pick Market if this one will. </>
+                : null}
+              {settings.slipMode === 'off' ? 'Sized as if the stop fills exactly at its price.'
+                : coin ? <>
+                    Learned from your {coin.n} {coin.symbol.replace(/USDT$/, '')} stop-out{coin.n === 1 ? '' : 's'}, newest counting most:
+                    {' '}{fmtPct(coin.p50)} past the trigger typically, {fmtPct(coin.p90)} or less 9 times in 10. Using {fmtPct(slipPct)}.
+                    {coin.nEff < 10 && ' Few of your own yet, so it leans on your other stop-outs.'}
+                    {drift && coin.trend && <span style={{ color: drift === 'worse' ? 'var(--c-warn)' : 'var(--c-profit)' }}>
+                      {' '}Fills are getting {drift}: {fmtPct(coin.trend.recent)} over your last 10 against {fmtPct(coin.trend.before)} before.</span>}
+                  </>
+                : learned ? <>No stop-outs near this price, so your typical fill across every coin: using {fmtPct(slipPct)}.</>
+                : <>No stop-out history yet, so {fmtPct(slipPct)} from settings.</>}
+            </p>
+          </div>
+
           <label className="block">
             <span className={lbl} style={{ color: 'var(--c-text-3)' }}>($) Made <span className="normal-case tracking-normal font-normal">· optional, after it closes</span></span>
             <input value={made} onChange={x => setMade(x.target.value)} inputMode="decimal" placeholder="e.g. 12.40 or -7.10" className={inputCls} style={style} />
@@ -156,7 +233,7 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
             <button type="button" onClick={() => setShowSettings(v => !v)} className="w-full flex items-center gap-2 px-3 py-2 text-xs" style={{ color: 'var(--c-text-2)' }}>
               <span className="font-semibold uppercase tracking-widest text-[10px]" style={{ color: 'var(--c-text-3)' }}>Settings</span>
               <span className="num" style={{ color: 'var(--c-text-3)' }}>
-                entry {settings.entryFeePct}% · exit {settings.exitFeePct}% · funding {settings.fundingPct}% · min {settings.minSize} · max dev {settings.maxDevPct}%
+                {fromFills ? 'fees from your fills' : `entry ${settings.entryFeePct}% · exit ${settings.exitFeePct}%`} · funding {settings.fundingPct}% · min {settings.minSize} · max dev {settings.maxDevPct}%
               </span>
               <ChevronDown size={13} className="ml-auto" style={{ transform: showSettings ? 'rotate(180deg)' : undefined }} />
             </button>
@@ -164,7 +241,7 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
               <div className="px-3 pb-3 grid grid-cols-2 gap-2.5">
                 {([
                   ['entryFeePct', 'Entry fee (%)'], ['exitFeePct', 'Exit fee (%)'], ['fundingPct', 'Funding rate (%)'],
-                  ['minSize', 'Minimum position size'], ['maxDevPct', 'Max deviation (%)'],
+                  ['minSize', 'Minimum position size'], ['maxDevPct', 'Max deviation (%)'], ['slippagePct', 'Slippage, no history (%)'],
                 ] as [keyof Settings, string][]).map(([k, l]) => (
                   <label key={k}>
                     <span className="text-[10px] mb-0.5 block" style={{ color: 'var(--c-text-3)' }}>{l}</span>
@@ -177,7 +254,7 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
                     Bybit charged {account?.name} {rate.makerPct != null ? `${+rate.makerPct.toFixed(4)}% on limit fills` : ''}
                     {rate.makerPct != null && rate.takerPct != null ? ' and ' : ''}
                     {rate.takerPct != null ? `${+rate.takerPct.toFixed(4)}% on market fills` : ''} over the last 90 days.
-                    {rate.takerPct != null && Math.abs(rate.takerPct - settings.exitFeePct) > 0.0005 && ' Your exit fee setting differs, so stop-outs may cost more than shown.'}
+                    {' '}These are used instead of the fee settings above.
                   </p>
                 )}
               </div>
@@ -205,7 +282,7 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
                   {breaks
                     ? <>Breaks your {settings.maxDevPct}% rule: the minimum size {settings.minSize} risks {formatCurrency(r.lossFees)} with fees. Widen the risk or skip it.</>
                     : under ? <span style={{ color: '#f59e0b' }}>Size steps of {settings.minSize} leave this {(r.deviation * 100).toFixed(0)}% under plan: you'd lose {formatCurrency(r.lossFees)} with fees.</span>
-                    : <>Stopped out, you lose <b style={{ color: 'var(--c-text-1)' }}>{formatCurrency(r.lossFees)}</b> with fees: {fmtX(r.expR)}R, deviation {(r.deviation * 100).toFixed(1)}% (max {settings.maxDevPct}%).</>}
+                    : <>Stopped out, you lose <b style={{ color: 'var(--c-text-1)' }}>{formatCurrency(r.lossFees)}</b> with fees{r.slip > 0 ? ' and slippage' : ''}: {fmtX(r.expR)}R, deviation {(r.deviation * 100).toFixed(1)}% (max {settings.maxDevPct}%).</>}
                 </div>
               </div>
 
@@ -223,7 +300,8 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
 
               <Rows rows={[
                 ['Expected loss', formatCurrency(r.expLoss), `${r.dist.toLocaleString(undefined, { maximumFractionDigits: 8 })} × ${r.size.toFixed(dp)}`],
-                ['Expected loss with fees', formatCurrency(r.lossFees), `+ ${formatCurrency(r.entryFee)} entry + ${formatCurrency(r.exitFee)} exit`],
+                [r.slip > 0 ? 'Expected loss with fees and slippage' : 'Expected loss with fees', formatCurrency(r.lossFees),
+                  `+ ${formatCurrency(r.entryFee)} entry + ${formatCurrency(r.exitFee)} exit${r.slip > 0 ? ` + ${formatCurrency(r.slip)} slippage` : ''}`],
                 [`${settings.maxDevPct}% deviation`, `${(r.deviation * 100).toFixed(1)}%`, breaks ? 'over the limit' : under ? 'under plan' : 'within the limit', breaks ? 'var(--c-loss)' : under ? '#f59e0b' : 'var(--c-profit)'],
                 ['Leverage', r.leverage != null ? `${r.leverage.toFixed(1)}x` : '—', portfolio ? `on ${formatCurrency(portfolio)}` : 'needs portfolio size'],
                 ['Expected (R) lost', `${fmtX(r.expR)} R`, ''],
@@ -234,7 +312,7 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
 
               {Math.abs(r.inside - r.size) > 1e-12 && (
                 <p className="text-[11px] leading-relaxed" style={{ color: 'var(--c-text-3)' }}>
-                  To keep fees inside the risk instead (exactly 1R at the stop), size {r.inside.toFixed(dp)}.
+                  To keep fees{r.slip > 0 ? ' and slippage' : ''} inside the risk instead (exactly 1R at the stop), size {r.inside.toFixed(dp)}.
                 </p>
               )}
             </div>
@@ -246,6 +324,7 @@ export function SizeCalculator({ open, onClose, accountId }: { open: boolean; on
 }
 
 const fmtX = (x: number) => x.toFixed(2)
+const fmtPct = (x: number) => `${+x.toFixed(3)}%`
 
 function Rows({ rows }: { rows: [string, string, string, string?][] }) {
   return (

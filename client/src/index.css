@@ -175,3 +175,30 @@ input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
 .arete-brand svg { flex-shrink: 0; display: block; }
 .arete-word { font-family: "Bodoni Moda", "Bodoni 72", Didot, "Bodoni MT", serif; font-weight: 500; font-size: 17px; letter-spacing: .24em; color: var(--c-text-1, #ECEFF4); transform: translateY(.04em); }
 .ln-brand .arete-word, .th-brand .arete-word { font-size: 14px; }
+
+/* ─── Image viewer (components/shared/ImageViewer.tsx). Always dark: it frames a picture. */
+.img-viewer { position: fixed; inset: 0; z-index: 2147483000; display: grid; grid-template-rows: auto 1fr auto; background: rgba(6, 8, 12, .94); color: #ECEFF4; animation: iv-in .16s ease-out; }
+@keyframes iv-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .img-viewer { animation: none; } }
+.img-viewer button { color: inherit; }
+.iv-top { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 8px 24px; }
+.iv-count { font-size: 13px; color: rgba(236, 239, 244, .7); }
+.iv-tools { display: flex; gap: 8px; }
+.iv-tools button, .iv-nav { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: rgba(255, 255, 255, .08); transition: background-color .15s; }
+.iv-tools button:hover, .iv-nav:hover { background: rgba(255, 255, 255, .18); }
+.iv-tools button:focus-visible, .iv-nav:focus-visible, .iv-strip button:focus-visible { outline: 2px solid #ECEFF4; outline-offset: 2px; }
+.iv-stage { min-height: 0; display: grid; place-items: center; padding: 0 80px; overflow: hidden; }
+.iv-stage img { max-width: calc(100vw - 160px); max-height: calc(100dvh - 150px); object-fit: contain; border-radius: 8px; cursor: zoom-in; user-select: none; box-shadow: 0 10px 50px rgba(0, 0, 0, .5); }
+.iv-stage.zoomed { overflow: auto; place-items: start center; }
+.iv-stage.zoomed img { max-width: none; max-height: none; cursor: zoom-out; border-radius: 0; }
+.iv-nav { position: fixed; top: 50%; transform: translateY(-50%); width: 48px; height: 48px; }
+.iv-nav.prev { left: 16px; }
+.iv-nav.next { right: 16px; }
+.iv-foot { display: grid; justify-items: center; gap: 10px; padding: 10px 16px 16px; }
+.iv-note { margin: 0; max-width: 72ch; text-align: center; font-size: 14px; line-height: 1.45; color: rgba(236, 239, 244, .78); }
+.iv-strip { display: flex; gap: 8px; max-width: 100%; overflow-x: auto; padding: 3px; scrollbar-width: none; }
+.iv-strip button { flex: none; width: 72px; height: 48px; border-radius: 6px; overflow: hidden; opacity: .5; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); transition: opacity .15s, box-shadow .15s; }
+.iv-strip button:hover { opacity: .85; }
+.iv-strip button.on { opacity: 1; box-shadow: 0 0 0 2px #ECEFF4; }
+.iv-strip img { width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 640px) { .iv-stage { padding: 0 12px; } .iv-stage img { max-width: calc(100vw - 24px); } .iv-nav { top: auto; bottom: 84px; transform: none; } }

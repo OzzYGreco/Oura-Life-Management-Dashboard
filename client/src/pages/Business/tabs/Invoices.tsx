@@ -90,20 +90,15 @@ export function Invoices({
   return (
     <div className="space-y-7">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex gap-1 p-1 rounded-xl w-fit"
-          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)' }}>
+        <div className="ui-seg" role="tablist" aria-label="Show">
           {(['ledger', 'payments', 'retainers'] as const).map(v => (
             <button
               key={v}
               type="button"
+              role="tab"
+              aria-selected={view === v}
               onClick={() => onView(v)}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-              style={view === v
-                ? {
-                  background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(167,139,250,0.12))',
-                  border: '1px solid rgba(129,140,248,0.25)', color: 'var(--c-text-1)',
-                }
-                : { color: 'var(--c-text-2)', border: '1px solid transparent' }}
+              className={view === v ? 'on' : ''}
             >
               {v === 'ledger' ? 'Invoices'
                 : v === 'payments' ? `Payments${toAssign ? ` (${toAssign} to assign)` : ''}`
@@ -112,12 +107,11 @@ export function Invoices({
           ))}
         </div>
         <span className="flex items-center gap-1.5 ml-auto">
-          <span className="text-[9.5px] font-bold uppercase tracking-wider" style={{ color: 'var(--c-text-3)' }}>Export</span>
+          <span className="text-[12px]" style={{ color: 'var(--c-text-3)' }}>Export</span>
           {(['invoices', 'payments', 'costs'] as const).map(k => (
             <a key={k} href={exportUrl(k, view === 'ledger' ? range : {})} download
               title={`A spreadsheet of ${k}${view === 'ledger' && preset !== 'All' ? ' for this period' : ''}, for the accountant`}
-              className="px-2 py-1 rounded-md text-[11px] font-semibold hover:bg-white/5"
-              style={{ border: '1px solid var(--c-border-mid)', color: 'var(--c-text-2)' }}>{k}</a>
+              className="ui-btn secondary sm">{k[0].toUpperCase() + k.slice(1)}</a>
           ))}
         </span>
         {view === 'ledger' && (

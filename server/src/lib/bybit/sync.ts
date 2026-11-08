@@ -77,8 +77,10 @@ function storeOrders(accountId: number, list: any[]): void {
         triggerPrice: num(o.triggerPrice), stopLoss: num(o.stopLoss), takeProfit: num(o.takeProfit),
         createdTime: Number(o.createdTime), updatedTime: Number(o.updatedTime || o.createdTime),
       }
-      tx.insert(bybitOrders).values({ orderId: o.orderId, ...row })
-        .onConflictDoUpdate({ target: [bybitOrders.accountId, bybitOrders.orderId], set: row }).run()
+      // A stop moved on Bybit keeps its order id: the first trigger seen stays.
+      tx.insert(bybitOrders).values({ orderId: o.orderId, ...row, firstTriggerPrice: row.triggerPrice })
+        .onConflictDoUpdate({ target: [bybitOrders.accountId, bybitOrders.orderId],
+          set: { ...row, firstTriggerPrice: sql`coalesce(${bybitOrders.firstTriggerPrice}, excluded.trigger_price)` } }).run()
     }
   })
 }
@@ -171,7 +173,8 @@ export function riskAtStop(p: Position, stop: number | null): number | null {
 function writeTrade(bybitAccountId: number, journalAccountId: number, p: Position, orders: Order[], existing: Trade | null): boolean {
   const { initialStop: sl, ...broker } = brokerFields(p, orders)
   const stopLoss = existing?.stopLoss ?? sl
-  const atStop = riskAtStop(p, sl ?? stopLoss)
+  // Risk is measured at the trade's stop: the first one seen, or the one you corrected it to.
+  const atStop = riskAtStop(p, stopLoss)
   // Planned risk: the user's when they set one, otherwise what the stop risked.
   const userRisk = existing?.riskSource === 'user' && existing.riskDollars != null
   const riskDollars = userRisk ? existing!.riskDollars : atStop

@@ -29,8 +29,8 @@ function Choice<K extends string>({ value, options, onChange }: {
     <div className="space-y-1.5">
       {options.map(([k, label, hint]) => (
         <label key={k} className="flex items-start gap-2.5 cursor-pointer px-3 py-2 rounded-lg"
-          style={{ background: value === k ? 'rgba(129,140,248,0.1)' : 'var(--c-bg-input)', border: `1px solid ${value === k ? 'rgba(129,140,248,0.35)' : 'var(--c-border)'}` }}>
-          <input type="radio" checked={value === k} onChange={() => onChange(k)} className="w-3.5 h-3.5 mt-0.5 accent-indigo-500 shrink-0" />
+          style={{ background: value === k ? 'rgb(var(--k-fg) / .1)' : 'var(--c-bg-input)', border: `1px solid ${value === k ? 'var(--c-border-strong)' : 'var(--c-border)'}` }}>
+          <input type="radio" checked={value === k} onChange={() => onChange(k)} className="w-3.5 h-3.5 mt-0.5 accent-[var(--c-accent)] shrink-0" />
           <span>
             <span className="block text-xs" style={{ color: 'var(--c-text-1)' }}>{label}</span>
             {hint && <span className="block text-[10.5px] mt-0.5" style={{ color: 'var(--c-text-3)' }}>{hint}</span>}
@@ -155,7 +155,7 @@ export function ChangePlanModal({
         )}
 
         <div className="rounded-lg px-3.5 py-3 text-[12px] leading-relaxed"
-          style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.25)', color: 'var(--c-text-1)' }}>
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-1)' }}>
           {!changed ? <span style={{ color: 'var(--c-text-3)' }}>Change the service or the price to see what happens.</span>
             : previewError ? <span style={{ color: 'var(--c-loss)' }}>{(previewError as any)?.response?.data?.error ?? 'That does not work'}</span>
             : preview && !stale ? preview.sentence
@@ -311,8 +311,8 @@ export function RecordPaymentModal({
                     <button key={String(o.v)} type="button" onClick={() => setForElse(o.v)}
                       className="rounded-lg px-3 py-2 text-[12px] text-left transition-colors"
                       style={{
-                        background: forElse === o.v ? 'rgba(99,102,241,0.14)' : 'var(--c-bg-input)',
-                        border: `1px solid ${forElse === o.v ? 'rgba(129,140,248,0.5)' : 'var(--c-border)'}`,
+                        background: forElse === o.v ? 'rgb(var(--k-fg) / .1)' : 'var(--c-bg-input)',
+                        border: `1px solid ${forElse === o.v ? 'var(--c-border-strong)' : 'var(--c-border)'}`,
                         color: forElse === o.v ? 'var(--c-text-1)' : 'var(--c-text-2)',
                       }}>{o.label}</button>
                   ))}

@@ -4,7 +4,7 @@
 .ncl-title { margin: 0; font-family: var(--k-display); font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
 .ncl-nav { display: inline-flex; align-items: center; gap: 4px; }
 .ncl-nav > button:not(.nx-btn) { width: 30px; height: 30px; border-radius: 8px; color: var(--k-mute); font-size: 18px; }
-@media (hover: hover) { .ncl-nav > button:not(.nx-btn):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); } }
+@media (hover: hover) { .ncl-nav > button:not(.nx-btn):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); } }
 .ncl-nav b { font-size: 15px; font-weight: 600; min-width: 190px; text-align: center; }
 .ncl-nav .nx-btn { margin-left: 6px; }
 
@@ -25,7 +25,7 @@
 .ncl-head .dn b { font-size: 17px; font-weight: 600; color: var(--k-ink2); }
 .ncl-head.today .dn b { color: var(--k-on-acc); background: var(--k-acc); border-radius: 8px; padding: 0 7px; }
 .ncl-head.sel .dn { background: rgb(var(--k-fg) / .05); }
-@media (hover: hover) { .ncl-head .dn:hover { background: rgb(var(--k-fg) / .05); } }
+@media (hover: hover) { .ncl-head .dn:hover { background: rgb(var(--k-fg) / .07); } }
 .ncl-head .strip { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; min-height: 18px; }
 .ncl-head .strip .f { font-size: 11.5px; line-height: 16px; color: var(--k-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
 .ncl-head .strip .f.good { color: var(--k-good); } .ncl-head .strip .f.bad { color: var(--k-bad); } .ncl-head .strip .f.warn { color: var(--k-warn); } .ncl-head .strip .f.mute { color: var(--k-faint); }
@@ -64,7 +64,7 @@
 .ncl-month { margin-top: 16px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-left: 1px solid var(--k-line); border-top: 1px solid var(--k-line); }
 .ncl-month .wd { padding: 6px 8px; font-size: 12px; color: var(--k-mute); border-right: 1px solid var(--k-line); border-bottom: 1px solid var(--k-line); }
 .ncl-month .cell { min-height: 104px; display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 6px; text-align: left; border-right: 1px solid var(--k-line); border-bottom: 1px solid var(--k-line); min-width: 0; transition-property: background-color; transition-duration: .15s; }
-@media (hover: hover) { .ncl-month .cell:hover { background: rgb(var(--k-fg) / .025); } }
+@media (hover: hover) { .ncl-month .cell:hover { background: rgb(var(--k-fg) / .04); } }
 .ncl-month .cell > b { font-size: 13px; font-weight: 600; color: var(--k-ink2); }
 .ncl-month .cell.out > b { color: var(--k-faint); }
 .ncl-month .cell.today > b { align-self: flex-start; color: var(--k-on-acc); background: var(--k-acc); padding: 0 6px; border-radius: 6px; }
@@ -77,7 +77,7 @@
 /* Year */
 .ncl-year { margin-top: 16px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 24px; }
 .ncl-year .mo { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; text-align: left; transition-property: background-color; transition-duration: .15s; }
-@media (hover: hover) { .ncl-year .mo:hover { background: rgb(var(--k-fg) / .03); } }
+@media (hover: hover) { .ncl-year .mo:hover { background: rgb(var(--k-fg) / .04); } }
 .ncl-year .hd { display: flex; justify-content: space-between; align-items: baseline; }
 .ncl-year .hd b { font-size: 14px; font-weight: 600; }
 .ncl-year .hd small { font-size: 11.5px; color: var(--k-mute); }
@@ -100,7 +100,7 @@
 .ncl-evrow:disabled { cursor: default; }
 @media (hover: hover) { .ncl-evrow:not(:disabled):hover > span { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--k-line2); } }
 .ncl-mini .nx-aside button { width: 26px; height: 26px; border-radius: 7px; color: var(--k-mute); font-size: 16px; }
-@media (hover: hover) { .ncl-mini .nx-aside button:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .05); } }
+@media (hover: hover) { .ncl-mini .nx-aside button:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); } }
 .ncl-mini .g { margin-top: 8px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .ncl-mini .wd { font-size: 11px; color: var(--k-faint); text-align: center; padding-bottom: 4px; }
 .ncl-mini .g button { position: relative; height: 32px; border-radius: 8px; font-size: 13px; color: var(--k-ink2); font-feature-settings: "tnum" 1; }
@@ -108,7 +108,7 @@
 .ncl-mini .g button.today { color: var(--k-ink); font-weight: 700; }
 .ncl-mini .g button.sel { background: var(--k-acc); color: var(--k-on-acc); }
 .ncl-mini .g button i { position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--k-ink2); }
-@media (hover: hover) { .ncl-mini .g button:not(.sel):hover { background: rgb(var(--k-fg) / .06); } }
+@media (hover: hover) { .ncl-mini .g button:not(.sel):hover { background: rgb(var(--k-fg) / .07); } }
 .ncl-set { margin-top: auto; padding-top: 20px; display: flex; gap: 16px; }
 .ncl-side .nrt-undo { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; padding: 8px 12px; border-radius: 10px; background: rgb(var(--k-fg) / .05); font-size: 13px; color: var(--k-ink2); }
 
@@ -145,7 +145,7 @@
 .ncl-add .in { position: relative; flex: 1; }
 .ncl-try { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--k-faint); }
 .ncl-try button { height: 26px; padding: 0 10px; border-radius: 7px; color: var(--k-ink2); background: rgb(var(--k-fg) / .04); box-shadow: inset 0 0 0 1px var(--k-line); font-size: 12.5px; }
-@media (hover: hover) { .ncl-try button:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .08); } }
+@media (hover: hover) { .ncl-try button:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .1); } }
 .ncl-head .strip .f { display: flex; gap: 5px; align-items: baseline; }
 .ncl-head .strip .f em { font-style: normal; font-size: 10.5px; color: var(--k-faint); flex-shrink: 0; }
 .ncl-head .strip .f > span { overflow: hidden; text-overflow: ellipsis; }

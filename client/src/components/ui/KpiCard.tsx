@@ -29,10 +29,8 @@ export function KpiCard({
       // cards without a trend line sitting lower than their neighbours.
       className={`rounded-xl p-3.5 min-w-0 text-left w-full flex flex-col justify-start ${onClick ? 'transition-all duration-150 hover:-translate-y-px hover:shadow-[0_8px_28px_rgba(0,0,0,0.28)]' : ''}`}
       style={{
-        background: hero
-          ? 'linear-gradient(160deg, rgba(99,102,241,0.09), var(--c-bg-card) 62%)'
-          : 'var(--c-bg-card)',
-        border: `1px solid ${hero ? 'rgba(129,140,248,0.3)' : 'var(--c-border)'}`,
+        background: 'var(--c-bg-card)',
+        border: `1px solid ${hero ? 'var(--c-border-strong)' : 'var(--c-border)'}`,
       }}
     >
       <div className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>
@@ -45,7 +43,7 @@ export function KpiCard({
         <div className="text-[10px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>{sub}</div>
       )}
       {spark && spark.some(v => v !== 0) && (
-        <div className="mt-2"><Sparkline points={spark} color={sparkColor ?? '#818cf8'} height={22} /></div>
+        <div className="mt-2"><Sparkline points={spark} color={sparkColor ?? 'var(--c-text-2)'} height={22} /></div>
       )}
     </Tag>
   )

@@ -76,14 +76,12 @@ export function Row({ children, onClick, dim, tint }: {
   return (
     <tr
       onClick={onClick}
-      className={onClick ? 'cursor-pointer' : ''}
+      className={`transition-colors ${onClick ? 'cursor-pointer' : ''} ${tint ? '' : 'hover:bg-[var(--c-bg-hover)]'}`}
       style={{
-        borderBottom: '1px solid rgba(255,255,255,0.045)',
+        borderBottom: '1px solid var(--c-border)',
         opacity: dim ? 0.4 : 1,
         background: tint,
       }}
-      onMouseEnter={e => { if (!tint) e.currentTarget.style.background = 'rgba(255,255,255,0.028)' }}
-      onMouseLeave={e => { if (!tint) e.currentTarget.style.background = 'transparent' }}
     >
       {children}
     </tr>

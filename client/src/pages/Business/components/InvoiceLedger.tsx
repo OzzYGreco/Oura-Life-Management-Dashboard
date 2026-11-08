@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useUrlState } from '../lib/useUrlState'
-import { Search, ChevronRight, ChevronDown } from 'lucide-react'
+import { Search, ChevronRight, ChevronDown, Plus } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import {
   Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, StatusDot, EmptyRow, fmtMonthYear,
@@ -196,13 +196,13 @@ export function InvoiceLedger({
               {openCount > 0 ? 'Collapse all' : 'Expand all'}
             </MiniBtn>
           )}
-          <MiniBtn tone="accent" onClick={onNewInvoice}>+ New invoice</MiniBtn>
+          <MiniBtn tone="accent" onClick={onNewInvoice}><Plus size={13} aria-hidden />New invoice</MiniBtn>
         </>
       }
     >
       {(picked.length > 0 || bulkNote) && (
         <div className="mb-2 px-3 py-2 rounded-xl flex items-center gap-3 flex-wrap text-xs"
-          style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.22)', color: 'var(--c-text-2)' }}>
+          style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
           {picked.length > 0 ? (
             <>
               <span><b className="num">{picked.length}</b> selected · <span className="num">{fmtView(picked.reduce((s, r) => s + r.owed, 0))}</span> owed on them</span>
@@ -239,7 +239,7 @@ export function InvoiceLedger({
               <input type="checkbox" aria-label="Select every open invoice shown" checked={allPicked}
                 disabled={!selectable.length}
                 onChange={() => setSel(allPicked ? new Set() : new Set(selectable.map(r => r.id)))}
-                className="w-3.5 h-3.5 accent-indigo-500 align-middle" />
+                className="w-3.5 h-3.5 accent-[var(--c-accent)] align-middle" />
             </Th>
             <Th>#</Th>
             {head('clientName', 'Client', 'left')}
@@ -262,7 +262,7 @@ export function InvoiceLedger({
               <Fragment key={month}>
                 <tr>
                   <td colSpan={12} className="p-0"
-                    style={{ background: 'rgba(129,140,248,0.07)', borderTop: '1px solid rgba(129,140,248,0.16)' }}>
+                    style={{ background: 'var(--c-bg-input)', borderTop: '1px solid var(--c-border)' }}>
                     {/* The whole header is the toggle. A month that is shut still
                         shows its totals, so nothing is hidden, only the detail. */}
                     <button
@@ -358,7 +358,7 @@ function LedgerTableRow({
       <Td>
         {!paid && !isVoid && (
           <input type="checkbox" aria-label={`Select ${r.invoiceNumber}`} checked={selected} onChange={() => onSelect(r.id)}
-            className="w-3.5 h-3.5 accent-indigo-500 align-middle" />
+            className="w-3.5 h-3.5 accent-[var(--c-accent)] align-middle" />
         )}
       </Td>
       <Td mono color="var(--c-text-3)">{r.invoiceNumber}</Td>

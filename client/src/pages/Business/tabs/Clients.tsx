@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { HEX } from '../../../lib/chartTheme'
 import { useUrlState } from '../lib/useUrlState'
-import { Search } from 'lucide-react'
+import { Search, Plus } from 'lucide-react'
 import { Section } from '../../../components/ui/Section'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { Sparkline } from '../../../components/ui/Sparkline'
@@ -119,7 +119,7 @@ export function Clients({
               </MiniBtn>
             ))}
           </div>
-          <MiniBtn tone="accent" onClick={onNewClient}>+ New client</MiniBtn>
+          <MiniBtn tone="accent" onClick={onNewClient}><Plus size={13} aria-hidden />New client</MiniBtn>
         </>
       }
     >

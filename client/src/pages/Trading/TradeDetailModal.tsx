@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { Modal } from '../../components/ui/Modal'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -8,133 +8,8 @@ import { useFmtView } from '../../hooks/useFmtView'
 import { type Trade } from '../../hooks/useTrades'
 import { MISTAKES } from '../../lib/constants'
 import { RiskPlanner } from './RiskPlanner'
-import { Edit, Layers, X, ChevronLeft, ChevronRight } from 'lucide-react'
-
-// ── Screenshot lightbox ───────────────────────────────────────────────────────
-interface Screenshot { id: number; filePath: string; note?: string }
-
-function ScreenshotLightbox({
-  screenshots,
-  startIndex,
-  onClose,
-}: {
-  screenshots: Screenshot[]
-  startIndex: number
-  onClose: () => void
-}) {
-  const [idx, setIdx] = useState(startIndex)
-  const total = screenshots.length
-  const current = screenshots[idx]
-
-  const prev = useCallback(() => setIdx(i => (i - 1 + total) % total), [total])
-  const next = useCallback(() => setIdx(i => (i + 1) % total), [total])
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowLeft')  prev()
-      if (e.key === 'ArrowRight') next()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onClose, prev, next])
-
-  return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.88)' }}
-      onClick={onClose}
-    >
-      {/* Close */}
-      <button
-        onClick={onClose}
-        className="absolute top-4 right-4 flex items-center justify-center w-9 h-9 rounded-full transition-all"
-        style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}
-        onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.2)')}
-        onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
-      >
-        <X size={18} />
-      </button>
-
-      {/* Counter */}
-      {total > 1 && (
-        <div
-          className="absolute top-4 left-1/2 -translate-x-1/2 text-xs font-semibold px-3 py-1 rounded-full"
-          style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}
-        >
-          {idx + 1} / {total}
-        </div>
-      )}
-
-      {/* Prev arrow */}
-      {total > 1 && (
-        <button
-          onClick={e => { e.stopPropagation(); prev() }}
-          className="absolute left-4 flex items-center justify-center w-10 h-10 rounded-full transition-all"
-          style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.22)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
-        >
-          <ChevronLeft size={22} />
-        </button>
-      )}
-
-      {/* Image */}
-      <div
-        className="flex flex-col items-center max-w-5xl w-full px-20"
-        onClick={e => e.stopPropagation()}
-      >
-        <img
-          src={current.filePath}
-          alt={current.note ?? ''}
-          className="rounded-xl max-h-[80vh] w-auto object-contain"
-          style={{ boxShadow: '0 8px 48px rgba(0,0,0,0.6)' }}
-        />
-        {current.note && (
-          <p className="mt-3 text-sm text-center" style={{ color: 'rgba(255,255,255,0.6)' }}>
-            {current.note}
-          </p>
-        )}
-      </div>
-
-      {/* Next arrow */}
-      {total > 1 && (
-        <button
-          onClick={e => { e.stopPropagation(); next() }}
-          className="absolute right-4 flex items-center justify-center w-10 h-10 rounded-full transition-all"
-          style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}
-          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.22)')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
-        >
-          <ChevronRight size={22} />
-        </button>
-      )}
-
-      {/* Thumbnail strip (when > 1 image) */}
-      {total > 1 && (
-        <div
-          className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-2"
-          onClick={e => e.stopPropagation()}
-        >
-          {screenshots.map((s, i) => (
-            <button
-              key={s.id}
-              onClick={() => setIdx(i)}
-              className="rounded-lg overflow-hidden transition-all"
-              style={{
-                width: 52, height: 36,
-                outline: i === idx ? '2px solid var(--c-accent)' : '2px solid transparent',
-                opacity: i === idx ? 1 : 0.5,
-              }}
-            >
-              <img src={s.filePath} alt="" className="w-full h-full object-cover" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+import { ImageViewer } from '../../components/shared/ImageViewer'
+import { Edit, Layers } from 'lucide-react'
 
 interface Props {
   trade: Trade
@@ -207,7 +82,7 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
         {/* ── Compounded: Entry Legs ────────────────────────────────── */}
         {isCompounded && entries.length > 0 && (
           <div>
-            <SectionLabel>Entry Legs</SectionLabel>
+            <SectionLabel>Entry legs</SectionLabel>
             <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
               <table className="w-full text-sm">
                 <thead>
@@ -252,7 +127,7 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
         {/* ── Compounded: TP Legs ───────────────────────────────────── */}
         {isCompounded && takeProfits.length > 0 && (
           <div>
-            <SectionLabel>Take Profit Legs</SectionLabel>
+            <SectionLabel>Take-profit legs</SectionLabel>
             <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--c-border)' }}>
               <table className="w-full text-sm">
                 <thead>
@@ -325,19 +200,19 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
             <div className="grid grid-cols-3 gap-2 text-sm">
               {trade.entryFeeAmount != null && (
                 <div className="bg-bg-secondary rounded p-2 text-center">
-                  <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Entry Fee</div>
+                  <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Entry fee</div>
                   <div className="num text-text-secondary">{fmt(trade.entryFeeAmount)}</div>
                 </div>
               )}
               {trade.exitFeeAmount != null && (
                 <div className="bg-bg-secondary rounded p-2 text-center">
-                  <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Exit Fee</div>
+                  <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Exit fee</div>
                   <div className="num text-text-secondary">{fmt(trade.exitFeeAmount)}</div>
                 </div>
               )}
               {trade.fundingFeeAmount != null && (
                 <div className="bg-bg-secondary rounded p-2 text-center">
-                  <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Funding Fee</div>
+                  <div className="text-[10px] text-text-muted uppercase tracking-wide mb-1">Funding fee</div>
                   {/* Same sign as the other fees: positive = paid, negative = received */}
                   <div className="num" style={{ color: trade.fundingFeeAmount > 0 ? 'var(--c-loss)' : trade.fundingFeeAmount < 0 ? 'var(--c-profit)' : undefined }}>
                     {trade.fundingFeeAmount > 0 ? '-' : trade.fundingFeeAmount < 0 ? '+' : ''}{fmt(Math.abs(trade.fundingFeeAmount))}
@@ -384,7 +259,7 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
               Screenshots
               {trade.screenshots.length > 1 && (
                 <span className="ml-1.5 normal-case" style={{ color: 'var(--c-text-3)' }}>
-                  · click to expand · ← → to browse
+                  · click to open · ← → to browse
                 </span>
               )}
             </div>
@@ -394,10 +269,7 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
                   key={s.id}
                   type="button"
                   onClick={() => setLightboxIdx(i)}
-                  className="rounded-lg overflow-hidden text-left transition-all"
-                  style={{ border: '1px solid var(--c-border)' }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--c-accent)')}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--c-border)')}
+                  className="rounded-lg overflow-hidden text-left transition-colors border border-[var(--c-border)] hover:border-[var(--c-accent)]"
                 >
                   <img src={s.filePath} alt="" className="w-full h-36 object-cover" />
                   {s.note && (
@@ -411,11 +283,7 @@ export function TradeDetailModal({ trade, onClose, onEdit }: Props) {
 
         {/* Lightbox */}
         {lightboxIdx !== null && trade.screenshots && (
-          <ScreenshotLightbox
-            screenshots={trade.screenshots}
-            startIndex={lightboxIdx}
-            onClose={() => setLightboxIdx(null)}
-          />
+          <ImageViewer images={trade.screenshots} start={lightboxIdx} onClose={() => setLightboxIdx(null)} />
         )}
 
         <div className="flex justify-end gap-2 pt-2 border-t border-bg-border">

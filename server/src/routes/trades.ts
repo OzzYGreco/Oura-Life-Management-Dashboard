@@ -8,6 +8,7 @@ import path from 'path'
 import fs from 'fs'
 import { computeTradeFields } from '../lib/tradeMath'
 import { ensureSetup } from './tradingSetups'
+import { outcomeOf } from '../lib/outcome'
 
 const router = Router()
 
@@ -80,7 +81,10 @@ router.get('/analytics/summary', async (req, res, next) => {
 
     const total = rows.length
     const pnl = (t: typeof rows[number]) => t.netPnl ?? t.realizedPnl ?? 0
-    const wins = rows.filter(t => pnl(t) > 0).length
+    // Inside ±0.1R is breakeven: neither a win nor a loss.
+    const outcomes = rows.map(t => outcomeOf(t.rrRatio, pnl(t)))
+    const wins = outcomes.filter(o => o === 'win').length
+    const losses = outcomes.filter(o => o === 'loss').length
     const totalPnl = rows.reduce((s, t) => s + pnl(t), 0)
     const avgRR = rows.filter(t => t.rrRatio != null).reduce((s, t) => s + (t.rrRatio ?? 0), 0) / (rows.filter(t => t.rrRatio != null).length || 1)
     const profitFactor = (() => {
@@ -89,7 +93,7 @@ router.get('/analytics/summary', async (req, res, next) => {
       return l > 0 ? g / l : null
     })()
 
-    res.json({ totalTrades: total, wins, losses: total - wins, winRate: total > 0 ? wins / total : 0, totalPnl, avgRR, profitFactor })
+    res.json({ totalTrades: total, wins, losses, breakeven: total - wins - losses, winRate: total > 0 ? wins / total : 0, totalPnl, avgRR, profitFactor })
   } catch (e) { next(e) }
 })
 

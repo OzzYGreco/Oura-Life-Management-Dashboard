@@ -101,8 +101,6 @@ export function ClientPicker({
           border: '1px solid var(--c-border)',
           color: 'var(--c-text-1)',
         }}
-        onFocus={e => (e.currentTarget.style.borderColor = 'var(--c-accent)')}
-        onBlur={e => (e.currentTarget.style.borderColor = 'var(--c-border)')}
       />
 
       <div ref={listRef} className="mt-1.5 rounded-lg max-h-48 overflow-y-auto"
@@ -123,12 +121,12 @@ export function ClientPicker({
               onClick={() => onPick(c.id)}
               className="w-full flex items-baseline gap-2.5 px-3 py-1.5 text-left"
               style={{
-                background: chosen ? 'rgba(129,140,248,0.16)'
-                  : active ? 'rgba(255,255,255,0.045)' : 'transparent',
+                background: chosen ? 'rgb(var(--k-fg) / .1)'
+                  : active ? 'var(--c-bg-hover)' : 'transparent',
               }}
             >
               <span className="text-xs font-medium shrink-0"
-                style={{ color: chosen ? 'var(--c-accent)' : 'var(--c-text-1)' }}>
+                style={{ color: 'var(--c-text-1)' }}>
                 {c.name}
               </span>
               <span className="text-[11px] truncate flex-1" style={{ color: 'var(--c-text-3)' }}>

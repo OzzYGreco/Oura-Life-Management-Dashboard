@@ -22,7 +22,7 @@ function WRow({
         paddingTop: rule ? 9 : 5,
         paddingBottom: 5,
         marginTop: rule ? 4 : 0,
-        borderTop: rule === 'thick' ? '2px solid rgba(99,102,241,0.3)'
+        borderTop: rule === 'thick' ? '2px solid var(--c-border-strong)'
           : rule === 'thin' ? '1px solid var(--c-border)' : undefined,
       }}
     >
@@ -74,7 +74,7 @@ export function Waterfall({
         color={op.netProfit - op.drawnPeriod >= 0 ? 'var(--c-text-1)' : 'var(--c-loss)'} />
 
       <p className="text-[11px] leading-relaxed mt-3 px-3 py-2 rounded-lg"
-        style={{ background: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.18)', color: 'var(--c-text-2)' }}>
+        style={{ background: 'var(--c-bg-input)', border: '1px solid var(--c-border)', color: 'var(--c-text-2)' }}>
         A draw is a share of profit, so it comes out below the line. Filed as a business expense it
         would sit above net profit and make the business look less profitable than it is.
       </p>

@@ -183,6 +183,13 @@
       "when": 1794441600000,
       "tag": "0025_finance_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1794528000000,
+      "tag": "0026_first_stop",
+      "breakpoints": true
     }
   ]
 }

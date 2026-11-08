@@ -65,11 +65,10 @@ export function TradingPulse({ accountId, onReview, onSetLimits }: { accountId: 
   const r = useCountUp(w.r)
   const maxAbs = Math.max(1, ...w.days.map(d => Math.abs(d.r)))
   const tone = w.r > 0.05 ? 'var(--c-profit)' : w.r < -0.05 ? 'var(--c-loss)' : 'var(--c-text-1)'
-  const glow = w.r > 0.05 ? 'rgba(52,211,153,0.10)' : w.r < -0.05 ? 'rgba(248,113,113,0.09)' : 'rgba(129,140,248,0.08)'
 
   return (
     <div className="relative overflow-hidden rounded-2xl mb-5"
-      style={{ background: `radial-gradient(120% 140% at 0% 0%, ${glow}, transparent 55%), linear-gradient(180deg, var(--c-bg-elevated), var(--c-bg-card))`, border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)' }}>
+      style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)' }}>
       <LimitBanner limits={limits} now={now} />
       <div className="grid md:grid-cols-2 xl:grid-cols-[1.25fr_1.35fr_0.9fr_1fr]">
         <AccountTile accounts={accounts} trades={trades} accountId={accountId} />

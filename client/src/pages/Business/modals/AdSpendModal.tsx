@@ -176,7 +176,7 @@ export function AdSpendModal({
             <button key={m} type="button" onClick={() => setMode(m)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold"
               style={mode === m
-                ? { background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(167,139,250,0.12))', border: '1px solid rgba(129,140,248,0.25)', color: 'var(--c-text-1)' }
+                ? { background: 'rgb(var(--k-fg) / .1)', border: '1px solid var(--c-border-strong)', color: 'var(--c-text-1)' }
                 : { color: 'var(--c-text-2)', border: '1px solid transparent' }}>
               {m === 'day' ? 'One day' : 'Several days'}
             </button>
@@ -223,7 +223,7 @@ export function AdSpendModal({
               <div className={how !== 'off' ? 'col-span-5' : 'col-span-9'}>
                 <label htmlFor="asr-over" className="flex items-center gap-2 text-[11px] cursor-pointer pb-2" style={{ color: 'var(--c-text-2)' }}>
                   <input id="asr-over" type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)}
-                    className="w-3.5 h-3.5 accent-indigo-500" />
+                    className="w-3.5 h-3.5 accent-[var(--c-accent)]" />
                   Replace days already recorded
                 </label>
               </div>

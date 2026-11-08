@@ -1,3 +1,4 @@
+import { Plus } from 'lucide-react'
 import { useMemo } from 'react'
 import { Section } from '../../../components/ui/Section'
 import { Th, Td, TablePanel, THead, Row, TotalRow, MiniBtn, StatusDot, EmptyRow } from './primitives'
@@ -46,7 +47,7 @@ export function RetainerTable({
     <Section
       label="Retainers"
       count={`${active.length} active${retainers.length !== active.length ? ` of ${retainers.length}` : ''}`}
-      action={<MiniBtn tone="accent" onClick={onNew}>+ New retainer</MiniBtn>}
+      action={<MiniBtn tone="accent" onClick={onNew}><Plus size={13} aria-hidden />New retainer</MiniBtn>}
     >
       <TablePanel>
         <table className="w-full">

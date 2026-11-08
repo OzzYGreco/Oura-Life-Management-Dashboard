@@ -33,6 +33,8 @@ export interface Order {
   stopOrderType: string | null
   positionIdx: number | null
   triggerPrice: number | null
+  /** The trigger when the sync first saw the order, before any move. */
+  firstTriggerPrice?: number | null
   stopLoss: number | null
   createdTime: number
 }
@@ -167,7 +169,7 @@ export function firstStop(p: Position, orders: Order[]): { price: number; at: nu
       && ['StopLoss', 'PartialStopLoss', 'Stop'].includes(o.stopOrderType ?? '')
       && o.createdTime >= p.openedAt - 60_000 && o.createdTime <= until)
     .sort((a, b) => a.createdTime - b.createdTime)
-  return stops[0] ? { price: stops[0].triggerPrice!, at: Math.max(stops[0].createdTime, p.openedAt) } : null
+  return stops[0] ? { price: stops[0].firstTriggerPrice ?? stops[0].triggerPrice!, at: Math.max(stops[0].createdTime, p.openedAt) } : null
 }
 
 /** The stop each entry order carried, for the per-entry breakdown. */

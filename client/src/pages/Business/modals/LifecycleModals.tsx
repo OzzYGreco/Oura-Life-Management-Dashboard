@@ -118,11 +118,24 @@ export function RetainerEditModal({
 
   if (!retainer) return null
 
+  // Saving with nothing changed used to write the row anyway, and a date typed
+  // into "applies from" with the price untouched was dropped without a word.
+  const detailsChanged =
+    String(f.serviceId ?? '') !== String(retainer.serviceId ?? '') ||
+    (f.name ?? '') !== retainer.name ||
+    f.frequency !== retainer.frequency ||
+    (Number(f.netTermDays) || 0) !== (retainer.netTermDays ?? 0) ||
+    (f.startDate ?? '') !== (retainer.startDate ?? '') ||
+    (f.nextInvoiceDate ?? '') !== (retainer.nextInvoiceDate ?? '') ||
+    !!f.autoInvoice !== (retainer.autoInvoice === 1) ||
+    (f.notes ?? '') !== (retainer.notes ?? '')
+  const dirty = detailsChanged || priceChanged || correction
+
   const save = async () => {
     setError(null)
     try {
       const svc = (services as Service[]).find(s => String(s.id) === String(f.serviceId))
-      await update.mutateAsync({
+      if (detailsChanged) await update.mutateAsync({
         id: retainer.id,
         serviceId: f.serviceId ? Number(f.serviceId) : null,
         name: f.name || svc?.name || retainer.name,
@@ -163,11 +176,11 @@ export function RetainerEditModal({
             <Input id="re-price" label={`Price per ${retainer.frequency.replace(/ly$/, '')}`} type="number" step="0.01"
               value={price} onChange={e => setPrice(e.target.value)} />
             <Input id="re-from" label="New price applies from" type="date" value={from}
-              disabled={correction} onChange={e => setFrom(e.target.value)} />
+              disabled={correction || !priceChanged} onChange={e => setFrom(e.target.value)} />
           </div>
           <label htmlFor="re-correction" className="flex items-start gap-2 mt-2.5 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
             <input id="re-correction" type="checkbox" checked={correction} onChange={e => setCorrection(e.target.checked)}
-              className="w-4 h-4 mt-0.5 accent-indigo-500" />
+              className="w-4 h-4 mt-0.5 accent-[var(--c-accent)]" />
             <span>
               It was always this price. A correction, not a price change: MRR history is fixed rather than showing
               an increase or decrease.
@@ -220,7 +233,7 @@ export function RetainerEditModal({
           </div>
           <label htmlFor="re-auto" className="flex items-center gap-2 mt-2.5 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
             <input id="re-auto" type="checkbox" checked={!!f.autoInvoice} onChange={e => setF({ ...f, autoInvoice: e.target.checked })}
-              className="w-4 h-4 accent-indigo-500" />
+              className="w-4 h-4 accent-[var(--c-accent)]" />
             Raise invoices automatically
           </label>
           <p className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>
@@ -317,7 +330,7 @@ export function RetainerEditModal({
                   <label key={d.id} htmlFor={`re-dup-${d.id}`} className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--c-text-2)' }}>
                     <input id={`re-dup-${d.id}`} type="checkbox" checked={!keepIds.includes(d.id)}
                       onChange={e => setKeepIds(e.target.checked ? keepIds.filter(x => x !== d.id) : [...keepIds, d.id])}
-                      className="w-4 h-4 mt-0.5 accent-indigo-500" />
+                      className="w-4 h-4 mt-0.5 accent-[var(--c-accent)]" />
                     <span>
                       Remove their {d.name} <span className="num">{fmtView(d.amount)}</span>, started {formatDate(d.startDate)}
                       {d.invoices.length ? <> and its unpaid {d.invoices.map(i => i.invoiceNumber).join(', ')}</> : null}.
@@ -366,7 +379,8 @@ export function RetainerEditModal({
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={save} disabled={saving || (priceChanged && !plan)}>{saving ? 'Saving...' : 'Save'}</Button>
+            <Button onClick={save} disabled={saving || !dirty || (priceChanged && !plan)}
+              title={dirty ? undefined : 'Nothing changed yet'}>{saving ? 'Saving...' : 'Save'}</Button>
           </div>
         </div>
       </div>
@@ -643,7 +657,7 @@ export function ComebackModal({
   const row = (on: boolean, onToggle: () => void, main: React.ReactNode, side: React.ReactNode, key: number, idx: number) => (
     <label key={key} className="flex items-center gap-3 px-3 py-2 text-xs cursor-pointer"
       style={{ borderTop: idx ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg-input)' }}>
-      <input type="checkbox" checked={on} onChange={onToggle} className="w-3.5 h-3.5 accent-indigo-500" />
+      <input type="checkbox" checked={on} onChange={onToggle} className="w-3.5 h-3.5 accent-[var(--c-accent)]" />
       <span className="flex-1 min-w-0 truncate" style={{ color: 'var(--c-text-2)' }}>{main}</span>
       <span className="num" style={{ color: 'var(--c-text-1)' }}>{side}</span>
     </label>

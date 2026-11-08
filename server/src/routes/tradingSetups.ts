@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { db } from '../db'
 import { trades, tradingSetups } from '../db/schema'
 import { eq, sql } from 'drizzle-orm'
+import { BE_R } from '../lib/outcome'
 
 /**
  * Setups (systems). Trades point at a setup by name, so a rename or a merge
@@ -9,8 +10,6 @@ import { eq, sql } from 'drizzle-orm'
  */
 const router = Router()
 
-/** A result inside ±0.1R counts as breakeven, not a win or a loss. */
-const BE_R = 0.1
 
 /** Lowercase, letters and digits only, with common typos folded. */
 const norm = (s: string) => s.toLowerCase().replace(/consoliation/g, 'consolidation').replace(/[^a-z0-9]+/g, '')

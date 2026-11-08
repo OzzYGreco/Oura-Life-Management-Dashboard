@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
 } from 'recharts'
@@ -195,7 +195,7 @@ export function WhatWeCanTake({
         : <>Nothing is safe to take {periodLabel} once tax and the buffer are held back. {fmtView(op.drawnPeriod)} taken so far.</>}
       action={<>
         <MiniBtn onClick={onSettings}>What to hold back</MiniBtn>
-        <MiniBtn tone="good" onClick={onRecordDraw}>+ Record a draw</MiniBtn>
+        <MiniBtn tone="good" onClick={onRecordDraw}><Plus size={13} aria-hidden />Record a draw</MiniBtn>
       </>}
     >
       <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(280px, 1fr) minmax(0, 1.4fr)' }}>

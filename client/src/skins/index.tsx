@@ -14,6 +14,8 @@ import { NextNotes } from './next/Notes'
 import './skins.css'
 import './next/trading.css'
 import './next/business.css'
+// Last, so the one control system outranks older per-page button rules.
+import './next/controls.css'
 
 export function SkinFrame() {
   return <WhoopShell><Outlet /></WhoopShell>
