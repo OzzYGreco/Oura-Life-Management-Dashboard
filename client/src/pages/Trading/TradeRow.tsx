@@ -8,14 +8,12 @@ import { formatCurrency, fmtPrice, fmtSize } from '../../lib/utils'
 import { fmtMinutes, fmtR, isClosed, outcomeOf, pnlOf, stopTiming } from '../../lib/tradeStats'
 import { CoinBadge, RBar, outcomeColor } from './ui'
 import { ArrowUpRight, ArrowDownRight, Layers, Edit, Trash2, Maximize2, ImagePlus, ChevronDown } from 'lucide-react'
-import { useIsNext } from '../../skins/isNext'
 
 interface Leg { time: string; price: number; qty: number; fee: number; orderType: string | null; stopOrderType: string | null }
 interface BybitTrade { entries: Leg[]; exits: Leg[]; funding: number; protective: { kind: 'sl' | 'tp'; price: number; at: string; status: string | null }[] }
 
 interface Props {
   t: Trade
-  first: boolean
   expanded: boolean
   focused: boolean
   accountName: string | null
@@ -26,20 +24,17 @@ interface Props {
 }
 
 /** One trade: a scannable line that opens in place into the whole story. */
-export const TradeRow = forwardRef<HTMLDivElement, Props>(function TradeRow({ t, first, expanded, focused, accountName, onToggle, onEdit, onDelete, onDetails }, ref) {
+export const TradeRow = forwardRef<HTMLDivElement, Props>(function TradeRow({ t, expanded, focused, accountName, onToggle, onEdit, onDelete, onDetails }, ref) {
   const open = !isClosed(t)
   const o = outcomeOf(t)
   const pnl = pnlOf(t)
   const shot = t.screenshots?.[0]
   const dev = t.deviationPct ?? 0
-  const nx = useIsNext()
   return (
-    <div ref={ref} className={nx ? `tr-row ${expanded ? 'open' : ''}` : undefined} style={nx ? undefined : { borderTop: first ? undefined : '1px solid var(--c-border-subtle)' }}>
+    <div ref={ref} className={`tr-row ${expanded ? 'open' : ''}`}>
       <div onClick={onToggle}
         className="group relative flex items-center gap-4 pl-4 pr-3 py-2.5 cursor-pointer transition-colors hover:bg-[var(--c-bg-hover)]"
         style={{ background: expanded ? 'var(--c-bg-hover)' : undefined, boxShadow: focused ? 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 55%, transparent)' : undefined }}>
-        {!nx && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full"
-          style={{ background: open ? 'var(--c-accent)' : outcomeColor(o), opacity: o === 'be' ? 0.5 : 0.9 }} />}
         <span className="w-11 shrink-0 text-xs num" style={{ color: 'var(--c-text-3)' }}>{t.time ?? '—'}</span>
         <CoinBadge asset={t.asset} instrument={t.instrument} size={30} />
         <div className="w-28 shrink-0 min-w-0">

@@ -19,7 +19,6 @@ import { formatCurrency } from '../../lib/utils'
 import { TradeDetailModal } from './TradeDetailModal'
 import { applyDateFilter, type Preset } from '../../components/shared/DateFilter'
 import { RangePicker, ToolTray, ToolButton, PrimaryButton } from './controls'
-import { useIsNext } from '../../skins/isNext'
 
 interface Props {
   accountId?: number | null
@@ -58,7 +57,6 @@ const dayLabel = (d: string) => {
 }
 
 export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
-  const nx = useIsNext()
   const filters: Record<string, string> = {}
   if (accountId) filters.accountId = String(accountId)
 
@@ -170,8 +168,8 @@ export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
   if (isPending) return <PageLoader />
 
   return (
-    <div className={nx ? 'tr-log' : undefined}>
-      <div className={nx ? 'tr-toolbar' : 'flex flex-wrap items-center gap-3 mb-5'}>
+    <div className="tr-log">
+      <div className="tr-toolbar">
         <RangePicker preset={preset} onPreset={setPreset} customFrom={customFrom} onCustomFrom={setCustomFrom} customTo={customTo} onCustomTo={setCustomTo} />
         <span className="text-xs num" style={{ color: 'var(--c-text-3)' }}>
           {shown.length}{shown.length !== (trades?.length ?? 0) ? ` of ${trades?.length ?? 0}` : ''} trades
@@ -189,8 +187,7 @@ export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
       <LogFilters trades={filteredTrades} value={filter} onChange={f => { setFilter(f); setExpanded(null) }} />
 
       {running.length > 0 && (
-        <div className={nx ? 'tr-running' : 'mb-4 rounded-xl px-3.5 py-2.5 flex flex-wrap items-center gap-2'}
-          style={nx ? undefined : { background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.25)' }}>
+        <div className="tr-running">
           {running.map(t => (
             <button key={t.id} onClick={() => setReviewing({ queue: [t] })}
               className="flex items-center gap-2 px-2.5 py-1 rounded-lg text-xs"
@@ -219,7 +216,7 @@ export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
           No trades in the selected period.
         </div>
       ) : (
-        <div className={nx ? 'tr-weeks' : 'space-y-9'}>
+        <div className="tr-weeks">
           {!shown.length && (
             <div className="text-center py-16 text-sm" style={{ color: 'var(--c-text-3)' }}>
               No trades match these filters. <button onClick={() => setFilter(NO_FILTER)} className="hover:underline" style={{ color: 'var(--c-accent)' }}>Clear filters</button>
@@ -227,59 +224,27 @@ export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
           )}
           {weeks.map(w => (
             <section key={w.monday}>
-              {nx ? (
-                <div className="tr-week">
-                  <b className="num">Week {isoWeek(w.monday)}</b>
-                  <span className="rg">{weekRange(w.monday)}</span>
-                  <span className="ct num">{w.trades.length} {w.trades.length === 1 ? 'trade' : 'trades'}</span>
-                  <span className="sp" />
-                  <FormGuide trades={[...w.trades].filter(isClosed).sort(byTime)} n={Math.min(10, Math.max(1, w.closed))} />
-                  {w.closed > 0 && <>
-                    <span className={`pnl num ${w.pnl >= 0 ? 'good' : 'bad'}`}>{w.pnl >= 0 ? '+' : ''}{formatCurrency(w.pnl)}</span>
-                    <span className={`r num ${w.r >= 0 ? 'good' : 'bad'}`}>{fmtR(w.r)}</span>
-                  </>}
-                </div>
-              ) : (
-              <div className="sticky top-0 z-[5] -mx-1 px-1 py-2 mb-3 flex items-center gap-3 backdrop-blur-md"
-                style={{ background: 'color-mix(in srgb, var(--c-bg-primary) 82%, transparent)' }}>
-                <span className="text-[10px] font-bold uppercase tracking-[0.18em] px-2 py-1 rounded-md num"
-                  style={{ color: 'var(--c-accent)', background: 'color-mix(in srgb, var(--c-accent) 10%, transparent)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 25%, transparent)' }}>
-                  Week {isoWeek(w.monday)}
-                </span>
-                <span className="text-sm font-semibold" style={{ color: 'var(--c-text-1)' }}>{weekRange(w.monday)}</span>
-                <span className="text-xs num" style={{ color: 'var(--c-text-3)' }}>{w.trades.length} {w.trades.length === 1 ? 'trade' : 'trades'}</span>
-                <div className="flex-1" />
+              <div className="tr-week">
+                <b className="num">Week {isoWeek(w.monday)}</b>
+                <span className="rg">{weekRange(w.monday)}</span>
+                <span className="ct num">{w.trades.length} {w.trades.length === 1 ? 'trade' : 'trades'}</span>
+                <span className="sp" />
                 <FormGuide trades={[...w.trades].filter(isClosed).sort(byTime)} n={Math.min(10, Math.max(1, w.closed))} />
                 {w.closed > 0 && <>
-                  <span className="text-xs num" style={{ color: w.pnl >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>{w.pnl >= 0 ? '+' : ''}{formatCurrency(w.pnl)}</span>
-                  <span className="text-sm num font-bold px-2.5 py-0.5 rounded-lg"
-                    style={{ background: w.r >= 0 ? 'rgba(52,211,153,0.14)' : 'rgba(248,113,113,0.14)', color: w.r >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>
-                    {fmtR(w.r)}
-                  </span>
+                  <span className={`pnl num ${w.pnl >= 0 ? 'good' : 'bad'}`}>{w.pnl >= 0 ? '+' : ''}{formatCurrency(w.pnl)}</span>
+                  <span className={`r num ${w.r >= 0 ? 'good' : 'bad'}`}>{fmtR(w.r)}</span>
                 </>}
               </div>
-              )}
               <div className="space-y-4">
                 {w.days.map(day => (
-                  <div key={day.date} className={nx ? 'tr-day' : undefined}>
-                    {nx ? (
-                      <div className="tr-dayh">
-                        <span>{dayLabel(day.date).replace(' · ', ', ')}</span>
-                        {day.closed > 0 && <span className="v num"><span>{day.pnl >= 0 ? '+' : ''}{formatCurrency(day.pnl)}</span><b className={day.r >= 0 ? 'good' : 'bad'}>{fmtR(day.r)}</b></span>}
-                      </div>
-                    ) : (
-                    <div className="flex items-baseline gap-3 px-1 mb-1.5">
-                      <span className="text-xs font-semibold" style={{ color: 'var(--c-text-2)' }}>{dayLabel(day.date)}</span>
-                      <div className="flex-1 h-px self-center" style={{ background: 'var(--c-border-subtle)' }} />
-                      {day.closed > 0 && <>
-                        <span className="text-[11px] num" style={{ color: 'var(--c-text-3)' }}>{day.pnl >= 0 ? '+' : ''}{formatCurrency(day.pnl)}</span>
-                        <span className="text-[11px] num font-semibold" style={{ color: day.r >= 0 ? 'var(--c-profit)' : 'var(--c-loss)' }}>{fmtR(day.r)}</span>
-                      </>}
+                  <div key={day.date} className="tr-day">
+                    <div className="tr-dayh">
+                      <span>{dayLabel(day.date).replace(' · ', ', ')}</span>
+                      {day.closed > 0 && <span className="v num"><span>{day.pnl >= 0 ? '+' : ''}{formatCurrency(day.pnl)}</span><b className={day.r >= 0 ? 'good' : 'bad'}>{fmtR(day.r)}</b></span>}
                     </div>
-                    )}
-                    <div className={nx ? 'tr-rows' : 'rounded-xl overflow-hidden'} style={nx ? undefined : { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)' }}>
-                      {day.trades.map((t, i) => (
-                        <TradeRow key={t.id} t={t} first={i === 0}
+                    <div className="tr-rows">
+                      {day.trades.map(t => (
+                        <TradeRow key={t.id} t={t}
                           ref={el => { if (el) rowRefs.current.set(t.id, el); else rowRefs.current.delete(t.id) }}
                           expanded={expanded === t.id} focused={focus === t.id}
                           accountName={showAccountCol ? accountName(t.accountId) : null}
@@ -294,16 +259,8 @@ export function TradeLog({ accountId, defaultAccountId, reviewSignal }: Props) {
               </div>
             </section>
           ))}
-          {shown.length > 0 && nx && (
+          {shown.length > 0 && (
             <p className="tr-keys"><kbd>J</kbd><kbd>K</kbd> move, <kbd>Enter</kbd> open, <kbd>E</kbd> review, <kbd>N</kbd> new trade, <kbd>S</kbd> size</p>
-          )}
-          {shown.length > 0 && !nx && (
-            <p className="text-center text-[11px]" style={{ color: 'var(--c-text-3)' }}>
-              <kbd className="px-1 rounded" style={{ border: '1px solid var(--c-border-mid)' }}>J</kbd> <kbd className="px-1 rounded" style={{ border: '1px solid var(--c-border-mid)' }}>K</kbd> move ·{' '}
-              <kbd className="px-1 rounded" style={{ border: '1px solid var(--c-border-mid)' }}>↵</kbd> open ·{' '}
-              <kbd className="px-1 rounded" style={{ border: '1px solid var(--c-border-mid)' }}>E</kbd> review ·{' '}
-              <kbd className="px-1 rounded" style={{ border: '1px solid var(--c-border-mid)' }}>N</kbd> new trade
-            </p>
           )}
         </div>
       )}

@@ -1,19 +1,10 @@
 # Arete design system
 
-Status: **draft, 2026-11-07.** The first proof is Today at `?skin=next` (`client/src/skins/next/`). Type and palette get confirmed there before rollout.
+Status: **live, 2026-11-08.** Arete is the only layout (`client/src/skins/next/`, on the frame in `client/src/skins/whoop/`).
 
-## Decision: one layout, switchable themes
-Each page has **one layout**, built once and polished deeply. The Whoop skin (`client/src/skins/whoop/`) is the base: it is the most complete, and it is the only one with Training.
-The other three skins become **themes**: palette and type tokens only, with no layouts of their own. Their layout code (`skins/{linear,revolut,things}/*.tsx`) is retired only after each feature in it is confirmed present in the base layout.
-
-| Theme | From | Character |
-|---|---|---|
-| Night (default) | Whoop | Blue-black, soft green and amber, white accent |
-| Graphite | Linear | Neutral grey, indigo accent, tighter |
-| Vivid | Revolut | Higher contrast, saturated good/bad |
-| Paper | Things | Light, warm-neutral, blue accent |
-
-Theme names describe the look. They never name another product.
+## Decision: one layout, light and dark
+Each page has **one layout**, built once and polished deeply. The old Linear, Revolut, Things and Whoop skins were retired on 2026-11-08 after a feature inventory; what they had that Arete lacked was ported (the coach line and day summary, the pace word, the day's closing time, Close the day with R, the loss-limit bars, the red/amber/green heatmap bands).
+Appearance is **Dark, Light or Match Mac** (L toggles), set from the top bar or the avatar menu (`core/mode.ts`). The `whoop/` folder stays only as Arete's frame and the shared sheets (composer, logger, routine editor).
 
 ## What we fix (seen on the real screen, 2026-11-07)
 1. **One message per moment.** Today said "behind you" three times (headline, status card, Discipline 0%). Each fact appears once, in the place it belongs.

@@ -3,7 +3,7 @@
  * list, the ⌘K palette and the evening review. Skins import from here and
  * supply only their own Shell and pages.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,15 +11,8 @@ import { api } from '../lib/api'
 import { MISS_REASONS, useCloseDay, useToday } from '../core/today'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
 
-export type SkinId = 'linear' | 'whoop' | 'revolut' | 'things' | 'next'
-
-export const SKINS: { id: SkinId; label: string; hint: string }[] = [
-  { id: 'next',    label: 'Arete',   hint: 'The new layout, every page redesigned' },
-  { id: 'whoop',   label: 'Whoop',   hint: 'Score dial, coaching voice' },
-  { id: 'linear',  label: 'Linear',  hint: 'Dark, precise, keyboard-first' },
-  { id: 'revolut', label: 'Revolut', hint: 'Your day as a chart, momentum' },
-  { id: 'things',  label: 'Things',  hint: 'Light, calm, tactile' },
-]
+/** One layout now; the id stays because the CSS is scoped by :root[data-skin="next"]. */
+export type SkinId = 'next'
 
 export const NAV = [
   { to: '/',          label: 'Today',    key: 'today' },
@@ -38,10 +31,8 @@ export type NavKey = NavItem['key']
 export type NavLayout = 'vertical' | 'horizontal'
 export type NavLayoutPref = NavLayout | 'auto'
 
-/** Each skin's own navigation, used when the owner picks "Skin default". */
-export const NATIVE_LAYOUT: Record<SkinId, NavLayout> = {
-  whoop: 'horizontal', revolut: 'horizontal', linear: 'vertical', things: 'vertical', next: 'horizontal',
-}
+/** The navigation used when the owner hasn't picked one. */
+const DEFAULT_LAYOUT: NavLayout = 'horizontal'
 
 const parseKeys = (v?: string) => (v ?? '').split(',').map(x => x.trim()).filter(Boolean)
 
@@ -57,10 +48,8 @@ type AppSettings = { skin: string; navLayout?: string; navOrder?: string; navHid
 
 // ─── Active skin ─────────────────────────────────────────────────────────────
 
-const CACHE = 'oura-skin'
 interface SkinCtx {
   skin: SkinId
-  setSkin: (s: SkinId) => void
   openPalette: () => void
   /** Visible tabs in the owner's order. */
   nav: NavItem[]
@@ -70,21 +59,13 @@ interface SkinCtx {
   openCustomize: () => void
 }
 const Ctx = createContext<SkinCtx>({
-  skin: 'next', setSkin: () => {}, openPalette: () => {},
+  skin: 'next', openPalette: () => {},
   nav: [...NAV], navLayout: 'horizontal', navLayoutPref: 'auto', openCustomize: () => {},
 })
 export const useSkin = () => useContext(Ctx)
 
-const readCache = (): SkinId => {
-  const preview = new URLSearchParams(window.location.search).get('skin')
-  if (SKINS.some(s => s.id === preview)) return preview as SkinId
-  try { const v = localStorage.getItem(CACHE); if (SKINS.some(s => s.id === v)) return v as SkinId } catch { /* ignore */ }
-  return 'next'
-}
-
 export function SkinProvider({ children }: { children: React.ReactNode }) {
-  const qc = useQueryClient()
-  const [skin, setLocal] = useState<SkinId>(readCache)
+  const skin: SkinId = 'next'
   const [palette, setPalette] = useState(false)
   const [customize, setCustomize] = useState(() => new URLSearchParams(window.location.search).get('customize') === '1')
 
@@ -93,28 +74,10 @@ export function SkinProvider({ children }: { children: React.ReactNode }) {
     queryKey: ['app-settings'],
     queryFn: () => api.get<AppSettings>('/api/today/settings').then(r => r.data),
   })
-  const previewing = SKINS.some(s => s.id === new URLSearchParams(window.location.search).get('skin'))
-  useEffect(() => {
-    const s = settings.data?.skin
-    if (previewing) return          // ?skin=x previews a skin without changing the saved one
-    if (s && SKINS.some(x => x.id === s) && s !== skin) setLocal(s as SkinId)
-  }, [settings.data?.skin]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const save = useMutation({
-    mutationFn: (s: SkinId) => api.put('/api/today/settings', { skin: s }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['app-settings'] }),
-  })
-  const setSkin = useCallback((s: SkinId) => {
-    setLocal(s)
-    try { localStorage.setItem(CACHE, s) } catch { /* ignore */ }
-    save.mutate(s)
-  }, [save])
-
   useEffect(() => {
     document.documentElement.dataset.skin = skin
-    document.documentElement.classList.toggle('light', skin === 'things')
-    if (!previewing) try { localStorage.setItem(CACHE, skin) } catch { /* ignore */ }
-  }, [skin, previewing])
+    try { localStorage.removeItem('oura-skin') } catch { /* ignore */ }
+  }, [skin])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -125,13 +88,13 @@ export function SkinProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const navLayoutPref = (['vertical', 'horizontal'].includes(settings.data?.navLayout ?? '') ? settings.data!.navLayout : 'auto') as NavLayoutPref
-  const navLayout: NavLayout = navLayoutPref === 'auto' ? NATIVE_LAYOUT[skin] : navLayoutPref
+  const navLayout: NavLayout = navLayoutPref === 'auto' ? DEFAULT_LAYOUT : navLayoutPref
   const { visible } = orderedNav(parseKeys(settings.data?.navOrder), parseKeys(settings.data?.navHidden))
 
   const value = useMemo(() => ({
-    skin, setSkin, openPalette: () => setPalette(true),
+    skin, openPalette: () => setPalette(true),
     nav: visible, navLayout, navLayoutPref, openCustomize: () => setCustomize(true),
-  }), [skin, setSkin, visible.map(v => v.key).join(), navLayout, navLayoutPref]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [skin, visible.map(v => v.key).join(), navLayout, navLayoutPref]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Ctx.Provider value={value}>
       {children}
@@ -146,7 +109,7 @@ export function SkinProvider({ children }: { children: React.ReactNode }) {
 
 function CommandPalette({ onClose }: { onClose: () => void }) {
   const nav = useNavigate()
-  const { skin, setSkin, openCustomize } = useSkin()
+  const { openCustomize } = useSkin()
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
   const [, setParams] = useSearchParams()
@@ -154,13 +117,12 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
   const items = useMemo(() => {
     const all = [
       ...NAV.map(n => ({ id: `go:${n.to}`, label: `Go to ${n.label}`, run: () => nav(n.to) })),
-      ...SKINS.map(s => ({ id: `skin:${s.id}`, label: `Skin: ${s.label}${s.id === skin ? '  (current)' : ''}`, run: () => setSkin(s.id) })),
       { id: 'review', label: 'Close the day (evening review)', run: () => setParams(p => { p.set('review', '1'); return p }) },
       { id: 'tabs', label: 'Customize tabs: order, hide, sidebar or top', run: openCustomize },
     ]
     const t = q.trim().toLowerCase()
     return t ? all.filter(i => i.label.toLowerCase().includes(t)) : all
-  }, [q, nav, skin, setSkin, setParams, openCustomize])
+  }, [q, nav, setParams, openCustomize])
 
   useEffect(() => setSel(0), [q])
 
@@ -312,7 +274,6 @@ const LAYOUTS: { value: NavLayoutPref; label: string }[] = [
 
 function CustomizeTabs({ settings, onClose }: { settings: AppSettings; onClose: () => void }) {
   const qc = useQueryClient()
-  const { skin } = useSkin()
   const initial = orderedNav(parseKeys(settings.navOrder), [])
   const [order, setOrder] = useState<string[]>(initial.all.map(n => n.key))
   const [hidden, setHidden] = useState<string[]>(parseKeys(settings.navHidden))
@@ -358,7 +319,7 @@ function CustomizeTabs({ settings, onClose }: { settings: AppSettings; onClose: 
   }
 
   const label = (key: string) => NAV.find(n => n.key === key)!.label
-  const native = NATIVE_LAYOUT[skin] === 'vertical' ? 'sidebar' : 'top tabs'
+  const native = DEFAULT_LAYOUT === 'vertical' ? 'sidebar' : 'top tabs'
 
   return createPortal(
     <div className="fixed inset-0 z-[100000] flex items-start justify-center pt-[10vh]" style={{ background: 'rgba(0,0,0,.4)' }} onMouseDown={onClose}>

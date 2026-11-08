@@ -1,5 +1,4 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { useIsNext } from '../../../skins/isNext'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
@@ -19,26 +18,11 @@ const card = { background: 'var(--c-bg-card)', border: '1px solid var(--c-border
 export function Question({ q, answer, action, children }: {
   q: string; answer: ReactNode; action?: ReactNode; children: ReactNode
 }) {
-  const nx = useIsNext()
-  if (nx) {
-    return (
-      <section className="bz-q">
-        <div className="hd">
-          <div><h2>{q}</h2><p>{answer}</p></div>
-          {action && <div className="act">{action}</div>}
-        </div>
-        {children}
-      </section>
-    )
-  }
   return (
-    <section className="space-y-3">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-[15px] font-bold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{q}</h2>
-          <p className="text-[12.5px] mt-0.5" style={{ color: 'var(--c-text-2)' }}>{answer}</p>
-        </div>
-        {action && <div className="flex gap-1.5">{action}</div>}
+    <section className="bz-q">
+      <div className="hd">
+        <div><h2>{q}</h2><p>{answer}</p></div>
+        {action && <div className="act">{action}</div>}
       </div>
       {children}
     </section>
@@ -55,52 +39,26 @@ export function Fold({ id, title, summary, action, children }: {
   const key = `oura.business.fold.${id}`
   const [open, setOpen] = useState(() => { try { return localStorage.getItem(key) === '1' } catch { return false } })
   const toggle = () => setOpen(o => { try { localStorage.setItem(key, o ? '0' : '1') } catch { /* private window */ } return !o })
-  const nx = useIsNext()
-  if (nx) {
-    return (
-      <section className="bz-fold">
-        <div className="hd">
-          <button type="button" onClick={toggle} aria-expanded={open}>
-            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <b>{title}</b><span>{summary}</span>
-          </button>
-          {action}
-        </div>
-        {open && <div className="bd">{children}</div>}
-      </section>
-    )
-  }
   return (
-    <section className="rounded-xl" style={card}>
-      <div className="flex items-center gap-3 px-4 py-3 flex-wrap">
-        <button type="button" onClick={toggle} aria-expanded={open} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-          {open ? <ChevronDown size={14} style={{ color: 'var(--c-accent)' }} /> : <ChevronRight size={14} style={{ color: 'var(--c-accent)' }} />}
-          <span className="text-[13px] font-semibold" style={{ color: 'var(--c-text-1)' }}>{title}</span>
-          <span className="text-[12px] truncate" style={{ color: 'var(--c-text-3)' }}>{summary}</span>
+    <section className="bz-fold">
+      <div className="hd">
+        <button type="button" onClick={toggle} aria-expanded={open}>
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          <b>{title}</b><span>{summary}</span>
         </button>
         {action}
       </div>
-      {open && <div className="px-4 pb-4">{children}</div>}
+      {open && <div className="bd">{children}</div>}
     </section>
   )
 }
 
 export function Figure({ label, value, sub, color }: { label: string; value: ReactNode; sub?: ReactNode; color?: string }) {
-  const nx = useIsNext()
-  if (nx) {
-    return (
-      <div className="bz-fig">
-        <span className="l">{label}</span>
-        <b className="v num" style={{ color: color ?? 'var(--c-text-1)' }}>{value}</b>
-        {sub != null && <span className="s">{sub}</span>}
-      </div>
-    )
-  }
   return (
-    <div className={`rounded-xl px-4 py-3 ${hoverCard}`} style={card}>
-      <div className="text-[10px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-      <div className="text-xl font-bold num leading-none tracking-tight" style={{ color: color ?? 'var(--c-text-1)' }}>{value}</div>
-      {sub != null && <div className="text-[10.5px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>{sub}</div>}
+    <div className="bz-fig">
+      <span className="l">{label}</span>
+      <b className="v num" style={{ color: color ?? 'var(--c-text-1)' }}>{value}</b>
+      {sub != null && <span className="s">{sub}</span>}
     </div>
   )
 }

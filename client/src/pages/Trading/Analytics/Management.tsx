@@ -4,7 +4,6 @@ import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, ResponsiveContaine
 import type { Trade } from '../../../hooks/useTrades'
 import { api } from '../../../lib/api'
 import { Panel } from './Panel'
-import { useIsNext } from '../../../skins/isNext'
 import { fmtR, median, outcomeOf } from '../../../lib/tradeStats'
 
 interface Excursion { tradeId: number; mfeR: number | null; maeR: number | null; status: string }
@@ -115,9 +114,8 @@ export function TradeManagement({ trades }: { trades: Trade[] }) {
 
 function Stat({ big, label, sub, tone }: { big: string; label: string; sub?: string; tone: 'loss' | 'warn' | 'neutral' }) {
   const c = tone === 'loss' ? 'var(--c-loss)' : tone === 'warn' ? '#f59e0b' : 'var(--c-text-1)'
-  const nx = useIsNext()
   return (
-    <div className={nx ? 'tr-stat' : 'rounded-xl p-4'} style={nx ? undefined : { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)' }}>
+    <div className="tr-stat">
       <div className="text-2xl font-bold num leading-none" style={{ color: c }}>{big}</div>
       <div className="mt-1.5 text-xs font-medium" style={{ color: 'var(--c-text-1)' }}>{label}</div>
       {sub && <div className="mt-1 text-[10px] num" style={{ color: 'var(--c-text-3)' }}>{sub}</div>}

@@ -16,19 +16,17 @@ export const C = {
   muted:  'var(--c-text-3)',
 } as const
 
-/** The redesign (the "next" skin) swaps the purple accents for its own quiet ink and its green and red. */
-const isNext = () => typeof document !== 'undefined' && document.documentElement.dataset.skin === 'next'
-const isLight = () => isNext() && document.documentElement.dataset.mode === 'light'
+const isLight = () => typeof document !== 'undefined' && document.documentElement.dataset.mode === 'light'
 
 /**
  * Raw hex twins, for SVG attributes that cannot take a CSS variable. Read at
- * draw time, so a chart drawn under the Next skin uses its palette.
+ * draw time, so a chart follows light and dark mode.
  */
 export const HEX = {
-  get profit()  { return isLight() ? '#1E9A60' : isNext() ? '#6FD3A0' : '#34d399' },
-  get loss()    { return isLight() ? '#D0463A' : isNext() ? '#EC7C6E' : '#f87171' },
-  get accent()  { return isLight() ? '#3B4352' : isNext() ? '#B4BCC9' : '#818cf8' },
-  get accent2() { return isLight() ? '#9AA1AE' : isNext() ? '#5F6878' : '#a78bfa' },
+  get profit()  { return isLight() ? '#1E9A60' : '#6FD3A0' },
+  get loss()    { return isLight() ? '#D0463A' : '#EC7C6E' },
+  get accent()  { return isLight() ? '#3B4352' : '#B4BCC9' },
+  get accent2() { return isLight() ? '#9AA1AE' : '#5F6878' },
   amber: '#f59e0b',
   cyan:  '#22d3ee',
 }

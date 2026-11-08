@@ -4,7 +4,7 @@ import { NavLink } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Briefcase, CalendarDays, CandlestickChart, ChevronsLeft, ChevronsRight, Dumbbell, Moon, ListChecks, NotebookPen, Sun, SunMedium, Target, Wallet, type LucideIcon } from 'lucide-react'
 import { api } from '../../lib/api'
-import { SKINS, useSkin, type NavLayout } from '../core'
+import { useSkin, type NavLayout } from '../core'
 import { useAvatar, useAvatarActions } from '../../core/profile'
 import { startMoneyMask, usePrivacy } from '../../core/privacy'
 import { useMode, type ModePref } from '../../core/mode'
@@ -105,7 +105,7 @@ const SearchIcon = () => (
 
 export function WhoopShell({ children }: { children: React.ReactNode }) {
   const now = useClock()
-  const { skin, setSkin, openPalette, nav, navLayout, openCustomize } = useSkin()
+  const { openPalette, nav, navLayout, openCustomize } = useSkin()
   const layout = usePreviewLayout() ?? navLayout
   const vertical = layout === 'vertical'
   const [menu, setMenu] = useState(false)
@@ -116,18 +116,16 @@ export function WhoopShell({ children }: { children: React.ReactNode }) {
   const privacy = usePrivacyEverywhere()
   const qc = useQueryClient()
   const look = useMode()
-  const isNextSkin = skin === 'next'
   // L switches light and dark on every page.
   useEffect(() => {
-    if (!isNextSkin) return
     const on = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== 'l' || e.metaKey || e.ctrlKey || e.altKey || typingIn(e.target) || document.querySelector('[role="dialog"]')) return
       e.preventDefault(); look.toggle()
     }
     window.addEventListener('keydown', on)
     return () => window.removeEventListener('keydown', on)
-  }, [isNextSkin, look])
-  const modeBtn = isNextSkin && (
+  }, [look])
+  const modeBtn = (
     <button className="wh-eye" onClick={look.toggle} aria-label={look.mode === 'dark' ? 'Switch to light mode (L)' : 'Switch to dark mode (L)'} title={look.mode === 'dark' ? 'Light mode (L)' : 'Dark mode (L)'}>
       {look.mode === 'dark' ? <SunMedium size={16} strokeWidth={1.6} aria-hidden /> : <Moon size={16} strokeWidth={1.6} aria-hidden />}
     </button>
@@ -233,28 +231,19 @@ export function WhoopShell({ children }: { children: React.ReactNode }) {
             </div>
             <input ref={file} type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) pic.set.mutate(f); e.target.value = '' }} />
           </div>
-          {isNextSkin && <>
-            <hr />
-            <p>Appearance</p>
-            <div className="wh-mseg three" role="radiogroup" aria-label="Appearance">
-              {([['dark', 'Dark'], ['light', 'Light'], ['system', 'Match Mac']] as [ModePref, string][]).map(([v, l]) => (
-                <button key={v} role="radio" aria-checked={look.pref === v} className={look.pref === v ? 'on' : ''} onClick={() => look.setPref(v)}>{l}</button>
-              ))}
-            </div>
-          </>}
+          <hr />
+          <p>Appearance</p>
+          <div className="wh-mseg three" role="radiogroup" aria-label="Appearance">
+            {([['dark', 'Dark'], ['light', 'Light'], ['system', 'Match Mac']] as [ModePref, string][]).map(([v, l]) => (
+              <button key={v} role="radio" aria-checked={look.pref === v} className={look.pref === v ? 'on' : ''} onClick={() => look.setPref(v)}>{l}</button>
+            ))}
+          </div>
           <hr />
           <p>Tabs</p>
           <div className="wh-mseg" role="radiogroup" aria-label="Where the tabs sit">
             <button role="radio" aria-checked={!vertical} className={!vertical ? 'on' : ''} onClick={() => chooseLayout('horizontal')}>Along the top</button>
             <button role="radio" aria-checked={vertical} className={vertical ? 'on' : ''} onClick={() => chooseLayout('vertical')}>Down the side</button>
           </div>
-          <hr />
-          <p>Skin</p>
-          {SKINS.map(s => (
-            <button key={s.id} className={s.id === skin ? 'on' : ''} onClick={() => { setSkin(s.id); setMenu(false) }} role="menuitemradio" aria-checked={s.id === skin}>
-              {s.label}<small>{s.hint}</small>
-            </button>
-          ))}
           <hr />
           <button className="wh-mcust" onClick={() => { openCustomize(); setMenu(false) }} role="menuitem">Customize tabs…</button>
         </div>,

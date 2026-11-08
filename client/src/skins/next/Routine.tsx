@@ -224,12 +224,14 @@ function History({ data }: { data: RoutineView }) {
     for (let d = 0; d < 7; d++) { const x = new Date(start); x.setDate(start.getDate() + w * 7 + d); col.push(x.toISOString().slice(0, 10)) }
     weeks.push(col)
   }
+  const band = (n: number) => (n < 45 ? 'var(--k-bad)' : n < 75 ? 'var(--k-warn)' : 'var(--k-good)')
   const shown = data.history.slice(-28)
   const avg = shown.length ? Math.round(shown.reduce((s, h) => s + h.score, 0) / shown.length) : null
   return (
     <section className="nx-sec nrt-hist">
       <Head aside={avg != null ? <span>last 4 weeks avg <b className="num">{avg}</b></span> : <span>no closed days yet</span>}>Day scores</Head>
       <div className="nrt-heat" role="grid" aria-label="Day scores, last 16 weeks">
+        <div className="lbls" aria-hidden>{['M', '', 'W', '', 'F', '', 'S'].map((l, i) => <span key={i}>{l}</span>)}</div>
         {weeks.map((col, w) => (
           <div key={w} className="col">
             {col.map(d => {
@@ -239,13 +241,13 @@ function History({ data }: { data: RoutineView }) {
               return (
                 <button key={d} className={`cell ${pick === d ? 'on' : ''} ${isToday ? 'today' : ''}`} disabled={future || (s == null && !isToday)}
                   onClick={() => setPick(pick === d ? null : d)} title={`${fmtDate(d)}: ${s == null ? 'no score' : s}${isToday ? ' (so far)' : ''}`}
-                  style={{ opacity: future ? 0 : s == null ? 1 : 0.18 + (s / 100) * 0.82, background: s == null ? 'rgb(var(--k-fg) / .05)' : 'var(--k-good)' }} />
+                  style={{ opacity: future ? 0 : s == null ? 1 : 0.4 + (s / 100) * 0.6, background: s == null ? 'rgb(var(--k-fg) / .05)' : band(s) }} />
               )
             })}
           </div>
         ))}
       </div>
-      <p className="nrt-cap">Brighter is a better day. An empty day stays faint, never red. Click a day to open it.</p>
+      <p className="nrt-cap nrt-legend"><i className="bad" />under 45<i className="warn" />45 to 74<i className="good" />75 and up<span>An empty day stays faint. Click a day to open it.</span></p>
       {pick && (
         <div className="nrt-dd">
           <div className="hd"><b>{fmtDate(pick, { weekday: 'long', day: 'numeric', month: 'long' })}</b><span className="num">{detail.data?.score ?? '–'}</span></div>

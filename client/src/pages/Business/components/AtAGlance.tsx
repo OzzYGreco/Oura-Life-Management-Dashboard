@@ -2,8 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useForecast, usePaymentStatus, useSyncPayments } from '../../../hooks/useBusiness'
 import { useMilestones } from '../../../core/goals'
 import type { FmtView } from '../../../hooks/useFmtView'
-import { useIsNext } from '../../../skins/isNext'
-import { FactBoard, MiniBtn, fmtMonth } from './primitives'
+import { MiniBtn, fmtMonth } from './primitives'
 
 const longDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 
@@ -13,7 +12,6 @@ const longDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('en
  * payments last came in (with Sync now).
  */
 export function AtAGlance({ fmtView }: { fmtView: FmtView }) {
-  const nx = useIsNext()
   const navigate = useNavigate()
   const { data: f } = useForecast(3)
   const { data: goals } = useMilestones()
@@ -68,23 +66,16 @@ export function AtAGlance({ fmtView }: { fmtView: FmtView }) {
     },
   ]
 
-  if (nx) {
-    return (
-      <div className="bz-glance" aria-label="At a glance">
-        {facts.map(x => (
-          <div key={x.key}>
-            <span className="l">{x.label}</span>
-            <b className="v num" style={{ color: x.color }}>{x.value}</b>
-            <span className="s">{x.sub}</span>
-            {x.action && <span className="a">{x.action}</span>}
-          </div>
-        ))}
-      </div>
-    )
-  }
   return (
-    <div className="mt-3">
-      <FactBoard facts={facts.map(x => ({ label: x.label, value: x.value, color: x.color, sub: <>{x.sub}{x.action && <span className="block mt-2">{x.action}</span>}</> }))} />
+    <div className="bz-glance" aria-label="At a glance">
+      {facts.map(x => (
+        <div key={x.key}>
+          <span className="l">{x.label}</span>
+          <b className="v num" style={{ color: x.color }}>{x.value}</b>
+          <span className="s">{x.sub}</span>
+          {x.action && <span className="a">{x.action}</span>}
+        </div>
+      ))}
     </div>
   )
 }

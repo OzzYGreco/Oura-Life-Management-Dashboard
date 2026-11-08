@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Preset } from '../../components/shared/DateFilter'
 import { CalendarRange } from 'lucide-react'
-import { useIsNext } from '../../skins/isNext'
 
 /**
  * The trading page's controls, one family: a segmented switch with a
@@ -35,8 +34,7 @@ export function Segmented<T extends string>({ options, value, onChange, size = '
   }, [value])
 
   const pad = size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-3.5 py-1.5 text-xs'
-  const nx = useIsNext() && !keep
-  if (nx) {
+  if (!keep) {
     // New style: a quiet track, the chosen option on a faint fill. No glow, no gradient.
     return (
       <div className={`tr-seg ${size}`}>
@@ -108,45 +106,19 @@ export function RangePicker({ preset, onPreset, customFrom, customTo, onCustomFr
 
 /** Quiet buttons that sit together in one tray. */
 export function ToolTray({ children }: { children: React.ReactNode }) {
-  const nx = useIsNext()
-  if (nx) return <div className="tr-tray">{children}</div>
-  return (
-    <div className="inline-flex items-center p-1 gap-0.5 rounded-xl" style={{ background: 'var(--c-bg-input)', boxShadow: 'inset 0 0 0 1px var(--c-border)' }}>
-      {children}
-    </div>
-  )
+  return <div className="tr-tray">{children}</div>
 }
 
 export function ToolButton({ icon, label, onClick, title, kbd }: { icon: React.ReactNode; label?: string; onClick: () => void; title?: string; kbd?: string }) {
-  const nx = useIsNext()
-  if (nx) {
-    return (
-      <button type="button" onClick={onClick} title={title ? `${title}${kbd ? ` (${kbd})` : ''}` : undefined} aria-label={label ? undefined : title} className="tr-tool">
-        {icon}{label && <span>{label}</span>}{kbd && <kbd>{kbd}</kbd>}
-      </button>
-    )
-  }
   return (
-    <button type="button" onClick={onClick} title={title ? `${title}${kbd ? ` (${kbd})` : ''}` : undefined}
-      className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 hover:bg-[var(--c-bg-hover)]"
-      style={{ color: 'var(--c-text-2)' }}>
-      <span className="transition-colors group-hover:text-[var(--c-accent)]">{icon}</span>
-      {label && <span className="group-hover:text-[var(--c-text-1)]">{label}</span>}
+    <button type="button" onClick={onClick} title={title ? `${title}${kbd ? ` (${kbd})` : ''}` : undefined} aria-label={label ? undefined : title} className="tr-tool">
+      {icon}{label && <span>{label}</span>}{kbd && <kbd>{kbd}</kbd>}
     </button>
   )
 }
 
 export function PrimaryButton({ children, onClick, kbd }: { children: React.ReactNode; onClick: () => void; kbd?: string }) {
-  const nx = useIsNext()
-  if (nx) return <button type="button" onClick={onClick} className="nx-btn tr-primary">{children}{kbd && <kbd>{kbd}</kbd>}</button>
-  return (
-    <button type="button" onClick={onClick}
-      className="relative flex items-center gap-1.5 pl-3.5 pr-2.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
-      style={{ background: 'linear-gradient(135deg, var(--c-accent), var(--c-accent-2))', boxShadow: 'var(--c-shadow-btn)', color: 'var(--c-on-accent)' }}>
-      {children}
-      {kbd && <kbd className="ml-1 px-1.5 py-px rounded-md text-[10px] font-semibold" style={{ background: 'color-mix(in srgb, var(--c-on-accent) 18%, transparent)' }}>{kbd}</kbd>}
-    </button>
-  )
+  return <button type="button" onClick={onClick} className="nx-btn tr-primary">{children}{kbd && <kbd>{kbd}</kbd>}</button>
 }
 
 /** A small menu anchored under its trigger; closes on outside click or Escape. */

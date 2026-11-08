@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useIsNext } from '../../../skins/isNext'
 import { Section } from '../../../components/ui/Section'
 import { MiniBtn } from './primitives'
 import { ReminderModal } from '../modals/GrowthModals'
@@ -67,25 +66,22 @@ export function NeedsYou({
   const [menu, setMenu] = useState<string | null>(null)
   const [remind, setRemind] = useState<{ id: number; invoiceNumber: string } | null>(null)
   const LIMIT = 5
-  const nx = useIsNext()
 
   return (
     <Section label="Needs you" count={rows.length || undefined}>
       {remind && <ReminderModal invoice={remind} onClose={() => setRemind(null)} />}
       {rows.length === 0 ? (
-        <div className={nx ? 'bz-clear' : 'rounded-xl px-4 py-8 text-center text-xs'}
-          style={nx ? undefined : { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)', color: 'var(--c-text-3)' }}>
+        <div className="bz-clear">
           Nothing needs you right now. Every invoice is paid and every job is billed.
         </div>
       ) : (
-        <div className={nx ? 'bz-needs' : 'grid gap-3'} style={nx ? undefined : { gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))' }}>
+        <div className="bz-needs">
           {GROUPS.map(g => {
             const list = rows.filter(r => (r.group ?? 'fix') === g.key)
             const shown = open[g.key] ? list : list.slice(0, LIMIT)
             const total = list.reduce((s, r) => s + r.amount, 0)
             return (
-              <div key={g.key} className={nx ? 'bz-need' : 'rounded-xl overflow-hidden flex flex-col'}
-                style={nx ? undefined : { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
+              <div key={g.key} className="bz-need">
                 <div className="flex items-baseline justify-between gap-3 px-4 py-2.5"
                   style={{ borderBottom: '1px solid var(--c-border)' }}>
                   <span className="flex items-baseline gap-2">

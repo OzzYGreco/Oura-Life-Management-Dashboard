@@ -1,110 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;450;500;600;700&family=Inter+Tight:wght@300;400;500;600&family=Manrope:wght@600;700;800&display=swap');
-
 /*
- * The four skins. `data-skin` on <html> picks one. Each block sets the skin's
- * own palette (--k-*) and re-maps the app-wide tokens (--c-*) so pages that
- * have no skin-specific layout yet still wear the skin's colours.
+ * Arete's theme tokens. `data-skin="next"` on <html> scopes them; the block
+ * sets the palette (--k-*) and re-maps the app-wide tokens (--c-*) so older
+ * pages wear the same colours.
  * Colour keeps one meaning everywhere: good = money made / on time,
  * bad = loss / missed, warn = late / warning, accent = interactive.
  */
 
-/* ─── A · Linear ──────────────────────────────────────────────────── */
-:root[data-skin="linear"] {
-  color-scheme: dark;
-  --k-bg: #08090A; --k-side: #0D0E10; --k-s1: #121316; --k-s2: #17181B; --k-s3: #1C1D21;
-  --k-line: rgba(255,255,255,.065); --k-line2: rgba(255,255,255,.09);
-  --k-t1: #EDEEF0; --k-t2: #B4B6BC; --k-t3: #7E8189; --k-t4: #55585F;
-  --k-acc: #5E6AD2; --k-acc2: #7C86E0; --k-accbg: rgba(94,106,210,.12);
-  --k-good: #4CB782; --k-bad: #E0585C; --k-warn: #D7A246;
-  --k-font: 'Inter', system-ui, sans-serif;
-
-  --c-bg-primary: var(--k-bg); --c-bg-secondary: var(--k-side); --c-bg-card: var(--k-s1); --c-bg-elevated: var(--k-s2);
-  --c-bg-input: rgba(255,255,255,.04); --c-bg-hover: rgba(255,255,255,.04); --c-bg-selected: rgba(255,255,255,.07);
-  --c-border: var(--k-line); --c-border-subtle: rgba(255,255,255,.04); --c-border-mid: var(--k-line2); --c-border-strong: rgba(255,255,255,.16);
-  --c-text-1: var(--k-t1); --c-text-2: var(--k-t3); --c-text-3: var(--k-t4);
-  --c-accent: var(--k-acc); --c-accent-2: var(--k-acc); --c-on-accent: #fff;
-  --c-profit: var(--k-good); --c-loss: var(--k-bad); --c-warn: var(--k-warn);
-  --c-seg-on: var(--k-s3); --c-seg-on-shadow: 0 0 0 1px var(--k-line2);
-  --c-sidebar-bg: var(--k-side); --c-shadow-card: 0 0 0 1px var(--k-line); --c-shadow-hover: 0 0 0 1px var(--k-line2);
-  --c-shadow-modal: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px var(--k-line2); --c-shadow-sidebar: none;
-  --c-chart-grid: rgba(255,255,255,.05); --c-chart-tooltip-bg: var(--k-s2); --c-chart-tick: var(--k-t4);
-  --c-scrollbar: rgba(255,255,255,.12);
-}
-
-/* ─── B · Whoop (default) ─────────────────────────────────────────── */
-:root[data-skin="whoop"] {
-  color-scheme: dark;
-  --k-bg: #0B0E14; --k-bg2: #0E121A; --k-card: #121722; --k-card2: #151B27;
-  --k-line: rgba(255,255,255,.055); --k-line2: rgba(255,255,255,.09);
-  --k-ink: #ECEFF4; --k-ink2: #B4BCC9; --k-mute: #7F8899; --k-faint: #545D6D;
-  --k-good: #6FD3A0; --k-good-d: rgba(111,211,160,.12); --k-lime: #B5D46A;
-  --k-warn: #E9B65E; --k-warn-d: rgba(233,182,94,.10);
-  --k-bad: #EC7C6E; --k-bad-d: rgba(236,124,110,.12);
-  --k-font: 'Inter', system-ui, sans-serif; --k-display: 'Inter Tight', 'Inter', sans-serif;
-
-  --c-bg-primary: var(--k-bg); --c-bg-secondary: var(--k-bg2); --c-bg-card: var(--k-card); --c-bg-elevated: var(--k-card2);
-  --c-bg-input: rgba(255,255,255,.04); --c-bg-hover: rgba(255,255,255,.04); --c-bg-selected: rgba(255,255,255,.07);
-  --c-border: var(--k-line); --c-border-subtle: rgba(255,255,255,.035); --c-border-mid: var(--k-line2); --c-border-strong: rgba(255,255,255,.16);
-  --c-text-1: var(--k-ink); --c-text-2: var(--k-mute); --c-text-3: var(--k-faint);
-  --c-accent: #DCE3EE; --c-accent-2: #DCE3EE; --c-on-accent: #0B0E14;
-  --c-profit: var(--k-good); --c-loss: var(--k-bad); --c-warn: var(--k-warn);
-  --c-seg-on: var(--k-card2); --c-seg-on-shadow: 0 0 0 1px var(--k-line2);
-  --c-sidebar-bg: var(--k-bg2); --c-shadow-card: 0 0 0 1px var(--k-line), 0 20px 40px -24px rgba(0,0,0,.6);
-  --c-shadow-hover: 0 0 0 1px var(--k-line2); --c-shadow-modal: 0 30px 70px rgba(0,0,0,.6), 0 0 0 1px var(--k-line2); --c-shadow-sidebar: none;
-  --c-chart-grid: rgba(255,255,255,.05); --c-chart-tooltip-bg: var(--k-card2); --c-chart-tick: var(--k-faint);
-  --c-scrollbar: rgba(255,255,255,.12);
-}
-
-/* ─── C · Revolut ─────────────────────────────────────────────────── */
-:root[data-skin="revolut"] {
-  color-scheme: dark;
-  --k-bg: #000; --k-s1: #0E0E10; --k-s2: #161619; --k-line: rgba(255,255,255,.07);
-  --k-t1: #F5F5F7; --k-t2: #8D8D94; --k-t3: #55555C;
-  --k-good: #3AD67F; --k-bad: #FF5B4F; --k-warn: #FFAE3D; --k-blue: #3B7BFF;
-  --k-font: 'Inter', system-ui, sans-serif; --k-display: 'Manrope', 'Inter', sans-serif;
-
-  --c-bg-primary: var(--k-bg); --c-bg-secondary: var(--k-s1); --c-bg-card: var(--k-s1); --c-bg-elevated: var(--k-s2);
-  --c-bg-input: rgba(255,255,255,.05); --c-bg-hover: rgba(255,255,255,.05); --c-bg-selected: rgba(255,255,255,.08);
-  --c-border: var(--k-line); --c-border-subtle: rgba(255,255,255,.04); --c-border-mid: rgba(255,255,255,.1); --c-border-strong: rgba(255,255,255,.18);
-  --c-text-1: var(--k-t1); --c-text-2: var(--k-t2); --c-text-3: var(--k-t3);
-  --c-accent: var(--k-blue); --c-accent-2: var(--k-blue); --c-on-accent: #fff;
-  --c-profit: var(--k-good); --c-loss: var(--k-bad); --c-warn: var(--k-warn);
-  --c-seg-on: #F5F5F7; --c-seg-on-shadow: none;
-  --c-sidebar-bg: var(--k-s1); --c-shadow-card: 0 0 0 1px var(--k-line); --c-shadow-hover: 0 0 0 1px rgba(255,255,255,.12);
-  --c-shadow-modal: 0 30px 70px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.1); --c-shadow-sidebar: none;
-  --c-chart-grid: rgba(255,255,255,.05); --c-chart-tooltip-bg: var(--k-s2); --c-chart-tick: var(--k-t3);
-  --c-scrollbar: rgba(255,255,255,.14);
-}
-
-/* ─── D · Things (light) ──────────────────────────────────────────── */
-:root[data-skin="things"] {
-  color-scheme: light;
-  --k-frame: linear-gradient(160deg, #E9EEF7 0%, #EEEAF6 55%, #F3EEF2 100%);
-  --k-panel: #FFFFFF;
-  --k-ink: #1D2129; --k-ink2: #4A515C; --k-mute: #8A919C; --k-faint: #B4BAC3; --k-line: #ECEEF1;
-  --k-blue: #2D7FF9; --k-blue-soft: #EAF2FF; --k-blue-ink: #1F66D1;
-  --k-good: #21A35A; --k-good-soft: #E7F6EC;
-  --k-warn: #C9820E; --k-warn-soft: #FDF3E1;
-  --k-bad: #D9483E; --k-bad-soft: #FCEBEA;
-  --k-star: #F5B90A;
-  --k-font: 'Inter', system-ui, sans-serif;
-
-  --c-bg-primary: #FFFFFF; --c-bg-secondary: #F6F7F9; --c-bg-card: #FFFFFF; --c-bg-elevated: #FFFFFF;
-  --c-bg-input: #F4F5F7; --c-bg-hover: #F4F5F7; --c-bg-selected: var(--k-blue-soft);
-  --c-border: var(--k-line); --c-border-subtle: #F2F3F5; --c-border-mid: #E2E5EA; --c-border-strong: #D2D6DC;
-  --c-text-1: var(--k-ink); --c-text-2: var(--k-ink2); --c-text-3: var(--k-mute);
-  --c-accent: var(--k-blue); --c-accent-2: var(--k-blue); --c-on-accent: #fff;
-  --c-profit: var(--k-good); --c-loss: var(--k-bad); --c-warn: var(--k-warn);
-  --c-seg-on: #FFFFFF; --c-seg-on-shadow: 0 1px 2px rgba(16,24,40,.08), 0 0 0 1px rgba(16,24,40,.05);
-  --c-sidebar-bg: transparent; --c-shadow-card: 0 0 0 1px var(--k-line), 0 1px 2px rgba(16,24,40,.04);
-  --c-shadow-hover: 0 0 0 1px #E2E5EA, 0 4px 12px rgba(16,24,40,.06);
-  --c-shadow-modal: 0 24px 60px rgba(16,24,40,.18), 0 0 0 1px rgba(16,24,40,.06); --c-shadow-sidebar: none;
-  --c-chart-grid: #EEF0F3; --c-chart-tooltip-bg: #FFFFFF; --c-chart-tick: var(--k-mute);
-  --c-scrollbar: rgba(16,24,40,.18);
-}
-
-/* ─── Night: the one-layout redesign (DESIGN.md). Whoop's --k-* names, so its
-   pages wear it too; the system font (SF Pro on Apple) replaces Inter, Inter Tight and Manrope. */
+/* ─── Night: the one-layout redesign (DESIGN.md), using the --k-* names
+   the Whoop frame was built on. The system font (SF Pro on Apple) throughout. */
 :root {
   /* Overlay ink and fills that flip with light and dark. Dark values are the default, so every skin keeps its look. */
   --k-fg: 255 255 255;
@@ -143,7 +46,6 @@
 :root[data-skin="next"] .wh-brand { letter-spacing: .08em; font-weight: 600; }
 
 :root[data-skin] body { font-family: var(--k-font); background: var(--c-bg-primary); }
-:root[data-skin="things"] body { background: var(--k-frame); }
 
 @keyframes skinFade { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
 .skin-enter { animation: skinFade .22s ease-out both; }

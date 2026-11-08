@@ -1,5 +1,4 @@
 import type { ReactNode, CSSProperties } from 'react'
-import { useIsNext } from '../../../skins/isNext'
 import { STATUS_COLOR } from '../lib/types'
 
 /**
@@ -60,23 +59,13 @@ export function Td({
 
 /** A table wrapped in the app's card chrome, with a tinted header row. */
 export function TablePanel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  const nx = useIsNext()
-  if (nx) return <div className={`bz-table ${className}`}><div className="overflow-x-auto">{children}</div></div>
-  return (
-    <div
-      className={`rounded-xl overflow-hidden ${className}`}
-      style={{ background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}
-    >
-      <div className="overflow-x-auto">{children}</div>
-    </div>
-  )
+  return <div className={`bz-table ${className}`}><div className="overflow-x-auto">{children}</div></div>
 }
 
 export function THead({ children }: { children: ReactNode }) {
-  const nx = useIsNext()
   return (
     <thead>
-      <tr style={nx ? { borderBottom: '1px solid var(--c-border-mid)' } : { background: 'var(--c-bg-input)', borderBottom: '1px solid var(--c-border)' }}>{children}</tr>
+      <tr style={{ borderBottom: '1px solid var(--c-border-mid)' }}>{children}</tr>
     </thead>
   )
 }
@@ -103,10 +92,9 @@ export function Row({ children, onClick, dim, tint }: {
 
 /** The accent-tinted totals row. */
 export function TotalRow({ children }: { children: ReactNode }) {
-  const nx = useIsNext()
   return (
     <tfoot>
-      <tr style={nx ? { borderTop: '1px solid var(--c-border-strong)' } : { background: 'rgba(99,102,241,0.06)', borderTop: '2px solid rgba(99,102,241,0.22)' }}>
+      <tr style={{ borderTop: '1px solid var(--c-border-strong)' }}>
         {children}
       </tr>
     </tfoot>
@@ -125,14 +113,6 @@ export function TotalRow({ children }: { children: ReactNode }) {
  */
 export type Tone = 'default' | 'good' | 'warn' | 'danger' | 'accent'
 
-export const TONES: Record<Tone, { color: string; border: string; bg: string; hover: string }> = {
-  default: { color: 'var(--c-text-1)', border: 'var(--c-border-mid)', bg: 'var(--c-bg-input)', hover: 'var(--c-bg-hover)' },
-  good:    { color: 'var(--c-profit)', border: 'rgba(52,211,153,0.3)', bg: 'rgba(52,211,153,0.1)', hover: 'rgba(52,211,153,0.18)' },
-  warn:    { color: '#f59e0b', border: 'rgba(245,158,11,0.32)', bg: 'rgba(245,158,11,0.1)', hover: 'rgba(245,158,11,0.18)' },
-  danger:  { color: 'var(--c-loss)', border: 'rgba(248,113,113,0.3)', bg: 'rgba(248,113,113,0.1)', hover: 'rgba(248,113,113,0.18)' },
-  accent:  { color: 'var(--c-accent)', border: 'rgba(129,140,248,0.3)', bg: 'rgba(129,140,248,0.1)', hover: 'rgba(129,140,248,0.18)' },
-}
-
 export function MiniBtn({
   children, onClick, tone = 'default', title, disabled,
 }: {
@@ -142,25 +122,9 @@ export function MiniBtn({
   title?: string
   disabled?: boolean
 }) {
-  const nx = useIsNext()
-  const tones = TONES[nx && tone === 'accent' ? 'default' : tone]
-  if (nx) {
-    return (
-      <button type="button" title={title} disabled={disabled} onClick={e => { e.stopPropagation(); onClick?.(e) }}
-        className={`bz-mini ${tone}`}>
-        {children}
-      </button>
-    )
-  }
   return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onClick={e => { e.stopPropagation(); onClick?.(e) }}
-      className="px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap enabled:hover:-translate-y-px enabled:hover:[background:var(--mb-hover)]"
-      style={{ color: tones.color, border: `1px solid ${tones.border}`, background: tones.bg, ['--mb-hover' as any]: tones.hover }}
-    >
+    <button type="button" title={title} disabled={disabled} onClick={e => { e.stopPropagation(); onClick?.(e) }}
+      className={`bz-mini ${tone}`}>
       {children}
     </button>
   )
@@ -177,40 +141,7 @@ export function StatusDot({ status }: { status: string }) {
 }
 
 export function Pill({ children, color, bg }: { children: ReactNode; color: string; bg?: string }) {
-  const nx = useIsNext()
-  if (nx) return <span className="bz-pill" style={{ color, background: bg ?? color + '1f' }}>{children}</span>
-  return (
-    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
-      style={{ color, background: bg ?? color + '1f' }}>
-      {children}
-    </span>
-  )
-}
-
-/** A dense fact board: five numbers, no card chrome between them. */
-export function FactBoard({ facts }: {
-  facts: { label: string; value: ReactNode; sub?: ReactNode; color?: string }[]
-}) {
-  return (
-    <div className="grid rounded-xl overflow-hidden"
-      style={{
-        gridTemplateColumns: `repeat(${facts.length}, minmax(0, 1fr))`,
-        background: 'var(--c-bg-card)', border: '1px solid var(--c-border)',
-      }}>
-      {facts.map((f, i) => (
-        <div key={f.label} className="px-4 py-3 min-w-0"
-          style={{ borderLeft: i ? '1px solid var(--c-border)' : 'none' }}>
-          <div className="text-[9.5px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--c-text-3)' }}>
-            {f.label}
-          </div>
-          <div className="text-lg font-bold num leading-none tracking-tight" style={{ color: f.color ?? 'var(--c-text-1)' }}>
-            {f.value}
-          </div>
-          {f.sub != null && <div className="text-[10px] mt-1.5" style={{ color: 'var(--c-text-3)' }}>{f.sub}</div>}
-        </div>
-      ))}
-    </div>
-  )
+  return <span className="bz-pill" style={{ color, background: bg ?? color + '1f' }}>{children}</span>
 }
 
 export function EmptyRow({ children, colSpan }: { children: ReactNode; colSpan: number }) {

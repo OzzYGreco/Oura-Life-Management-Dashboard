@@ -377,3 +377,19 @@ button.nx-h:hover svg { color: var(--k-ink2); transform: translateX(2px); }
 @media (max-width: 640px) { .nno-keys .cols { grid-template-columns: minmax(0, 1fr); } }
 /* Picked notes (⌘-click, ⇧-click) */
 .nno-item:focus-visible { outline-offset: -2px; }
+
+/* Today: the coach line and the day in words, under the hero */
+.nx-story { padding: 0 32px 20px; max-width: 72ch; }
+.nx-story p { margin: 0; font-size: 14px; line-height: 1.5; color: var(--k-mute); text-wrap: pretty; }
+.nx-story p.coach { color: var(--k-ink2); margin-bottom: 4px; }
+.nx-closes { margin-left: auto; font-size: 13px; color: var(--k-mute); white-space: nowrap; }
+.nx-closes + .nx-link, .nx-closes ~ .nx-priv { margin-left: 8px; }
+.nx-facts b.warn { color: var(--k-warn); }
+/* Today: daily loss limit used, per trading account */
+.nx-limit { width: 100%; align-self: stretch; }
+.nx-limit .bar { height: 4px; border-radius: 2px; background: rgb(var(--k-fg) / .07); overflow: hidden; margin: 2px 0 6px; }
+.nx-limit .bar i { display: block; height: 100%; border-radius: 2px; background: rgb(var(--k-fg) / .25); }
+.nx-limit .bar i.warn { background: var(--k-warn); }
+.nx-limit .bar i.bad { background: var(--k-bad); }
+.nx-limit .v.warn { color: var(--k-warn); }
+.nx-limit .v.bad { color: var(--k-bad); }

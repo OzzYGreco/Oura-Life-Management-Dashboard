@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useIsNext } from '../../skins/isNext'
 import type { Trade } from '../../hooks/useTrades'
 import { MAX_DEVIATION_PCT } from '../../components/shared/PnLBadge'
 import { isClosed, outcomeOf } from '../../lib/tradeStats'
@@ -98,37 +97,20 @@ export function LogFilters({ trades, value: f, onChange }: { trades: Trade[]; va
 }
 
 function Sep() {
-  const nx = useIsNext()
-  return nx ? <span className="tr-sep" /> : <span className="w-px h-4 mx-1" style={{ background: 'var(--c-border-mid)' }} />
+  return <span className="tr-sep" />
 }
 
 function Chip({ on, label, n, dot, icon, caret, active, onClick }: {
   on: boolean; label: string; n?: number; dot?: string; icon?: React.ReactNode; caret?: boolean; active?: boolean; onClick: () => void
 }) {
   const dim = n === 0 && !on
-  const nx = useIsNext()
-  if (nx) {
-    return (
-      <button type="button" onClick={onClick} disabled={dim} aria-pressed={on} className={`tr-chip ${on ? 'on' : ''} ${active ? 'act' : ''}`}>
-        {icon}
-        {dot && <i style={{ background: dot }} />}
-        <span className="lb">{label}</span>
-        {n != null && <span className="n num">{n}</span>}
-        {caret && <ChevronDown size={12} />}
-      </button>
-    )
-  }
   return (
-    <button type="button" onClick={onClick} disabled={dim}
-      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-150 disabled:opacity-35"
-      style={on
-        ? { background: 'color-mix(in srgb, var(--c-accent) 16%, transparent)', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 45%, transparent)', color: 'var(--c-text-1)' }
-        : { background: active ? 'var(--c-bg-hover)' : 'transparent', boxShadow: 'inset 0 0 0 1px var(--c-border)', color: 'var(--c-text-2)' }}>
+    <button type="button" onClick={onClick} disabled={dim} aria-pressed={on} className={`tr-chip ${on ? 'on' : ''} ${active ? 'act' : ''}`}>
       {icon}
-      {dot && <span className="w-1.5 h-1.5 rounded-full" style={{ background: dot }} />}
-      <span className="max-w-[160px] truncate">{label}</span>
-      {n != null && <span className="num" style={{ color: 'var(--c-text-3)' }}>{n}</span>}
-      {caret && <ChevronDown size={12} style={{ color: 'var(--c-text-3)' }} />}
+      {dot && <i style={{ background: dot }} />}
+      <span className="lb">{label}</span>
+      {n != null && <span className="n num">{n}</span>}
+      {caret && <ChevronDown size={12} />}
     </button>
   )
 }

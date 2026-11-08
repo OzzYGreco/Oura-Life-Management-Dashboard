@@ -24,7 +24,10 @@ export function setModePref(p: ModePref) {
 }
 
 /** Applied before React renders, so a light page never flashes dark. */
-export function applyModeEarly() { document.documentElement.dataset.mode = resolve(readPref()) }
+export function applyModeEarly() {
+  document.documentElement.dataset.skin = 'next'
+  document.documentElement.dataset.mode = resolve(readPref())
+}
 
 export function useMode() {
   const pref = useSyncExternalStore(subscribe, readPref, () => 'dark' as ModePref)

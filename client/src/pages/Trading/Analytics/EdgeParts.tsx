@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
 import type { Trade } from '../../../hooks/useTrades'
 import { Panel } from './Panel'
-import { useIsNext } from '../../../skins/isNext'
 import { fmtR, mean } from '../../../lib/tradeStats'
 import type { Lever } from './slices'
 import { TrendingDown, TrendingUp } from 'lucide-react'
@@ -11,20 +10,18 @@ const ttStyle = { background: 'var(--c-bg-card)', border: '1px solid var(--c-bor
 
 /** The strongest findings as cards: what it is, what it costs or adds, and against what. */
 export function LeverCards({ items, holdNote }: { items: Lever[]; holdNote?: boolean }) {
-  const nx = useIsNext()
   if (!items.length) {
     return <p className="text-sm" style={{ color: 'var(--c-text-3)' }}>Nothing stands out yet: no slice of 15+ trades differs enough from the rest.</p>
   }
   return (
-    <div className={nx ? 'tr-levers' : 'grid gap-3 md:grid-cols-3'}>
-      {items.map((l, i) => {
+    <div className="tr-levers">
+      {items.map(l => {
         const bad = l.impact < 0
         // Green only when the slice makes money; a losing slice that beats the rest is "least bad".
         const lessBad = !bad && l.avgR < 0
         const c = bad ? 'var(--c-loss)' : lessBad ? '#f59e0b' : 'var(--c-profit)'
         return (
-          <div key={`${l.dim.key}${l.bucket}`} className={nx ? 'tr-lever' : 'relative overflow-hidden rounded-xl p-4'}
-            style={nx ? undefined : { background: `radial-gradient(130% 120% at 0% 0%, color-mix(in srgb, ${c} ${i === 0 ? 14 : 8}%, transparent), transparent 60%), var(--c-bg-card)`, border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)' }}>
+          <div key={`${l.dim.key}${l.bucket}`} className="tr-lever">
             <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: c }}>
               {bad ? <TrendingDown size={13} /> : <TrendingUp size={13} />} {bad ? 'Costs you' : lessBad ? 'Loses least' : 'Works for you'} · {l.dim.label}
             </div>

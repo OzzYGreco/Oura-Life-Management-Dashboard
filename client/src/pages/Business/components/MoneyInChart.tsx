@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
-import { useIsNext } from '../../../skins/isNext'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { axisProps, gridProps, tooltipStyle, barCursor, compact, HEX } from '../../../lib/chartTheme'
+import { axisProps, gridProps, tooltipStyle, barCursor, compact } from '../../../lib/chartTheme'
 import { fmtMonth } from './primitives'
 import type { BusinessMetrics } from '../lib/types'
 import type { FmtView } from '../../../hooks/useFmtView'
@@ -34,11 +33,10 @@ export function MoneyInChart({
   }, [metrics, months])
 
   const hasAny = data.some(d => d.retainer || d.oneOff || d.mrr)
-  const nx = useIsNext()
-  const col = nx ? { retainer: 'var(--k-ink2)', oneOff: 'var(--k-faint)', mrr: 'var(--k-good)' } : { retainer: HEX.accent, oneOff: HEX.accent2, mrr: HEX.profit }
+  const col = { retainer: 'var(--k-ink2)', oneOff: 'var(--k-faint)', mrr: 'var(--k-good)' }
 
   return (
-    <div className={nx ? 'bz-chart' : 'rounded-xl p-4'} style={nx ? undefined : { background: 'var(--c-bg-card)', border: '1px solid var(--c-border)' }}>
+    <div className="bz-chart">
       {hasAny ? (
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
@@ -52,7 +50,7 @@ export function MoneyInChart({
                 wrapperStyle={{ fontSize: 11, color: 'var(--c-text-3)', paddingBottom: 6 }}
               />
               <Bar dataKey="retainer" name="Retainer income" stackId="in" fill={col.retainer} radius={[0, 0, 0, 0]} maxBarSize={44} />
-              <Bar dataKey="oneOff" name="Website and one-off" stackId="in" fill={col.oneOff} fillOpacity={nx ? 1 : 0.55} radius={[3, 3, 0, 0]} maxBarSize={44} />
+              <Bar dataKey="oneOff" name="Website and one-off" stackId="in" fill={col.oneOff} radius={[3, 3, 0, 0]} maxBarSize={44} />
               <Line dataKey="mrr" name="MRR at month end" type="monotone" stroke={col.mrr} strokeWidth={2} dot={false}
                 activeDot={{ r: 4, fill: col.mrr, stroke: 'var(--c-bg-card)', strokeWidth: 2 }} />
             </ComposedChart>

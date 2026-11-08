@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { useTrades, type Trade } from '../../../hooks/useTrades'
 import { useTradingAccounts } from '../../../hooks/useTradingAccounts'
 import { Panel } from './Panel'
-import { useIsNext } from '../../../skins/isNext'
 import { PageLoader } from '../../../components/ui/Spinner'
 import { useFmtView } from '../../../hooks/useFmtView'
 import { MISTAKES } from '../../../lib/constants'
@@ -99,7 +98,6 @@ function previousRange(preset: Preset, customFrom: string, customTo: string): { 
 }
 
 export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
-  const nx = useIsNext()
   const { fmtView } = useFmtView('USD', 'trading')
   const { data: trades = [], isPending } = useTrades(accountId ? { accountId: String(accountId) } : {})
   const { data: accounts = [] } = useTradingAccounts()
@@ -182,7 +180,7 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
   const reviewed = s ? s.rules[0].n + s.rules[1].n : 0
 
   return (
-    <div className={nx ? 'tr-an' : 'space-y-10'}>
+    <div className="tr-an">
       <div className="flex flex-wrap items-center gap-3">
         <RangePicker preset={preset} onPreset={setPreset} customFrom={customFrom} onCustomFrom={setCustomFrom} customTo={customTo} onCustomTo={setCustomTo} />
         <button type="button" disabled={!prevRange} onClick={() => setCompare(v => !v)}
@@ -205,13 +203,13 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
       ) : <>
 
       {/* ── Am I making money? ─────────────────────────────────────── */}
-      <Section n={1} q="Am I making money?" a={
+      <Section q="Am I making money?" a={
         <>Over {s.all.n} trades you're {s.c.netR >= 0 ? 'up' : 'down'} <b style={{ color: rColor(s.c.netR) }}>{fmtR(s.c.netR, 1)}</b>:
           {' '}the average trade {s.c.avgR! >= 0 ? 'makes' : 'loses'} <b style={{ color: rColor(s.c.avgR) }}>{fmtR(Math.abs(s.c.avgR ?? 0)).replace(/^[+−]/, '')}</b>.
           {' '}You win {pct(s.c.winRate)} of trades at {fmtR(s.c.avgWinR)} and lose {pct(s.all.losses / s.all.n)} at {fmtR(s.c.avgLossR)}
           {s.all.be ? `; ${s.all.be} were scratches` : ''}.</>
       }>
-        <div className={nx ? 'tr-kpis' : 'grid grid-cols-2 md:grid-cols-5 gap-3 mb-4'}>
+        <div className="tr-kpis">
           <Kpi label="Net P&L" value={fmtView(s.c.net)} color={rColor(s.c.net)} delta={d(s.c.net, before?.net, x => fmtView(x).replace('-', ''))}
             sub={s.perAccount.length > 1 ? s.perAccount.map(g => `${g.name} ${fmtView(g.pnl)}`).join(' · ') : 'after fees and funding'} />
           <Kpi label="Net R" value={fmtR(s.c.netR, 1)} color={rColor(s.c.netR)} delta={d(s.c.netR, before?.netR, x => `${x.toFixed(1)}R`)} sub={`${s.withR.length} trades with a planned risk`} />
@@ -258,7 +256,7 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
 
 
       {/* ── Am I getting better? ───────────────────────────────────── */}
-      <Section n={2} q="Am I getting better?" a={(() => {
+      <Section q="Am I getting better?" a={(() => {
         const rs = s.withR.map(t => t.rrRatio!)
         if (rs.length <= rollWin) return <>Not enough trades in this range to see a trend ({rs.length}; it takes more than {rollWin}). Switch to a longer range.</>
         const roll = (i: number) => mean(rs.slice(i - rollWin, i))!
@@ -274,7 +272,7 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
 
 
       {/* ── Biggest levers ─────────────────────────────────────────── */}
-      <Section n={3} q="What moves your results most?" a={s.levers[0] ? <>
+      <Section q="What moves your results most?" a={s.levers[0] ? <>
         Every way of slicing your trades, ranked by how much it costs or adds against the rest. Slices need {Math.max(15, Math.ceil(s.withR.length * 0.08))}+ trades to count.
       </> : s.withR.length < 30
         ? <>Not enough trades in this range to rank slices ({s.withR.length}; it takes about 30). Switch to 3M or All.</>
@@ -284,13 +282,13 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
 
 
       {/* ── Trade management ───────────────────────────────────────── */}
-      <Section n={4} q="How do your trades behave while open?" a={<>How far each trade went for you (best point, MFE) and against you (worst point, MAE) before it closed, in R.</>}>
+      <Section q="How do your trades behave while open?" a={<>How far each trade went for you (best point, MFE) and against you (worst point, MAE) before it closed, in R.</>}>
         <TradeManagement trades={closed} />
       </Section>
 
 
       {/* ── Is my risk under control? ─────────────────────────────── */}
-      <Section n={5} q="Is my risk under control?" a={
+      <Section q="Is my risk under control?" a={
         s.stopOuts.length ? <>
           A full stop-out costs you <b style={{ color: C.loss }}>{fmtR(mean(s.stopOuts))}</b> on average, not −1R.
           {' '}{s.pastPlan.length} of {s.withR.length} trades broke your {MAX_DEVIATION_PCT}% deviation rule{s.pastPlan.length ? `, worst ${fmtR(Math.min(...s.pastPlan))}` : ''}.
@@ -340,13 +338,13 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
 
 
       {/* ── Where's my edge? ───────────────────────────────────────── */}
-      <Section n={6} q="Where is your edge?" a={<>Every way of slicing your trades in one table. Rows under {MIN_N} trades are greyed: too few to tell.</>}>
+      <Section q="Where is your edge?" a={<>Every way of slicing your trades in one table. Rows under {MIN_N} trades are greyed: too few to tell.</>}>
         <SliceTable closed={closed} dims={s.dims} fmt={fmtView} />
       </Section>
 
 
       {/* ── Where does the money go? ───────────────────────────────── */}
-      <Section n={7} fold="costs" q="Where does the money go?" a={
+      <Section fold="costs" q="Where does the money go?" a={
         <>The price moves {s.gross >= 0 ? 'made' : 'lost'} you <b style={{ color: rColor(s.gross) }}>{fmtView(s.gross)}</b>;
           {' '}fees and funding took <b>{fmtView(s.gross - s.c.net)}</b> more{s.costR != null ? <>, about <b>{s.costR.toFixed(2)}R per trade</b></> : null}.
           {s.gross < 0 && s.c.net < 0 && s.gross - s.c.net > 0 ? <> Costs are {pct((s.gross - s.c.net) / Math.abs(s.c.net))} of what you've lost.</> : null}</>
@@ -366,7 +364,7 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
 
 
       {/* ── Mistakes ───────────────────────────────────────────────── */}
-      <Section n={8} fold="mistakes" q="What do your mistakes cost?" a={(() => {
+      <Section fold="mistakes" q="What do your mistakes cost?" a={(() => {
         const [ok, broke] = s.rules
         const top = s.mistakes[0]
         if (reviewed < 10) return <>Only {reviewed} reviewed {reviewed === 1 ? 'trade' : 'trades'} in this period. This fills in as you review trades; it needs about 10 to say anything.</>
@@ -385,7 +383,7 @@ export function TradingAnalytics({ accountId }: { accountId?: number | null }) {
 
 
       {/* ── Month by month ─────────────────────────────────────────── */}
-      <Section n={9} fold="months" q="Month by month" a={(() => {
+      <Section fold="months" q="Month by month" a={(() => {
         const [now, ...rest] = s.months
         const best = [...s.months].filter(g => g.n >= 3).sort((a, b) => b.netR - a.netR)[0]
         const label = (k: string) => `${MONTHS[Number(k.slice(5)) - 1]} ${k.slice(0, 4)}`
@@ -452,19 +450,14 @@ function SliceTable({ closed, dims, fmt }: { closed: Trade[]; dims: Dimension[];
  * A numbered question with its one-sentence answer. Reference sections can
  * fold: shut, the answer still shows, so nothing is hidden, just the detail.
  */
-function Section({ n, q, a, fold, children }: { n: number; q: string; a?: React.ReactNode; fold?: string; children?: React.ReactNode }) {
-  const nx = useIsNext()
+function Section({ q, a, fold, children }: { q: string; a?: React.ReactNode; fold?: string; children?: React.ReactNode }) {
   const key = `analytics-open-${fold}`
   const [open, setOpen] = useState(() => { if (!fold) return true; try { return localStorage.getItem(key) === '1' } catch { return false } })
   const toggle = () => setOpen(o => { try { localStorage.setItem(key, o ? '0' : '1') } catch { /* private window */ } return !o })
   const Head = fold ? 'button' : 'div'
   return (
-    <section className={nx ? 'tr-sec' : undefined}>
+    <section className="tr-sec">
       <Head {...(fold ? { type: 'button' as const, onClick: toggle } : {})} className="w-full flex items-center gap-3 mb-1.5 text-left group">
-        {!nx && <span className="text-[10px] font-bold num px-1.5 py-0.5 rounded-md"
-          style={{ color: 'var(--c-accent)', background: 'color-mix(in srgb, var(--c-accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--c-accent) 25%, transparent)' }}>
-          {String(n).padStart(2, '0')}
-        </span>}
         <h2 className="text-base font-semibold tracking-tight" style={{ color: 'var(--c-text-1)' }}>{q}</h2>
         <div className="flex-1 h-px" style={{ background: 'var(--c-border)' }} />
         {fold && (
@@ -481,26 +474,12 @@ function Section({ n, q, a, fold, children }: { n: number; q: string; a?: React.
 }
 
 function Kpi({ label, value, sub, delta, color = 'var(--c-text-1)' }: { label: string; value: React.ReactNode; sub?: string; delta?: { text: string; good: boolean }; color?: string }) {
-  const nx = useIsNext()
-  if (nx) {
-    return (
-      <div className="tr-kpi">
-        <span className="l">{label}</span>
-        <b className="v num" style={{ color }}>{value}</b>
-        {delta && <span className={`d num ${delta.good ? 'good' : 'bad'}`}>{delta.text}</span>}
-        {sub && <span className="s num">{sub}</span>}
-      </div>
-    )
-  }
   return (
-    <div className="relative overflow-hidden rounded-xl p-4" style={{
-      background: `radial-gradient(140% 120% at 100% 0%, color-mix(in srgb, ${color} 9%, transparent), transparent 60%), var(--c-bg-card)`,
-      border: '1px solid var(--c-border)', boxShadow: 'var(--c-shadow-card)',
-    }}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] mb-2" style={{ color: 'var(--c-text-3)' }}>{label}</div>
-      <div className="text-2xl font-bold num leading-none tracking-tight" style={{ color }}>{value}</div>
-      {delta && <div className="text-[11px] num mt-1.5 font-medium" style={{ color: delta.good ? 'var(--c-profit)' : 'var(--c-loss)' }}>{delta.text}</div>}
-      {sub && <div className="text-[10px] num mt-1.5 leading-snug" style={{ color: 'var(--c-text-3)' }}>{sub}</div>}
+    <div className="tr-kpi">
+      <span className="l">{label}</span>
+      <b className="v num" style={{ color }}>{value}</b>
+      {delta && <span className={`d num ${delta.good ? 'good' : 'bad'}`}>{delta.text}</span>}
+      {sub && <span className="s num">{sub}</span>}
     </div>
   )
 }

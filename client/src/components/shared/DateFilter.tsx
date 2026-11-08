@@ -1,4 +1,3 @@
-import { useIsNext } from '../../skins/isNext'
 // Shared date-range filter bar used in Analytics and Trade Log
 
 export type Preset = '1D' | '1W' | '2W' | 'MTD' | 'QTD' | 'YTD' | '1M' | '3M' | '6M' | '1Y' | 'All' | 'Custom'
@@ -81,65 +80,17 @@ interface DateFilterProps {
 export function DateFilter({
   preset, onPreset, customFrom, customTo, onCustomFrom, onCustomTo,
 }: DateFilterProps) {
-  const nx = useIsNext()
-  const inputStyle: React.CSSProperties = {
-    background: 'var(--c-bg-input)',
-    border: '1px solid var(--c-border-mid)',
-    color: 'var(--c-text-1)',
-    borderRadius: 8,
-    padding: '4px 8px',
-    fontSize: 12,
-    outline: 'none',
-  }
-
-  if (nx) {
-    return (
-      <div className="bz-dates">
-        <div className="tr-seg sm">
-          {PRESETS.map(p => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => onPreset(p.key)}>{p.label}</button>)}
-        </div>
-        {preset === 'Custom' && (
-          <span className="bz-custom">
-            <input type="date" value={customFrom} onChange={e => onCustomFrom(e.target.value)} aria-label="From" />
-            <span>to</span>
-            <input type="date" value={customTo} onChange={e => onCustomTo(e.target.value)} aria-label="To" />
-          </span>
-        )}
-      </div>
-    )
-  }
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {PRESETS.map(p => (
-        <button
-          key={p.key}
-          onClick={() => onPreset(p.key)}
-          className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all"
-          style={{
-            background: preset === p.key ? 'var(--c-accent)' : 'var(--c-bg-card)',
-            color:      preset === p.key ? 'var(--c-on-accent)' : 'var(--c-text-2)',
-            border:     `1px solid ${preset === p.key ? 'var(--c-accent)' : 'var(--c-border)'}`,
-          }}
-        >
-          {p.label}
-        </button>
-      ))}
+    <div className="bz-dates">
+      <div className="tr-seg sm">
+        {PRESETS.map(p => <button key={p.key} type="button" className={preset === p.key ? 'on' : ''} aria-pressed={preset === p.key} onClick={() => onPreset(p.key)}>{p.label}</button>)}
+      </div>
       {preset === 'Custom' && (
-        <div className="flex items-center gap-2 ml-1">
-          <input
-            type="date"
-            value={customFrom}
-            onChange={e => onCustomFrom(e.target.value)}
-            style={inputStyle}
-          />
-          <span style={{ color: 'var(--c-text-3)', fontSize: 12 }}>→</span>
-          <input
-            type="date"
-            value={customTo}
-            onChange={e => onCustomTo(e.target.value)}
-            style={inputStyle}
-          />
-        </div>
+        <span className="bz-custom">
+          <input type="date" value={customFrom} onChange={e => onCustomFrom(e.target.value)} aria-label="From" />
+          <span>to</span>
+          <input type="date" value={customTo} onChange={e => onCustomTo(e.target.value)} aria-label="To" />
+        </span>
       )}
     </div>
   )

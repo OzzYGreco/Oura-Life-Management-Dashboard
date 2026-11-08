@@ -97,7 +97,9 @@ function PrivacyButton() {
   )
 }
 
-function DateBar({ date, today, onGo, loading }: { date: string; today: string; onGo: (d: string) => void; loading: boolean }) {
+function DateBar({ date, today, onGo, loading, day }: { date: string; today: string; onGo: (d: string) => void; loading: boolean; day: Day }) {
+  const openReview = useOpenReview()
+  const live = date === today && !day.closed && !day.future
   const rel = date === today ? 'Today' : date === plusDays(today, -1) ? 'Yesterday' : date === plusDays(today, 1) ? 'Tomorrow' : null
   return (
     <div className="nx-date" aria-busy={loading}>
@@ -112,7 +114,42 @@ function DateBar({ date, today, onGo, loading }: { date: string; today: string; 
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden><path d="M5.5 3l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
       {date !== today && <button className="nx-link" onClick={() => onGo(today)}>Back to today <kbd>T</kbd></button>}
+      {live && <span className="nx-closes">Day closes at <span className="num">{day.closesAt}</span>, <span className="num">{duration(day.minutesToClose)}</span> left</span>}
+      {live && day.items.length > 0 && <button className="nx-link" onClick={openReview} aria-keyshortcuts="R" title="Review the day and lock the score (R)">Close the day<kbd>R</kbd></button>}
       <PrivacyButton />
+    </div>
+  )
+}
+
+// ─── Story: the coach line and what happened, in words ─────────────────────
+
+function listOf(names: string[]) {
+  if (names.length <= 1) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** What landed, what came in late, what slipped, and how many windows are left. */
+function summary(items: DayItem[]) {
+  const onTime = items.filter(i => i.status === 'on_time').map(i => i.label)
+  const late = items.filter(i => i.status === 'late').map(i => i.label)
+  const missed = items.filter(i => i.status === 'overdue' || i.status === 'missed').map(i => i.label)
+  const ahead = items.filter(i => i.status === 'upcoming' || i.status === 'open').length
+  const parts: string[] = []
+  if (onTime.length) parts.push(`${listOf(onTime.slice(0, 3))}${onTime.length > 3 ? ` and ${onTime.length - 3} more` : ''} landed in ${onTime.length === 1 ? 'its window' : 'their windows'}.`)
+  if (late.length) parts.push(`${listOf(late.slice(0, 2))}${late.length > 2 ? ` and ${late.length - 2} more` : ''} came in late.`)
+  if (missed.length) parts.push(`${listOf(missed.slice(0, 2))}${missed.length > 2 ? ` and ${missed.length - 2} more` : ''} slipped past ${missed.length === 1 ? 'its window' : 'their windows'}.`)
+  if (ahead) parts.push(ahead === 1 ? 'One window is still ahead.' : `${ahead} windows are still ahead.`)
+  return parts.join(' ')
+}
+
+function Story({ day, live }: { day: Day; live: boolean }) {
+  const said = summary(day.items)
+  const coach = live && day.items.length ? day.coach : ''
+  if (!said && !coach) return null
+  return (
+    <div className="nx-story">
+      {coach && <p className="coach">{coach}</p>}
+      {said && <p>{said}</p>}
     </div>
   )
 }
@@ -190,7 +227,9 @@ function HeroFacts({ day }: { day: Day }) {
       {g.score != null && (
         <div title={`${g.label}${today ? ' at this hour' : ''}: ${g.score}`}>
           <span><i className="ghost" />{g.label}</span>
-          <b className={`num ${g.diff != null && g.diff > 0 ? 'good' : ''}`}>{g.diff == null || g.diff === 0 ? 'level' : g.diff > 0 ? `+${g.diff}` : `−${-g.diff}`}</b>
+          <b className={`num ${g.diff != null && g.diff > 0 ? 'good' : g.diff != null && g.diff < 0 && today ? 'warn' : ''}`}>
+            {g.diff == null || g.diff === 0 ? (today ? 'On pace' : 'level') : g.diff > 0 ? `+${g.diff}${today ? ' ahead' : ''}` : `−${-g.diff}${today ? ' behind' : ''}`}
+          </b>
         </div>
       )}
       <div title={best ? `Best this month: ${best.score}, ${fmtDate(best.date)}` : undefined}>
@@ -332,6 +371,7 @@ function Hero(props: { day: Day; view: string | null; onTick: (id: number) => vo
         <Dial day={day} live={live} />
         <Action {...props} />
       </div>
+      <Story day={day} live={live} />
       <div className="nx-hero-foot">
         <HeroFacts day={day} />
         <Days recent={day.recent} date={day.date} />
@@ -583,7 +623,7 @@ function WeekSec({ week, wins }: { week: TodayView['week']; wins: TodayView['win
       </div>
       {week.nextReward && (
         <p className="nx-togo">{out
-          ? <>{week.nextReward.reward} is out of reach</>
+          ? <>{week.stakes ?? `${week.nextReward.reward} is out of reach`}</>
           : <><b className="num">{pt(Math.max(0, week.nextReward.at - week.score))}</b> to go for <b>{week.nextReward.reward}</b></>}</p>
       )}
       <div className="nx-rows">
@@ -683,7 +723,13 @@ function PnlBars({ days, signedUsd }: { days: { date: string; label: string; pnl
 function Trading({ pulse }: { pulse: Pulse }) {
   const nav = useNavigate()
   const d = pulse.tradingDay, m = pulse.tradingMonth
-  const limits = pulse.trading.filter(a => a.limitLeft != null && a.limitLeft < (a.limitUnit === 'R' ? 2 : Infinity))
+  const limits = pulse.trading.flatMap(a => {
+    if (a.limitLeft == null) return []
+    const used = a.limitUnit === 'R' ? (a.netR != null ? Math.max(0, -a.netR) : null) : Math.max(0, -a.net)
+    if (used == null) return []
+    const limit = a.limitLeft + used
+    return limit > 0 ? [{ ...a, used, limit }] : []
+  })
   const money = useMoney('trading', 'USD')
   const signedUsd = money.signed
   return (
@@ -705,15 +751,22 @@ function Trading({ pulse }: { pulse: Pulse }) {
             <span className="v num"><span className={tone(t.r ?? 0)}>{rr(t.r)}</span><span className={tone(t.pnl)}>{signedUsd(t.pnl)}</span></span>
           </button>
         ))}
-        {limits.map(a => (
-          <div key={a.id} className="nx-line">
-            <span className="k">{a.name} <em className="mute">{plural(a.trades, 'trade')} today</em></span>
-            <span className="v num">
-              {a.netR != null && <span className={tone(a.net)}>{a.netR > 0 ? '+' : ''}{a.netR.toFixed(2)}R</span>}
-              {a.limitLeft != null && a.limitLeft < 1 && <span className="warn">{a.limitUnit === 'R' ? `${a.limitLeft}R` : money.fmt(a.limitLeft)} to limit</span>}
-            </span>
-          </div>
-        ))}
+        {limits.map(a => {
+          const u = (v: number) => (a.limitUnit === 'R' ? `${pt(v)}R` : money.fmt(v))
+          const hit = a.limitLeft! <= 0
+          const state = hit ? 'bad' : a.used > 0 ? 'warn' : ''
+          return (
+            <div key={a.id} className="nx-limit">
+              <div className="nx-line">
+                <span className="k">{a.name} <em className="mute">{plural(a.trades, 'trade')} today</em></span>
+                <span className={`v num ${state}`}>{hit ? 'Loss limit reached' : `${u(a.limitLeft!)} left of ${u(a.limit)}`}</span>
+              </div>
+              <div className="bar" role="img" aria-label={`${a.name}: ${u(a.used)} of today's ${u(a.limit)} loss limit used`}>
+                <i className={state} style={{ width: `${Math.min(100, (a.used / a.limit) * 100)}%` }} />
+              </div>
+            </div>
+          )
+        })}
         <button className="nx-btn ghost sm" onClick={() => nav('/trading?new=1')}>Log a trade</button>
       </>} />
   )
@@ -798,6 +851,8 @@ function Keys({ onKey }: { onKey: (e: KeyboardEvent) => void }) {
 }
 
 export function NextToday() {
+  const nav = useNavigate()
+  const openReview = useOpenReview()
   const [params, setParams] = useSearchParams()
   const asked = params.get('date')
   const wanted = asked && ISO.test(asked) ? asked : null
@@ -877,7 +932,8 @@ export function NextToday() {
   })
 
   const target = view ? null : nowTarget(day)
-  // Keys: D done, M missed (the Now item), ← → step days, T today, N add a one-off. H (hide amounts) lives in the frame.
+  // Keys: D done, M missed (the Now item), ← → step days, T today, N add a one-off,
+  // R close the day, W the week. H (hide amounts) and L (light) live in the frame.
   const onKey = (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || document.querySelector('[role="dialog"]')) return
     const k = e.key.toLowerCase()
@@ -887,13 +943,15 @@ export function NextToday() {
     else if (k === 'n') { const t = document.querySelector<HTMLTextAreaElement>('.nx .nx-quick textarea'); if (t) { e.preventDefault(); t.focus() } }
     else if (k === 'd' && target && !busy) setDone(target.id, true)
     else if (k === 'm' && target && !busy) setMissed(target.id, true)
+    else if (k === 'r' && !view && !day.closed && !day.future && day.items.length) { e.preventDefault(); openReview() }
+    else if (k === 'w') { e.preventDefault(); nav('/goals') }
   }
 
   return (
     <div className="wh-page nx skin-enter">
       <Keys onKey={onKey} />
       <div className={`nx-wrap ${isPlaceholderData ? 'loading' : ''}`}>
-        <DateBar date={wanted ?? date} today={today} onGo={go} loading={isPlaceholderData} />
+        <DateBar date={wanted ?? date} today={today} onGo={go} loading={isPlaceholderData} day={day} />
         <div className="nx-top">
           <Hero day={day} view={view} onTick={id => setDone(id, true)} onMissed={id => setMissed(id, true)} onCorrect={correct} onCloseAgain={closeAgain} busy={busy} />
           <WeekSec week={data.week} wins={data.wins} />
