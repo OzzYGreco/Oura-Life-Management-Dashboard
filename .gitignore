@@ -31,3 +31,6 @@ native/notifier/build/
 
 # Early design drafts (built from real client data)
 design/drafts/
+
+# App screenshots show real data; never commit them
+Screenshots/

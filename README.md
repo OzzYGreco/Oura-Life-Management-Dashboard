@@ -21,31 +21,6 @@ Oura is a local-first life management dashboard built with React, Express, and S
 - **Checklists** - Daily routine checklists with template support, time-scheduled items, and ad-hoc task additions.
 - **Notes** - Rich text notes with Tiptap editor, image embedding, and tagging.
 
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center"><img src="Screenshots/dashboard.png" width="600"/><br/><sub>Dashboard</sub></td>
-    <td align="center"><img src="Screenshots/trading_journal.png" width="600"/><br/><sub>Trading Journal</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="Screenshots/trading_analytics_v2.png" width="600"/><br/><sub>Trading Analytics</sub></td>
-    <td align="center"><img src="Screenshots/calendar_day.png" width="600"/><br/><sub>Calendar - Day View</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="Screenshots/finances.png" width="600"/><br/><sub>Finances</sub></td>
-    <td align="center"><img src="Screenshots/business.png" width="600"/><br/><sub>Business</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="Screenshots/goals.png" width="600"/><br/><sub>Goals</sub></td>
-    <td align="center"><img src="Screenshots/training.png" width="600"/><br/><sub>Training</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="Screenshots/checklists.png" width="600"/><br/><sub>Checklists</sub></td>
-    <td align="center"><img src="Screenshots/notes.png" width="600"/><br/><sub>Notes</sub></td>
-  </tr>
-</table>
-
 ## Installation
 1. Clone the repository:
    ```
