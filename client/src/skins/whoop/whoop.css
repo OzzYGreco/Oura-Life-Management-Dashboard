@@ -31,9 +31,12 @@
 .wh-snav a { position: relative; display: flex; align-items: center; height: 38px; padding: 0 14px; border-radius: 999px; color: var(--k-mute); text-decoration: none; font-size: 14px; white-space: nowrap; transition: color .15s, background .15s; }
 .wh-snav a:hover { color: var(--k-ink2); background: rgb(var(--k-fg) / .04); }
 .wh-snav a.on { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
-.wh-sfoot { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 16px 4px 0 12px; border-top: 1px solid var(--k-line); }
-.wh-swhen { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; color: var(--k-mute); }
+/* Footer: the date and time get their own line, so the full date always shows; the controls sit under it with the avatar at the end. */
+.wh-sfoot { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 10px; padding: 16px 4px 0 12px; border-top: 1px solid var(--k-line); }
+.wh-swhen { order: -1; flex: 1 0 100%; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--k-mute); }
 .wh-swhen b { font-weight: 500; color: var(--k-ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wh-swhen .num { flex-shrink: 0; }
+.wh-sfoot .wh-av { margin-left: auto; }
 .wh-av { flex-shrink: 0; }
 .wh a:focus-visible, .wh button:focus-visible { outline: 2px solid var(--k-acc); outline-offset: 2px; }
 .wh-menu { position: fixed; z-index: 9999; width: 260px; padding: 6px; border-radius: 16px; background: var(--k-card2); border: 1px solid var(--k-line2); box-shadow: 0 30px 70px rgba(0,0,0,.6); animation: popIn .14s ease-out; }
@@ -653,15 +656,14 @@
 .wh-eye:hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
 .wh-eye.on { color: var(--k-warn); background: var(--k-warn-d); }
 
-/* Tabs: the focus ring sits inside the pill, so the nav's clipping never cuts it */
-.wh-nav a:focus-visible { outline-offset: -2px; }
-.wh-snav a:focus-visible { outline-offset: -2px; }
+/* Tabs: the focus ring sits inside the pill, so the nav's clipping never cuts it.
+   Prefixed with .wh so it outweighs the global ring in controls.css, whose :is() list scores 0,3,0. */
+.wh .wh-nav a:focus-visible, .wh .wh-snav a:focus-visible { outline-offset: -2px; }
 
 /* Top bar: the tabs always fit. The right side gives way in steps, then the tabs scroll instead of clipping. */
 .wh-top .wh-brand { width: auto; flex-shrink: 0; margin-right: 12px; }
 .wh-navbox { position: relative; flex: 1 1 auto; min-width: 0; }
 .wh-top .wh-nav { overflow: visible; padding: 2px 0; }
-.wh-top .wh-nav a:focus-visible { outline-offset: -2px; }
 .wh-topr { flex-shrink: 0; }
 @media (max-width: 1440px) {
   .wh-top .wh-search { width: auto; gap: 8px; padding: 0 8px 0 12px; }
@@ -710,4 +712,4 @@
 .wh-menu .wh-mseg button { width: auto; flex-direction: row; justify-content: center; padding: 7px 8px; border-radius: 8px; font-size: 12.5px; color: var(--k-mute); }
 .wh-menu .wh-mseg button.on { background: rgb(var(--k-fg) / .09); color: var(--k-ink); }
 .wh-menu .wh-mseg.three { grid-template-columns: 1fr 1fr 1fr; }
-.wh-side.mini .wh-sfoot .wh-eye { margin: 0; }
+.wh-side.mini .wh-sfoot .wh-eye, .wh-side.mini .wh-sfoot .wh-av { margin: 0; }
