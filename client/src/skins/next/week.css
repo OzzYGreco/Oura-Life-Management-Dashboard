@@ -124,3 +124,7 @@
 .nw-slip .nx-line .v b.warn { color: var(--k-warn); }
 .nw-row .nm small.up { color: var(--k-faint); }
 .nw-row .nm small.up::before { content: ""; display: inline-block; width: 8px; height: 6px; margin-right: 6px; border-left: 1px solid currentColor; border-bottom: 1px solid currentColor; border-bottom-left-radius: 3px; transform: translateY(-2px); }
+
+/* Next period's card, under this one. */
+.nw-nextrow { margin-top: 48px; }
+.nw-nextrow > .nx-sec { margin-top: 0; padding-top: 0; border-top: 0; }

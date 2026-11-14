@@ -16,6 +16,8 @@ export interface ScorecardData {
   rewards: { minScore: number; reward: string }[]
   /** Your name or handle, drawn as a quiet watermark at the bottom. Empty draws none. */
   signature?: string
+  /** A period that has not started: drawn as a plan (points on offer), not a 0 score. */
+  plan?: boolean
 }
 
 const SIG_KEY = 'oura-scorecard-signature'
@@ -68,7 +70,8 @@ export function drawScorecard(d: ScorecardData, th: ScorecardTheme, avatar?: HTM
   const max = d.tasks.reduce((s, t) => s + t.max, 0)
   const reached = [...d.rewards].sort((a, b) => b.minScore - a.minScore).find(r => total >= r.minScore)
   const pct = max ? total / max : 0
-  const color = pct >= 0.7 ? th.good : pct >= 0.4 ? th.warn : th.bad
+  const plan = !!d.plan
+  const color = plan ? th.ink : pct >= 0.7 ? th.good : pct >= 0.4 ? th.warn : th.bad
 
   ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H)
   rounded(ctx, 16, 16, W - 32, H - 32, 26); ctx.fillStyle = th.card; ctx.fill()
@@ -86,14 +89,22 @@ export function drawScorecard(d: ScorecardData, th: ScorecardTheme, avatar?: HTM
 
   // Big total, right
   ctx.textAlign = 'right'
-  ctx.font = `300 64px ${th.font}`; ctx.fillStyle = color
-  const tW = ctx.measureText(fmt(total)).width
+  const big = plan ? fmt(max) : fmt(total)
+  const tail = plan ? ' pts' : ` / ${fmt(max)}`
   ctx.font = `400 24px ${th.font}`
-  const mW = ctx.measureText(` / ${fmt(max)}`).width
-  ctx.fillStyle = th.mute; ctx.fillText(` / ${fmt(max)}`, W - 16 - pad, y + 50)
+  const mW = ctx.measureText(tail).width
+  ctx.fillStyle = th.mute; ctx.fillText(tail, W - 16 - pad, y + 50)
   ctx.font = `300 64px ${th.font}`; ctx.fillStyle = color
-  ctx.fillText(fmt(total), W - 16 - pad - mW, y + 50)
-  if (reached) {
+  ctx.fillText(big, W - 16 - pad - mW, y + 50)
+  if (plan) {
+    const f = new Date(d.from + 'T12:00:00')
+    const label = `Starts ${f.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`
+    ctx.font = `600 13px ${th.font}`
+    const lw = ctx.measureText(label).width + 24
+    const x = W - 16 - pad - lw
+    rounded(ctx, x, y + 64, lw, 26, 13); ctx.fillStyle = th.track; ctx.fill()
+    ctx.fillStyle = th.ink2; ctx.textAlign = 'center'; ctx.fillText(label, x + lw / 2, y + 82)
+  } else if (reached) {
     ctx.font = `600 13px ${th.font}`
     const label = `Earned: ${reached.reward}`
     const lw = ctx.measureText(label).width + 24
@@ -102,7 +113,6 @@ export function drawScorecard(d: ScorecardData, th: ScorecardTheme, avatar?: HTM
     ctx.fillStyle = th.good; ctx.textAlign = 'center'; ctx.fillText(label, x + lw / 2, y + 82)
   }
   ctx.textAlign = 'left'
-  void tW
 
   // Progress bar with reward marks
   y += 110
@@ -139,7 +149,7 @@ export function drawScorecard(d: ScorecardData, th: ScorecardTheme, avatar?: HTM
   ctx.font = `700 15px ${th.font}`; ctx.fillStyle = th.ink; ctx.fillText('TOTAL', bx, y)
   ctx.textAlign = 'right'; ctx.fillStyle = th.mute; ctx.font = `500 16px ${th.font}`
   ctx.fillText(`${fmt(max)} pts`, bx + bw - 120, y)
-  ctx.fillStyle = color; ctx.font = `700 19px ${th.font}`; ctx.fillText(fmt(total), bx + bw, y)
+  ctx.fillStyle = plan ? th.mute : color; ctx.font = `700 19px ${th.font}`; ctx.fillText(plan ? '–' : fmt(total), bx + bw, y)
   ctx.textAlign = 'left'
 
   // Rewards
@@ -148,7 +158,7 @@ export function drawScorecard(d: ScorecardData, th: ScorecardTheme, avatar?: HTM
     let x = bx
     ctx.font = `500 14px ${th.font}`
     for (const r of [...d.rewards].sort((a, b) => a.minScore - b.minScore)) {
-      const got = total >= r.minScore
+      const got = !plan && total >= r.minScore
       const label = `${fmt(r.minScore)}+  ${r.reward}`
       const w = ctx.measureText(label).width + 26
       if (x + w > bx + bw) break

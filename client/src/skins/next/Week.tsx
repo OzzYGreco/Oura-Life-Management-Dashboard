@@ -96,6 +96,7 @@ export function NextWeek() {
           const cur = data.current
           const known = (id: number) => data.history.some(h => h.id === id) || data.next?.id === id
           const selected = pick != null && known(pick) ? pick : cur?.id ?? data.history[data.history.length - 1]?.id ?? null
+          const editCur = () => cur && setCompose({ mode: 'edit', goal: cur, name: periodName(horizon, cur.from, cur.to, data.history.findIndex(h => h.id === cur.id) + 1) })
           return <>
             <div className="nx-top">
               {selected != null
@@ -103,14 +104,23 @@ export function NextWeek() {
                 : <NoCurrent ctx={ctx} onSet={() => setCompose({ mode: 'current' })} />}
               <Record ctx={ctx} selected={selected} onPick={setPick} view={view} onView={chooseView} />
             </div>
+            {/* Next period, once set, gets the same card as this one: to read, change and copy for accountability. */}
+            {data.next && selected !== data.next.id && (
+              <div className="nx-top nw-nextrow">
+                <Scorecard key={`next-${data.next.id}`} ctx={ctx} id={data.next.id} onCompose={setCompose} onDeleted={() => setPick(null)} />
+                <Honesty ctx={ctx} onEdit={editCur} />
+              </div>
+            )}
             {selected != null && !cur && (
               <div className="nw-nocur"><NoCurrent ctx={ctx} onSet={() => setCompose({ mode: 'current' })} inline /></div>
             )}
             {view === 'list' && <section className="nx-sec"><Head>Every {H.unit}</Head><PastList ctx={ctx} selected={selected} onPick={id => { setPick(id); window.scrollTo({ top: 0, behavior: 'smooth' }) }} /></section>}
-            <div className="nw-under">
-              <NextPeriod ctx={ctx} onOpen={() => setCompose({ mode: 'next' })} />
-              <Honesty ctx={ctx} onEdit={() => cur && setCompose({ mode: 'edit', goal: cur, name: periodName(horizon, cur.from, cur.to, data.history.findIndex(h => h.id === cur.id) + 1) })} />
-            </div>
+            {!(data.next && selected !== data.next.id) && (
+              <div className="nw-under">
+                <NextPeriod ctx={ctx} onOpen={() => setCompose({ mode: 'next' })} />
+                <Honesty ctx={ctx} onEdit={editCur} />
+              </div>
+            )}
             {compose && (compose.mode !== 'next' || data.nextStart) && (
               <Composer ctx={ctx} compose={compose} onClose={() => setCompose(null)} onSaved={id => id != null && setPick(id)} />
             )}
@@ -179,7 +189,7 @@ function Scorecard({ ctx, id, onCompose, onDeleted }: { ctx: Ctx; id: number; on
     const how = await copyScorecard({
       weekNo: idx, period: name, from: goal.from, to: goal.to, focus: goal.focus,
       tasks: rows.map(r => ({ title: r.title, max: r.maxPoints, score: r.score })),
-      rewards, signature: getSignature(),
+      rewards, signature: getSignature(), plan: isNext,
     }, THEME)
     setCopied(how === 'copied' ? 'Copied. Paste it wherever you report.' : 'Saved as an image in Downloads.')
     setTimeout(() => setCopied(null), 3500)
@@ -195,7 +205,9 @@ function Scorecard({ ctx, id, onCompose, onDeleted }: { ctx: Ctx; id: number; on
           <p className="nw-dates num">{fmtRange(goal.from, goal.to)}</p>
         </div>
         <div className="nw-total">
-          <div><span className={`nw-big num ${beaten && !isNext ? 'good' : ''}`}>{pts(total)}</span><span className="nw-of num"> of {pts(max)}</span></div>
+          {isNext
+            ? <div><span className="nw-big num">{pts(max)}</span><span className="nw-of"> pts on offer</span></div>
+            : <div><span className={`nw-big num ${beaten ? 'good' : ''}`}>{pts(total)}</span><span className="nw-of num"> of {pts(max)}</span></div>}
           <p className="nw-cap">
             {reached && <span className="good">{reached.reward} earned</span>}
             {reached && next && ', '}
