@@ -7,6 +7,8 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CalendarPlus } from 'lucide-react'
+import { Button } from '../../components/ui/Button'
 import {
   DAY_LETTERS, IMPORTANCE, WEEK_ORDER, WINDOWS, daysLabel, daysOf, fromDayMin, onceDate, pointsOf, routineToday, scheduleOf, toDayMin, windowLabel,
   useDayDetail, useOneOffs, useRoutine,
@@ -21,6 +23,9 @@ import {
 import '../whoop/routine-today.css'
 import './next.css'
 import './routine.css'
+
+/** The routine day after `iso`. */
+const tomorrowOf = (iso: string) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
 const SNAP = 15
 const DAY_END = 1440 + 240            // the day runs to 04:00 the next morning
@@ -332,7 +337,7 @@ function ItemRow({ item, open, onToggle, onChange, onRemove }: {
     <div className={`nrt-row ${open ? 'open' : ''}`}>
       <div className="sum">
         <input className="t num" type="time" value={item.time ?? ''} aria-label={`Time for ${item.label}`} onChange={e => onChange({ time: e.target.value || null })} />
-        <button className="n" onClick={onToggle} aria-expanded={open} title="Open to edit">{item.label || <i>New item</i>}<Streak n={item.streak} unit="day" /></button>
+        <button className="n" onClick={onToggle} aria-expanded={open} title="Open to edit"><span className="nm">{item.label || <i>New item</i>}</span><Streak n={item.streak} unit="day" /></button>
         <Dots item={item} />
         <button className={`w ${imp.value === 'UI' ? 'must' : ''}`} title={`${imp.hint}. Click to change how much it matters.`} aria-label={`Weight ${imp.label}, click to change`}
           onClick={() => { const i = IMPORTANCE.findIndex(o => o.value === imp.value); onChange({ importance: IMPORTANCE[(i + 1) % IMPORTANCE.length].value }) }}>{imp.label}</button>
@@ -415,6 +420,7 @@ function ThisWeek({ data }: { data: RoutineView }) {
 }
 
 function OneOffs({ data }: { data: RoutineView }) {
+  const nav = useNavigate()
   const { addMany, remove, restore } = useOneOffs()
   const [err, setErr] = useState<string | null>(null)
   const [undo, setUndo] = useState<{ id: number; label: string } | null>(null)
@@ -425,7 +431,7 @@ function OneOffs({ data }: { data: RoutineView }) {
     const byDate = new Map<string, Parsed[]>()
     for (const p of ps) { const d = onceDate(p.schedule ?? null) ?? data.today; byDate.set(d, [...(byDate.get(d) ?? []), p]) }
     setErr(null)
-    for (const [date, list] of byDate) addMany.mutate({ date, items: list.map(p => ({ label: p.label, time: p.time, importance: p.importance })) }, { onError })
+    for (const [date, list] of byDate) addMany.mutate({ date, items: list.map(p => ({ label: p.label, time: p.time, importance: p.importance, windowMin: p.windowMin })) }, { onError })
   }
   const drop = (id: number, label: string) => remove.mutate(id, {
     onSuccess: () => {
@@ -437,7 +443,12 @@ function OneOffs({ data }: { data: RoutineView }) {
   })
   return (
     <section className="nx-sec">
-      <Head aside={<span>one-offs, scored like the rest</span>}>Just for today</Head>
+      <Head aside={
+        <Button variant="secondary" size="sm" onClick={() => nav(`/?date=${tomorrowOf(data.today)}`)} title="See tomorrow, skip routine items for that day, add its one-day items">
+          <CalendarPlus size={14} aria-hidden />Plan tomorrow
+        </Button>
+      }>Just for today</Head>
+      <p className="nrt-note">One-day items are scored, windowed and reminded like routine items, and don't repeat.</p>
       {data.oneOffs.map(o => (
         <div key={o.id} className="nx-line">
           <span className="k">{o.label}{o.time && <em className="num mute"> {o.time}</em>}{o.importance && <em className="mute">, {IMPORTANCE.find(i => i.value === o.importance)?.label.toLowerCase()}</em>}</span>

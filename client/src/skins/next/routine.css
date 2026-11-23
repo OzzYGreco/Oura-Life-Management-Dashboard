@@ -82,6 +82,9 @@
 .nrt-row .t:hover, .nrt-row .t:focus { border-color: var(--k-line2); color: var(--k-ink); outline: none; }
 .nrt-row .n { display: flex; align-items: center; gap: 6px; min-width: 0; text-align: left; font-size: 14.5px; color: var(--k-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nrt-row .n i { color: var(--k-faint); font-style: normal; }
+/* The name gives way, the streak chip never does. */
+.nrt-row .n .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.nrt-row .n .rt-streak { margin-left: 0; }
 .nrt-row .w { height: 24px; padding: 0 8px; border-radius: 7px; font-size: 11.5px; color: var(--k-mute); background: rgb(var(--k-fg) / .04); }
 .nrt-row .w.must { color: var(--k-ink); background: rgb(var(--k-fg) / .09); }
 .nrt-dots { display: inline-flex; gap: 3px; }

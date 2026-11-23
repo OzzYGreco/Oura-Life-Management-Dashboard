@@ -209,6 +209,8 @@ export const checklistEntryItems = sqliteTable('checklist_entry_items', {
   result:         text('result'),          // 'on_time' | 'late' | 'missed' | null while still open
   reason:         text('reason'),          // why a miss happened, from the evening review
   pointsEarned:   real('points_earned'),
+  skipped:        integer('skipped').notNull().default(0),   // a routine item left out of this one day
+  windowMin:      integer('window_min'),                     // a one-day item's own window; null = the routine item's, or 60
 })
 
 // One row per closed day (04:00 to 04:00). The score is locked on close.

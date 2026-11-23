@@ -141,11 +141,11 @@ export function useDayDetail(date: string | null) {
 
 export function useOneOffs() {
   const qc = useQueryClient()
-  const done = () => { qc.invalidateQueries({ queryKey: KEY }); qc.invalidateQueries({ queryKey: ['today'] }) }
+  const done = () => { qc.invalidateQueries({ queryKey: KEY }); qc.invalidateQueries({ queryKey: ['today'] }); qc.invalidateQueries({ queryKey: ['day-plan'] }) }
   return {
     add: useMutation({ mutationFn: (b: { label: string; time?: string; importance?: string | null; date?: string }) => api.post('/api/routine/oneoffs', b), onSuccess: done }),
     addMany: useMutation({
-      mutationFn: (b: { date?: string; items: { label: string; time?: string | null; importance?: string | null }[] }) => api.post('/api/routine/oneoffs', b),
+      mutationFn: (b: { date?: string; items: { label: string; time?: string | null; importance?: string | null; windowMin?: number | null }[] }) => api.post('/api/routine/oneoffs', b),
       onSuccess: done,
     }),
     remove: useMutation({ mutationFn: (id: number) => api.delete(`/api/routine/oneoffs/${id}`), onSuccess: done }),

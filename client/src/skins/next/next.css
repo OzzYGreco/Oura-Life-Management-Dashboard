@@ -31,8 +31,9 @@
 
 /* ─── Date ─────────────────────────────────────────────── */
 .nx-date { display: flex; align-items: center; gap: 4px; margin: 0 0 16px -8px; color: var(--k-mute); font-size: 13px; }
-.nx-date > button:not(.nx-link) { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--k-mute); }
-.nx-date > button:not(.nx-link):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
+/* The day arrows; the shared buttons (.ui-btn) keep their own size. */
+.nx-date > button:not(.nx-link):not(.ui-btn) { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--k-mute); }
+.nx-date > button:not(.nx-link):not(.ui-btn):hover { color: var(--k-ink); background: rgb(var(--k-fg) / .07); }
 .nx-pick { position: relative; display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 8px; cursor: pointer; }
 .nx-pick:hover { background: rgb(var(--k-fg) / .04); }
 .nx-pick b { font-weight: 600; color: var(--k-ink); font-size: 13px; }
@@ -384,6 +385,8 @@ button.nx-h:hover svg { color: var(--k-ink2); transform: translateX(2px); }
 .nx-story p.coach { color: var(--k-ink2); margin-bottom: 4px; }
 .nx-closes { margin-left: auto; font-size: 13px; color: var(--k-mute); white-space: nowrap; }
 .nx-closes + .nx-link, .nx-closes ~ .nx-priv { margin-left: 8px; }
+.nx-date .nx-plan { margin-left: 8px; gap: 6px; }
+.nx-date .nx-plan kbd { margin: 0; }
 .nx-facts b.warn { color: var(--k-warn); }
 /* Today: daily loss limit used, per trading account */
 .nx-limit { width: 100%; align-self: stretch; }

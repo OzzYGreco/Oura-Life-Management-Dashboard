@@ -5,11 +5,17 @@
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { DayPlan } from './next/DayPlan'
+import { Button } from '../components/ui/Button'
+import { routineToday } from '../core/routine'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { MISS_REASONS, useCloseDay, useToday } from '../core/today'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
+
+/** The routine day after `iso`. */
+const tomorrowOf = (iso: string) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
 /** One layout now; the id stays because the CSS is scoped by :root[data-skin="next"]. */
 export type SkinId = 'next'
@@ -118,6 +124,7 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
     const all = [
       ...NAV.map(n => ({ id: `go:${n.to}`, label: `Go to ${n.label}`, run: () => nav(n.to) })),
       { id: 'review', label: 'Close the day (evening review)', run: () => setParams(p => { p.set('review', '1'); return p }) },
+      { id: 'plan', label: 'Plan tomorrow: add, skip or pick its items', run: () => nav(`/?date=${tomorrowOf(routineToday())}`) },
       { id: 'tabs', label: 'Customize tabs: order, hide, sidebar or top', run: openCustomize },
     ]
     const t = q.trim().toLowerCase()
@@ -168,9 +175,10 @@ function ReviewSheet() {
   const close = useCloseDay()
   const [reasons, setReasons] = useState<Record<number, string>>({})
   const [line, setLine] = useState('')
+  const [planning, setPlanning] = useState(false)
   const box = useRef<HTMLDivElement>(null)
 
-  const dismiss = () => setParams(p => { p.delete('review'); return p })
+  const dismiss = () => { setPlanning(false); setParams(p => { p.delete('review'); return p }) }
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') dismiss() }
@@ -186,12 +194,19 @@ function ReviewSheet() {
     <div className="fixed inset-0 z-[99999] flex items-center justify-center" style={{ background: 'rgba(0,0,0,.45)' }} onMouseDown={dismiss}>
       <div ref={box} className="w-[620px] max-h-[86vh] overflow-y-auto rounded-[18px] p-7 skin-enter" onMouseDown={e => e.stopPropagation()}
         role="dialog" aria-label="Close the day" style={{ background: 'var(--c-bg-elevated)', boxShadow: 'var(--c-shadow-modal)', color: 'var(--c-text-1)' }}>
-        {d.closed ? (
+        {d.closed || planning ? (
           <>
-            <p className="text-[13px]" style={{ color: 'var(--c-text-2)' }}>Today is closed.</p>
-            <p className="text-[40px] font-semibold num mt-1">{d.score ?? 0}</p>
-            <button onClick={dismiss} className="mt-5 h-9 px-4 rounded-[9px] text-[13.5px] font-medium"
-              style={{ background: 'var(--c-accent)', color: 'var(--c-on-accent)' }}>Done</button>
+            <div className="flex items-baseline gap-3">
+              <p className="text-[13px]" style={{ color: 'var(--c-text-2)' }}>Today is closed at</p>
+              <p className="text-[28px] leading-none font-semibold num">{d.score ?? 0}</p>
+            </div>
+            {/* The last step: tomorrow, planned while today is fresh. Adding nothing is fine. */}
+            <div className="mt-5 pt-5" style={{ borderTop: '1px solid var(--c-border)' }}>
+              <DayPlan date={tomorrowOf(data.today ?? d.date)} variant="sheet" focus />
+            </div>
+            <div className="mt-4 flex justify-end">
+              <Button variant="primary" onClick={dismiss}>Done</Button>
+            </div>
           </>
         ) : (
           <>
@@ -239,11 +254,11 @@ function ReviewSheet() {
             </label>
 
             <div className="mt-7 flex items-center justify-between">
-              <span className="text-[12.5px] pr-4" style={{ color: 'var(--c-text-3)' }}>Closing locks the score. Days left open close themselves at 04:00.</span>
+              <span className="text-[12.5px] pr-4" style={{ color: 'var(--c-text-3)' }}>Closing locks the score, then you plan tomorrow. Days left open close themselves at 04:00.</span>
               <div className="flex gap-2 shrink-0">
                 <button onClick={dismiss} className="h-9 px-4 rounded-[9px] text-[13.5px] whitespace-nowrap" style={{ color: 'var(--c-text-2)' }}>Not yet</button>
                 <button disabled={close.isPending}
-                  onClick={() => close.mutate({ reflection: line, reasons }, { onSuccess: dismiss })}
+                  onClick={() => close.mutate({ reflection: line, reasons }, { onSuccess: () => setPlanning(true) })}
                   className="h-9 px-4 rounded-[9px] text-[13.5px] font-medium whitespace-nowrap"
                   style={{ background: 'var(--c-accent)', color: 'var(--c-on-accent)', opacity: close.isPending ? .6 : 1 }}>
                   Close the day

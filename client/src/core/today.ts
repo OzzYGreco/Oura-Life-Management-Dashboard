@@ -165,10 +165,10 @@ export function useWeeklyTick() {
 /** One-offs for any open day: add one or many, remove (done or not), restore after a remove. */
 export function useDayOneOffs() {
   const qc = useQueryClient()
-  const done = () => { qc.invalidateQueries({ queryKey: KEY }); qc.invalidateQueries({ queryKey: ['routine'] }) }
+  const done = () => { qc.invalidateQueries({ queryKey: KEY }); qc.invalidateQueries({ queryKey: ['routine'] }); qc.invalidateQueries({ queryKey: ['day-plan'] }) }
   return {
     add: useMutation({
-      mutationFn: (b: { date?: string | null; items: { label: string; time?: string | null; importance?: string | null }[] }) =>
+      mutationFn: (b: { date?: string | null; items: { label: string; time?: string | null; importance?: string | null; windowMin?: number | null }[] }) =>
         api.post('/api/routine/oneoffs', { items: b.items, ...(b.date ? { date: b.date } : {}) }),
       onSuccess: done,
     }),

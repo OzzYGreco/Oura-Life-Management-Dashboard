@@ -252,7 +252,7 @@ router.get('/task-streaks', async (_req, res, next) => {
     for (const entry of entries) {
       const entryItems = items.filter(i => i.entryId === entry.id)
       for (const item of entryItems) {
-        if (item.templateItemId == null) continue
+        if (item.templateItemId == null || item.skipped) continue   // a day it was skipped is neutral
         if (!map[item.templateItemId]) map[item.templateItemId] = {}
         map[item.templateItemId][entry.date] = !!item.completed
       }
@@ -300,7 +300,8 @@ router.get('/streaks', async (_req, res, next) => {
     for (const entry of entries) {
       if (entry.templateId == null) continue
       if (!map[entry.templateId]) map[entry.templateId] = {}
-      const entryItems = items.filter(i => i.entryId === entry.id)
+      const entryItems = items.filter(i => i.entryId === entry.id && !i.skipped)
+      if (!entryItems.length) continue   // everything skipped: a neutral day
       map[entry.templateId][entry.date] = {
         total: entryItems.length,
         done:  entryItems.filter(i => i.completed).length,

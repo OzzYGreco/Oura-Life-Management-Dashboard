@@ -1,0 +1,46 @@
+/* A day's plan: Today's hero for a day ahead, and the evening review's last step. */
+.npl { min-width: 0; }
+.npl-hero { padding: 32px 36px 24px; }
+.npl-head h1 { margin: 6px 0 0; font-family: var(--k-display); font-size: 34px; line-height: 1.1; font-weight: 600; letter-spacing: -.012em; text-wrap: balance; color: var(--k-ink); }
+.npl-head h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--k-ink); }
+.npl-sum { margin: 8px 0 0; font-size: 14px; color: var(--k-ink2); }
+.npl-sheet .npl-sum { margin-top: 4px; font-size: 13px; }
+
+.npl-add { margin-top: 20px; }
+.npl-sheet .npl-add { margin-top: 14px; }
+.npl-locked { margin: 16px 0 0; font-size: 14px; color: var(--k-mute); }
+
+/* Suggestions: one labelled row per source, chips that wrap. */
+.npl-sugg { margin-top: 16px; display: grid; gap: 12px; }
+.npl-sugg .g { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 8px 16px; align-items: start; }
+.npl-sugg .h { padding-top: 5px; font-size: 13px; color: var(--k-mute); }
+.npl-sugg .c { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.npl-chip { gap: 5px; max-width: 100%; }
+.npl-chip .t { color: var(--k-mute); }
+
+/* The plan itself: time, name, points, one action. */
+.npl-list, .npl-skipped ul { list-style: none; margin: 20px 0 0; padding: 0; }
+.npl-list li, .npl-skipped li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto 64px; align-items: center; column-gap: 12px; min-height: 44px; border-bottom: 1px solid var(--k-line); }
+.npl-list li:last-child, .npl-skipped li:last-child { border-bottom: 0; }
+.npl-list .tm, .npl-skipped .tm { font-size: 13px; color: var(--k-mute); }
+.npl-list .lb { min-width: 0; font-size: 15px; color: var(--k-ink); overflow-wrap: anywhere; }
+.npl-list .lb small { margin-left: 8px; font-size: 12px; color: var(--k-faint); }
+.npl-list .p { font-size: 13px; color: var(--k-ink2); }
+.npl-list li > :last-child { justify-self: end; }
+
+.npl-skipped { margin-top: 16px; }
+.npl-skipped .h { font-size: 13px; color: var(--k-mute); }
+.npl-skipped ul { margin-top: 4px; }
+.npl-skipped li { grid-template-columns: 64px minmax(0, 1fr) auto; }
+.npl-skipped .lb { min-width: 0; font-size: 14px; color: var(--k-mute); text-decoration: line-through; text-decoration-color: var(--k-faint); }
+
+.npl-note { min-height: 28px; margin-top: 10px; font-size: 13px; color: var(--k-ink2); }
+.npl-note > span { display: inline-flex; align-items: center; gap: 4px; }
+.npl-note .bad { color: var(--k-bad); }
+
+@media (max-width: 720px) {
+  .npl-hero { padding: 24px 20px 18px; }
+  .npl-sugg .g { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .npl-sugg .h { padding-top: 0; }
+  .npl-list li { grid-template-columns: 52px minmax(0, 1fr) auto 56px; column-gap: 8px; }
+}

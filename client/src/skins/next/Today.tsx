@@ -17,6 +17,10 @@ import { useCurrencyRates } from '../../hooks/useCurrencyRates'
 import { MASK, maskMoney, usePrivacy } from '../../core/privacy'
 import { convertAmount, formatInCurrency } from '../../lib/utils'
 import { QuickAdd, Streak } from '../whoop/Routine'
+import { DayPlan } from './DayPlan'
+import { usePlan } from '../../core/plan'
+import { Button } from '../../components/ui/Button'
+import { CalendarPlus } from 'lucide-react'
 import '../whoop/routine-today.css'
 import './next.css'
 
@@ -116,6 +120,11 @@ function DateBar({ date, today, onGo, loading, day }: { date: string; today: str
       {date !== today && <button className="nx-link" onClick={() => onGo(today)}>Back to today <kbd>T</kbd></button>}
       {live && <span className="nx-closes">Day closes at <span className="num">{day.closesAt}</span>, <span className="num">{duration(day.minutesToClose)}</span> left</span>}
       {live && day.items.length > 0 && <button className="nx-link" onClick={openReview} aria-keyshortcuts="R" title="Review the day and lock the score (R)">Close the day<kbd>R</kbd></button>}
+      {date === today && (
+        <Button variant="secondary" size="sm" className="nx-plan" onClick={() => onGo(plusDays(today, 1))} aria-keyshortcuts="P" title="Plan tomorrow (P)">
+          <CalendarPlus size={14} aria-hidden />Plan tomorrow<kbd>P</kbd>
+        </Button>
+      )}
       <PrivacyButton />
     </div>
   )
@@ -385,9 +394,9 @@ function Hero(props: { day: Day; view: string | null; onTick: (id: number) => vo
 type MenuAt = { id: number; x: number; y: number } | null
 const menuAt = (el: HTMLElement, id: number) => { const r = el.getBoundingClientRect(); return { id, x: r.right - 110, y: r.bottom + 6 } }
 
-function ItemMenu({ day, menu, minute, locked, onSet, onMissed, onClose }: {
+function ItemMenu({ day, menu, minute, locked, onSet, onMissed, onSkip, onClose }: {
   day: Day; menu: NonNullable<MenuAt>; minute: number; locked: boolean
-  onSet: (id: number, done: boolean) => void; onMissed: (id: number, missed: boolean) => void; onClose: () => void
+  onSet: (id: number, done: boolean) => void; onMissed: (id: number, missed: boolean) => void; onSkip: (i: DayItem) => void; onClose: () => void
 }) {
   useEffect(() => {
     const off = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.wh-stmenu, .nx-more')) onClose() }
@@ -410,6 +419,9 @@ function ItemMenu({ day, menu, minute, locked, onSet, onMissed, onClose }: {
       {canUntick(picked, locked) && <button role="menuitem" onClick={() => act(() => onSet(picked.id, false))}>Untick</button>}
       {canMarkMissed(picked, locked) && <button role="menuitem" className="bad" onClick={() => act(() => onMissed(picked.id, true))}>Missed<small>it didn't happen, earns nothing</small></button>}
       {canUnmarkMissed(picked, locked) && <button role="menuitem" onClick={() => act(() => onMissed(picked.id, false))}>Not missed after all<small>back on {pastDay ? "that day's" : "today's"} list</small></button>}
+      {!locked && !pastDay && picked.templateId != null && (picked.status === 'upcoming' || picked.status === 'anytime') && (
+        <button role="menuitem" onClick={() => act(() => onSkip(picked))}>Skip today<small>left out of today only, its streak holds</small></button>
+      )}
       {!canTick(picked, minute, locked) && !isDone(picked.status) && picked.status !== 'missed' && <p className="hint">{day.future ? 'This day has not started yet.' : tickHint(picked, minute, locked)}</p>}
     </div>
   )
@@ -485,11 +497,13 @@ function Lists({ day, upcoming, minute, locked, menu, onMenu, onSet, onWeekly, o
     )
   }
 
-  const lanes = LANES.map(name => {
+  // A day ahead shows its items in the plan above; here only the week and the calendar.
+  const lanes = (day.future ? [] : LANES).map(name => {
     const all = day.items.filter(i => partOfDay(i.start) === name)
     return { name, all, list: hideDone ? all.filter(i => !isDone(i.status)) : all }
   }).filter(l => l.all.length)
 
+  if (day.future && !weeklyItems.length && !upcoming?.length) return null
   return (
     <section className="nx-sec nx-routine">
       <Head to="/checklists" aside={<>
@@ -497,7 +511,7 @@ function Lists({ day, upcoming, minute, locked, menu, onMenu, onSet, onWeekly, o
         {anyDone && <button className="nx-link" onClick={toggleHide} aria-pressed={hideDone}>{hideDone ? 'Show done' : 'Hide done'}</button>}
       </>}>{day.isToday === false ? `Routine, ${fmtDay(day.date)}` : 'Your day'}</Head>
 
-      {!closed && (
+      {!closed && !day.future && (
         <div className="nx-quick">
           <QuickAdd today={day.date} onAdd={onAddOneOffs} label="Add one-offs in one line, or paste a list"
             placeholder={day.future ? 'Add to this day: Call the bank 16:00 must' : 'Add to today: Call the bank 16:00 must, or paste a list   (N)'} />
@@ -863,6 +877,7 @@ export function NextToday() {
   const closeM = useCloseDay()
   const weeklyM = useWeeklyTick()
   const one = useDayOneOffs()
+  const plan = usePlan()
   const [menu, setMenu] = useState<MenuAt>(null)
   const [flash, setFlash] = useState<number | null>(null)
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null)
@@ -920,19 +935,23 @@ export function NextToday() {
     const byDate = new Map<string, Parsed[]>()
     for (const p of ps) { const d = onceDate(p.schedule ?? null) ?? date; byDate.set(d, [...(byDate.get(d) ?? []), p]) }
     for (const [d, list] of byDate) {
-      one.add.mutate({ date: d, items: list.map(p => ({ label: p.label, time: p.time, importance: p.importance })) }, {
+      one.add.mutate({ date: d, items: list.map(p => ({ label: p.label, time: p.time, importance: p.importance, windowMin: p.windowMin })) }, {
         onSuccess: () => show(list.length === 1 ? `Added ${list[0].label}${d !== date ? ` to ${fmtDay(d)}` : ''}` : `Added ${list.length} items${d !== date ? ` to ${fmtDay(d)}` : ''}`),
         onError: e => show(errText(e)),
       })
     }
   }
+  const skipToday = (i: DayItem) => plan.skip.mutate({ id: i.id, skip: true }, {
+    onSuccess: () => show(`${i.label}: skipped today`, () => plan.skip.mutate({ id: i.id, skip: false }, { onError: e => show(errText(e)) })),
+    onError: e => show(errText(e)),
+  })
   const removeOneOff = (i: DayItem) => one.remove.mutate(i.id, {
     onSuccess: () => show(`${i.label}: deleted`, () => one.restore.mutate(i.id, { onError: e => show(errText(e)) })),
     onError: e => show(errText(e)),
   })
 
   const target = view ? null : nowTarget(day)
-  // Keys: D done, M missed (the Now item), ← → step days, T today, N add a one-off,
+  // Keys: D done, M missed (the Now item), ← → step days, T today, N add a one-off, P plan tomorrow,
   // R close the day, W the week. H (hide amounts) and L (light) live in the frame.
   const onKey = (e: KeyboardEvent) => {
     if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target) || document.querySelector('[role="dialog"]')) return
@@ -940,7 +959,8 @@ export function NextToday() {
     if (k === 'arrowleft') { e.preventDefault(); go(plusDays(date, -1)) }
     else if (k === 'arrowright') { e.preventDefault(); go(plusDays(date, 1)) }
     else if (k === 't' && view) go(today)
-    else if (k === 'n') { const t = document.querySelector<HTMLTextAreaElement>('.nx .nx-quick textarea'); if (t) { e.preventDefault(); t.focus() } }
+    else if (k === 'n') { const t = document.querySelector<HTMLTextAreaElement>('.nx :is(.nx-quick, .npl-add) textarea'); if (t) { e.preventDefault(); t.focus() } }
+    else if (k === 'p' && date !== plusDays(today, 1)) { e.preventDefault(); go(plusDays(today, 1)) }
     else if (k === 'd' && target && !busy) setDone(target.id, true)
     else if (k === 'm' && target && !busy) setMissed(target.id, true)
     else if (k === 'r' && !view && !day.closed && !day.future && day.items.length) { e.preventDefault(); openReview() }
@@ -953,7 +973,9 @@ export function NextToday() {
       <div className={`nx-wrap ${isPlaceholderData ? 'loading' : ''}`}>
         <DateBar date={wanted ?? date} today={today} onGo={go} loading={isPlaceholderData} day={day} />
         <div className="nx-top">
-          <Hero day={day} view={view} onTick={id => setDone(id, true)} onMissed={id => setMissed(id, true)} onCorrect={correct} onCloseAgain={closeAgain} busy={busy} />
+          {day.future
+            ? <section className="nx-hero" aria-label={`Plan for ${fmtDay(date)}`}><DayPlan key={date} date={date} variant="hero" /></section>
+            : <Hero day={day} view={view} onTick={id => setDone(id, true)} onMissed={id => setMissed(id, true)} onCorrect={correct} onCloseAgain={closeAgain} busy={busy} />}
           <WeekSec week={data.week} wins={data.wins} />
         </div>
         <Lists day={day} upcoming={data.pulse.upcoming} minute={data.minuteOfDay} locked={locked} menu={menu} onMenu={setMenu} onSet={setDone}
@@ -966,7 +988,7 @@ export function NextToday() {
       </div>
       {menu && (
         <ItemMenu day={day} menu={menu} minute={data.minuteOfDay} locked={locked}
-          onSet={setDone} onMissed={setMissed} onClose={() => setMenu(null)} />
+          onSet={setDone} onMissed={setMissed} onSkip={skipToday} onClose={() => setMenu(null)} />
       )}
       {toast && (
         <div className="wh wh-toast" role="status">

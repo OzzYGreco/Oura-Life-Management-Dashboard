@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Repeat } from 'lucide-react'
 import { LEADS, fromDayMin, parseMany, pointsOf, toDayMin, useDeleteRoutine, useNewRoutine, useRenameRoutine, useReminderSettings, useSaveReminderSettings, useSaveRoutine, useNotifierStatus, useSetRoutineType, useTestNotification, useToggleRoutine, type NotifierStatus, type Parsed, type RoutineItem, type RoutineView } from '../../core/routine'
 import { useWeeklyTick } from '../../core/today'
 import './routine-today.css'
@@ -168,10 +169,11 @@ export function RoutineHeader({ data, tpl, onPick, status, count, total }: {
 /** Days in a row (or weeks in a row) as a small flame and a number. Shown from 2. */
 export function Streak({ n, unit = 'day' }: { n?: number; unit?: 'day' | 'week' }) {
   if (!n || n < 2) return null
+  // A small chip in the good colour: a run is good news, never a warning. The words live in the tooltip.
+  const words = `${n} ${unit}s in a row ${unit === 'day' ? 'on time' : 'done'}`
   return (
-    <span className="rt-streak num" title={`${n} ${unit}s in a row ${unit === 'day' ? 'on time' : 'done'}`} aria-label={`${n} ${unit}s in a row`}>
-      <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden><path d="M5 .6c.4 2-1.9 3-1.9 5.2 0 .8.4 1.4.9 1.7-.1-1.2.6-2 1.4-2.6.1 1.4 1.6 1.9 1.6 3.4 0 .4-.1.8-.3 1.1C8.2 8.8 9 7.6 9 6.2 9 3.4 6.3 2.6 5 .6zM1 7.4C1 9.9 2.8 11.4 5 11.4S9 9.9 9 7.4" fill="currentColor" /></svg>
-      {n}
+    <span className="rt-streak num" title={words} aria-label={words}>
+      <Repeat size={11} strokeWidth={2.25} aria-hidden />{n}
     </span>
   )
 }

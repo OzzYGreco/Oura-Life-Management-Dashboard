@@ -5,12 +5,12 @@
  * updates items in place and retires removed ones.
  */
 import { Router } from 'express'
-import { and, eq, gte, inArray, isNull } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, lte } from 'drizzle-orm'
 import { db } from '../db'
 import {
   checklistTemplates, checklistTemplateItems, checklistEntries, checklistEntryItems, dayReviews,
 } from '../db/schema'
-import { addDays, dayKey, dayState, ensureDay, ensureWeek, weekState, itemStreaks, reopenInfo, parseClock, hhmm, pointsFor, runsOn } from '../lib/day'
+import { addDays, dayKey, dayState, ensureDay, ensureWeek, weekState, itemStreaks, reopenInfo, parseClock, hhmm, pointsFor, runsOn, isWeekly } from '../lib/day'
 
 const router = Router()
 const WINDOW_DAYS = 30
@@ -127,11 +127,11 @@ async function dayIsOpen(date: string): Promise<string | null> {
 const IMPORTANCE = new Set(['UI', 'NUI', 'UNI', 'NUNI'])
 
 // Add one-offs to a day (the 04:00-04:00 day): one, or many at once from a paste.
-// Body: { label, time?, importance?, date? } or { items: [{ label, time?, importance? }], date? }
+// Body: { label, time?, importance?, windowMin?, date? } or { items: [{ label, time?, importance?, windowMin? }], date? }
 router.post('/oneoffs', async (req, res, next) => {
   try {
     const date = typeof req.body?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date) ? req.body.date : dayKey()
-    const list: { label?: unknown; time?: unknown; importance?: unknown }[] = Array.isArray(req.body?.items) ? req.body.items : [req.body ?? {}]
+    const list: { label?: unknown; time?: unknown; importance?: unknown; windowMin?: unknown }[] = Array.isArray(req.body?.items) ? req.body.items : [req.body ?? {}]
     const rows = []
     for (const it of list) {
       const label = String(it.label ?? '').trim()
@@ -139,7 +139,9 @@ router.post('/oneoffs', async (req, res, next) => {
       const time = it.time ? String(it.time) : null
       if (time && parseClock(time) == null) return res.status(400).json({ error: `Use a time like 14:30 for "${label}".` })
       const importance = typeof it.importance === 'string' && IMPORTANCE.has(it.importance) ? it.importance : null
-      rows.push({ label, time, importance })
+      const w = Number(it.windowMin)
+      const windowMin = time && Number.isFinite(w) && w >= 5 && w <= 600 ? Math.round(w) : null
+      rows.push({ label, time, importance, windowMin })
     }
     if (!rows.length) return res.status(400).json({ error: 'Nothing to add.' })
     const closed = await dayIsOpen(date)
@@ -148,6 +150,103 @@ router.post('/oneoffs', async (req, res, next) => {
     if (!entry) [entry] = await db.insert(checklistEntries).values({ templateId: null, date }).returning()
     const added = await db.insert(checklistEntryItems).values(rows.map(r => ({ entryId: entry.id, ...r }))).returning()
     res.status(201).json(Array.isArray(req.body?.items) ? added : added[0])
+  } catch (e) { next(e) }
+})
+
+// ─── Planning a day ──────────────────────────────────────────────────────────
+
+// Skip a routine item for one day, or bring it back. Any day ahead; today only
+// before the item opens (or while an anytime item is still undone), so a skip
+// can never erase a miss. The day keeps no score for it and its streak holds.
+router.post('/items/:id/skip', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id)
+    const skip = req.body?.skip !== false
+    const [row] = await db.select({ item: checklistEntryItems, date: checklistEntries.date }).from(checklistEntryItems)
+      .innerJoin(checklistEntries, eq(checklistEntryItems.entryId, checklistEntries.id))
+      .where(eq(checklistEntryItems.id, id))
+    if (!row) return res.status(404).json({ error: 'That item was not found.' })
+    if (row.item.templateItemId == null) return res.status(400).json({ error: 'A one-day item is deleted, not skipped.' })
+    const today = dayKey()
+    if (row.date < today) return res.status(409).json({ error: 'A past day can only be corrected, not planned.' })
+    const closed = await dayIsOpen(row.date)
+    if (closed) return res.status(409).json({ error: closed })
+    if (skip) {
+      if (row.item.skipped) return res.status(204).send()
+      if (row.item.archived) return res.status(409).json({ error: 'That item is not part of this day.' })
+      if (row.date === today) {
+        const item = (await dayState(today)).items.find(i => i.id === id)
+        if (!item || (item.status !== 'upcoming' && item.status !== 'anytime'))
+          return res.status(409).json({ error: 'It has already opened, so today it counts. Tick it, or mark it missed.' })
+      }
+      await db.update(checklistEntryItems).set({ archived: 1, skipped: 1 }).where(eq(checklistEntryItems.id, id))
+    } else {
+      if (!row.item.skipped) return res.status(204).send()
+      await db.update(checklistEntryItems).set({ archived: 0, skipped: 0 }).where(eq(checklistEntryItems.id, id))
+    }
+    res.status(204).send()
+  } catch (e) { next(e) }
+})
+
+// One day's plan: what runs, what was skipped, and suggestions to add in one tap:
+// one-day items left undone the day before, ones added recently, and items of
+// paused routines. Suggestions are never added on their own.
+router.get('/plan', async (req, res, next) => {
+  try {
+    const today = dayKey()
+    const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : addDays(today, 1)
+    if (date >= today) await ensureDay(date)
+    const state = await dayState(date)
+    const locked = date < today ? 'A past day can only be corrected, not planned.' : await dayIsOpen(date)
+
+    const entries = await db.select().from(checklistEntries)
+      .where(and(gte(checklistEntries.date, addDays(date, -30)), lte(checklistEntries.date, date)))
+    const rows = entries.length ? await db.select().from(checklistEntryItems).where(inArray(checklistEntryItems.entryId, entries.map(e => e.id))) : []
+    const entryOf = new Map(entries.map(e => [e.id, e]))
+    const tItems = await db.select().from(checklistTemplateItems)
+    const tById = new Map(tItems.map(t => [t.id, t]))
+
+    const skipped = rows.filter(r => r.skipped && entryOf.get(r.entryId)?.date === date).map(r => {
+      const t = r.templateItemId ? tById.get(r.templateItemId) : undefined
+      return { id: r.id, label: t?.label ?? r.label ?? '', time: t?.time ?? null }
+    }).sort((a, b) => (a.time ?? '99').localeCompare(b.time ?? '99'))
+
+    const key = (l: string) => l.trim().toLowerCase()
+    const taken = new Set([...state.items.map(i => key(i.label)), ...skipped.map(s => key(s.label))])
+    type Pick = { label: string; time: string | null; importance: string | null; windowMin: number | null; from?: string }
+    const pick = (r: typeof rows[number]): Pick => ({ label: r.label ?? '', time: r.time, importance: r.importance, windowMin: r.windowMin })
+
+    const yesterday = addDays(date, -1)
+    const unfinished: Pick[] = []
+    for (const r of rows) {
+      const e = entryOf.get(r.entryId)!
+      if (e.templateId != null || e.date !== yesterday || r.archived || r.completed || !r.label || taken.has(key(r.label))) continue
+      taken.add(key(r.label)); unfinished.push(pick(r))
+    }
+    const recent: Pick[] = []
+    for (const r of [...rows].sort((a, b) => entryOf.get(b.entryId)!.date.localeCompare(entryOf.get(a.entryId)!.date) || b.id - a.id)) {
+      const e = entryOf.get(r.entryId)!
+      if (e.templateId != null || e.date >= date || r.archived || !r.label || taken.has(key(r.label))) continue
+      taken.add(key(r.label)); recent.push(pick(r))
+      if (recent.length >= 8) break
+    }
+    const paused: Pick[] = []
+    const templates = (await db.select().from(checklistTemplates)).filter(t => !t.enabled && !t.archivedAt && !isWeekly(t))
+    for (const t of templates) {
+      for (const i of tItems.filter(i => i.templateId === t.id && !i.retiredAt && !i.schedule?.startsWith('once:')).sort((a, b) => a.sortOrder - b.sortOrder)) {
+        if (taken.has(key(i.label))) continue
+        taken.add(key(i.label))
+        paused.push({ label: i.label, time: i.time, importance: i.importance, windowMin: i.windowMin, from: t.name })
+      }
+    }
+
+    res.json({
+      date, today, locked,
+      items: state.items.map(i => ({ id: i.id, label: i.label, time: i.time, importance: i.importance, points: i.points, status: i.status, oneOff: i.templateId == null, end: i.end, start: i.start })),
+      total: state.total,
+      skipped,
+      suggestions: { unfinished, recent, paused },
+    })
   } catch (e) { next(e) }
 })
 

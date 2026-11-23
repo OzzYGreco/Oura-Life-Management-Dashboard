@@ -13,6 +13,9 @@
  * - Items without a time are "anytime": full points whenever they're ticked.
  * - A tick made after the day has ended (a past day reopened to correct it)
  *   is late, whatever the item: half points. That is the honest record.
+ * - A routine item can be skipped for one day (today before it opens, or any
+ *   day ahead). It leaves that day only: not scored, not reminded, and its
+ *   streak neither grows nor breaks.
  * - Weekly routines are not part of any day: they hold one entry per week
  *   (dated the week's Sunday) and are ticked once that week.
  * - The day score is earned ÷ possible so far × 100. Possible counts only
@@ -107,7 +110,7 @@ export function weekStart(date: string): string {
   return addDays(date, -dow)
 }
 
-const isWeekly = (t: { type: string | null }) => t.type === 'weekly'
+export const isWeekly = (t: { type: string | null }) => t.type === 'weekly'
 
 /** Ids of routines marked Weekly (archived ones included, so their history stays out of days). */
 export async function weeklyTemplateIds(): Promise<Set<number>> {
@@ -220,8 +223,8 @@ export async function ensureDay(date: string): Promise<void> {
     }
 
     const dueIds = new Set(due.map(i => i.id))
-    // Resumed: items taken off by the pause come back.
-    const back = have.filter(h => h.templateItemId && dueIds.has(h.templateItemId) && h.archived && !h.completed)
+    // Resumed: items taken off by the pause come back. One skipped for this day stays out.
+    const back = have.filter(h => h.templateItemId && dueIds.has(h.templateItemId) && h.archived && !h.completed && !h.skipped)
     if (back.length) {
       await db.update(checklistEntryItems).set({ archived: 0 }).where(inArray(checklistEntryItems.id, back.map(b => b.id)))
     }
@@ -262,7 +265,7 @@ export async function ensureWeek(date: string): Promise<void> {
     const missing = due.filter(i => !haveIds.has(i.id))
     if (missing.length) await db.insert(checklistEntryItems).values(missing.map(i => ({ entryId: entry.id, templateItemId: i.id })))
     const dueIds = new Set(due.map(i => i.id))
-    const back = have.filter(h => h.templateItemId && dueIds.has(h.templateItemId) && h.archived && !h.completed)
+    const back = have.filter(h => h.templateItemId && dueIds.has(h.templateItemId) && h.archived && !h.completed && !h.skipped)
     if (back.length) await db.update(checklistEntryItems).set({ archived: 0 }).where(inArray(checklistEntryItems.id, back.map(b => b.id)))
     const stale = have.filter(h => h.templateItemId && !dueIds.has(h.templateItemId) && !h.completed && !h.archived)
     if (stale.length) await db.update(checklistEntryItems).set({ archived: 1 }).where(inArray(checklistEntryItems.id, stale.map(s => s.id)))
@@ -384,7 +387,7 @@ export async function dayState(date: string, asOf?: number, opts: { closed?: boo
     const t = r.templateItemId ? tById.get(r.templateItemId) : undefined
     const clock = parseClock(r.time ?? t?.time)
     const start = clock == null ? null : onDay(clock)
-    const end = start == null ? null : start + (t?.windowMin ?? 60)
+    const end = start == null ? null : start + (r.windowMin ?? t?.windowMin ?? 60)
     const points = pointsFor(r.importance ?? t?.importance, t?.points)
     const doneAt = r.completed && r.completedAt ? minutesInto(date, new Date(r.completedAt)) : null
     const done = doneAt != null && doneAt <= now
