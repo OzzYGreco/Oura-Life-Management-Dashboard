@@ -1,36 +1,50 @@
 /**
- * Training, the one-layout redesign (approved 2026-11-08). The hero answers
- * "am I getting stronger?" and starts a workout in one tap, with the template
- * that is next in rotation marked. The side shows this week against the
- * target and 12 weeks of consistency. Lifts carry their own progress chart,
- * body weight logs on any date with a note, and history keeps every action
- * (edit, save as template, delete with a confirm). The logger and the
- * template sheet are shared with the Whoop page.
+ * Training, reworked 2026-11-16 so every number is one the owner typed.
+ *
+ * A lift is measured by its top set: the heaviest weight lifted that session,
+ * ties going to more reps, shown as "65 kg × 8". There are no estimated maxes
+ * on this page; comparisons name both sets and their dates.
+ *
+ * Rows, top to bottom:
+ * 1. What's next: start a workout (an unsaved draft says so), the weigh-in line | this week against the Week goal and your usual week.
+ * 2. Your workouts: each template's exercises with last time, aim and progress; the next one open, the rest folded; a row opens its chart | body weight, workouts per week.
+ * 3. Workout history by week, full width (filter, open, edit, save as template, delete).
+ *
+ * The logger and the template sheet are shared from whoop/Training.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
-  CATEGORIES, catMeta, computeInsight, exVolume, exerciseSeries, kg, peakRpe, personalRecords, sundayOf, targetStreak,
-  useAllWorkouts, useBodyMetrics, useDeleteBody, useDeleteWorkout, useLogBody, useTraining, workoutVolume,
-  type BodyMetric, type Lift, type TrainingView, type Workout,
+  CATEGORIES, catMeta, computeInsight, verdict, exVolume, kgs, peakRpe, setText, sundayOf, targetStreak, topOf,
+  useAllWorkouts, useBodyMetrics, useDeleteBody, useDeleteWorkout, useLogBody, useTraining,
+  type BodyMetric, type Lift, type TrainingView, type Verdict, type Workout,
 } from '../../core/training'
 import { useWeek } from '../../core/week'
 import { PageLoader } from '../../components/ui/Spinner'
-import { BodyEdit, Logger, MetricChart, SaveAsTemplate, Templates, type LogInit } from '../whoop/Training'
+import { CalendarDays, ChevronDown } from 'lucide-react'
+import { Button } from '../../components/ui/Button'
+import { BodyEdit, Logger, MetricChart, SaveAsTemplate, Templates, draftTime, type LogInit } from '../whoop/Training'
 import './next.css'
 import './training.css'
 
 const fmtDay = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 const fmtShort = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 const fmtLong = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-const r1 = (n: number) => Math.round(n * 10) / 10
-const signed = (n: number, d = 1) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n).toFixed(d)}`
-const volLabel = (v: number) => (v >= 10000 ? `${(v / 1000).toFixed(1)} t` : `${Math.round(v).toLocaleString('en-GB')} kg`)
 const daysBetween = (a: string, b: string) => Math.round((new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 864e5)
+const addDays = (iso: string, n: number) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+const ago = (n: number) => (n === 0 ? 'today' : n === 1 ? 'yesterday' : `${n} days ago`)
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+const signed = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${kgs(Math.abs(n))}`
+/** The sets of one exercise as typed: "60 × 12, 65 × 8", or "12, 10 reps" without weight. */
+const setsText = (reps: number[], weight: number[]) =>
+  weight.some(w => w > 0) ? reps.map((r, i) => `${kgs(weight[i] ?? 0)} × ${r}`).join(', ') : `${reps.join(', ')} reps`
 /** A template not trained for this many days is called out. */
 const STALE = 10
-/** RPE 9 and 10 are near the limit: worth noticing, so they read amber. */
-const rpeTone = (n: number) => (n >= 9 ? 'warn' : '')
+/** Effort 9 and 10 are near the limit: worth noticing, so they read amber. */
+const effortTone = (n: number) => (n >= 9 ? 'warn' : '')
+/** The weight and strength read needs this much weigh-in history to mean anything. */
+const READ_MIN_ENTRIES = 4
+const READ_MIN_DAYS = 21
 
 function Head({ children, aside }: { children: React.ReactNode; aside?: React.ReactNode }) {
   return <div className="nx-head"><h2 className="nx-h">{children}</h2>{aside && <div className="nx-aside">{aside}</div>}</div>
@@ -56,6 +70,7 @@ export function NextTraining() {
   const [logParam] = useState(() => new URLSearchParams(window.location.search).get('log'))
   const [logging, setLogging] = useState<LogInit | null>(null)
   const [templates, setTemplates] = useState(false)
+  const [pick, setPick] = useState('')
   const opened = useRef(false)
 
   // ?log=<template> opens the logger; ?log=next opens whatever is next in rotation.
@@ -67,7 +82,7 @@ export function NextTraining() {
   }, [data, logParam])
 
   if (isPending || !data) return <PageLoader />
-  const target = week.data?.current?.tasks.find(t => t.source === 'workouts')?.target ?? 4
+  const goal = weekGoal(week.data?.current?.tasks ?? [])
   const workouts = all.data ?? []
   const start = (t: string) => setLogging({ template: t })
 
@@ -75,21 +90,17 @@ export function NextTraining() {
     <div className="wh-page wh-train nx ntr skin-enter">
       <div className="nx-wrap">
         <div className="nx-top">
-          <Hero data={data} workouts={workouts} onStart={start} onManage={() => setTemplates(true)} />
+          <Hero data={data} onStart={start} onManage={() => setTemplates(true)} />
           <div className="ntr-side">
-            <ThisWeek data={data} workouts={workouts} target={target} />
-            <Consistency data={data} target={target} />
+            <ThisWeek data={data} workouts={workouts} goal={goal} />
           </div>
         </div>
         <div className="ntr-row">
-          <div className="ntr-main">
-            <Lifts workouts={workouts} lifts={data.progress} />
-            <History data={data} workouts={workouts} onEdit={w => setLogging({ edit: w })} />
-          </div>
-          <div className="ntr-aside">
-            <Body today={data.today} />
-            <Records workouts={workouts} />
-          </div>
+          <div className="ntr-main"><Lifts data={data} workouts={workouts} pick={pick} setPick={setPick} /></div>
+          <div className="ntr-aside"><Body today={data.today} lifts={data.progress} /><Consistency data={data} target={goal?.n ?? null} /></div>
+        </div>
+        <div className="ntr-row full">
+          <History data={data} workouts={workouts} goal={goal} onEdit={w => setLogging({ edit: w })} />
         </div>
       </div>
       {!logging && !templates && <Keys data={data} onStart={start} />}
@@ -116,189 +127,199 @@ function Keys({ data, onStart }: { data: TrainingView; onStart: (t: string) => v
   return null
 }
 
-// ─── Hero: the answer, the signal, one tap to start ──────────────────────────
+// ─── Hero: what's next, one tap to start, last time and the aim ──────────────
 
-function Hero({ data, workouts, onStart, onManage }: { data: TrainingView; workouts: Workout[]; onStart: (t: string) => void; onManage: () => void }) {
-  const lifts = data.progress.filter(l => l.sessions >= 3)
-  const up = lifts.filter(l => l.change > 0).sort((a, b) => b.change - a.change)
-  const below = lifts.filter(l => l.current < l.best.e1rm)
-  const atBest = lifts.filter(l => l.current >= l.best.e1rm)
-  const last = data.recent[0]
-  const wk = sundayOf(data.today)
-  const volume = workouts.filter(w => sundayOf(w.date) === wk).reduce((s, w) => s + workoutVolume(w), 0)
-  const timed = workouts.filter(w => w.durationMinutes)
-  const avgMin = timed.length ? Math.round(timed.reduce((s, w) => s + (w.durationMinutes ?? 0), 0) / timed.length) : 0
+function Hero({ data, onStart, onManage }: { data: TrainingView; onStart: (t: string) => void; onManage: () => void }) {
   const rot = rotation(data)
-
-  let kick: [string, string], h1: React.ReactNode, sub = ''
-  if (!lifts.length) { kick = ['Just starting', '']; h1 = 'Log a few workouts and your progress shows up here.' }
-  else if (atBest.length >= lifts.length / 2) {
-    kick = ['Getting stronger', 'good']; h1 = <>{atBest.length} of {lifts.length} lifts are at their best</>
-    sub = up[0] ? `${up[0].name} is up ${kg(up[0].change)} in 8 weeks.` : ''
-  } else if (up.length) {
-    kick = ['Rebuilding', 'warn']; h1 = <>{up[0].name} is up {kg(up[0].change)} in 8 weeks</>
-    sub = `${below.length} of ${lifts.length} lifts are still below their best.`
-  } else {
-    kick = ['Stalled', 'bad']; h1 = 'No lift has gone up in 8 weeks'
-    sub = `${below.length} of ${lifts.length} lifts are below their best.`
-  }
+  const last = data.recent[0]
+  const nextDate = rot.next ? rot.last.get(rot.next) : undefined
 
   return (
-    <section className="nx-hero ntr-hero" aria-label="Training">
+    <section className="nx-hero ntr-hero" aria-label="Next workout">
       <div className="ntr-top">
-        <p className={`nx-state ${kick[1]}`}>{kick[0]}</p>
-        <h1 className="ntr-h1">{h1}{sub && <span> {sub}</span>}</h1>
-        <SignalLine />
+        <div className="ntr-hd">
+          <p className="nx-state">{rot.next ? 'Next up: the workout you did longest ago' : last ? `Last workout ${fmtDay(last.date)}` : 'Training'}</p>
+          <button className="nx-btn ghost sm" onClick={onManage} aria-label="Create, edit or delete templates">Templates</button>
+        </div>
+        <h1 className="ntr-h1">
+          {rot.next ? rot.next : last ? `${last.name}, ${ago(daysBetween(last.date, data.today))}` : 'Log your first workout'}
+          {rot.next && nextDate && <span> Last done {fmtShort(nextDate)}, {ago(daysBetween(nextDate, data.today))}.</span>}
+        </h1>
         <div className="ntr-starts" role="group" aria-label="Start a workout">
           {data.templates.map((t, i) => {
             const d = rot.last.get(t.name)
-            const ago = d ? daysBetween(d, data.today) : null
+            const n = d ? daysBetween(d, data.today) : null
             const isNext = rot.next === t.name
-            const stale = ago != null && ago >= STALE
+            const stale = n != null && n >= STALE
+            const draft = draftTime(t.name)
             return (
               <button key={t.id} className={`ntr-start ${isNext ? 'next' : ''}`} onClick={() => onStart(t.name)} aria-label={`Start ${t.name}`}>
                 <span className="t"><i className="nx-dot" style={{ color: catMeta(t.category).color }} />{t.name}{i < 9 && <kbd>{i + 1}</kbd>}</span>
-                <span className={`s ${stale ? 'warn' : ''}`}>
-                  {isNext && <b>Next up · </b>}
-                  {ago == null ? `${t.exercises.length} exercises, not done yet` : ago === 0 ? 'done today' : stale ? `${ago} days since` : `last ${fmtShort(d!)}`}
+                <span className={`s ${stale && !draft ? 'warn' : ''}`} title={d ? `Last done ${fmtDay(d)}` : undefined}>
+                  {draft ? <b>Resume, unsaved from {new Date(draft).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</b>
+                    : n == null ? `${plural(t.exercises.length, 'exercise')}, not done yet` : `Done ${ago(n)}`}
                 </span>
               </button>
             )
           })}
           <button className="ntr-start other" onClick={() => onStart('')} aria-label="Start an empty workout">
             <span className="t">Something else<kbd>N</kbd></span>
-            <span className="s">start empty</span>
+            <span className="s">{draftTime('') ? <b>Resume unsaved workout</b> : 'Start empty'}</span>
           </button>
         </div>
-        <BeatIt data={data} name={rot.next ?? data.recent.find(r => data.templates.some(t => t.name === r.name))?.name ?? null} />
-      </div>
-      <div className="ntr-facts">
-        <div><span>Volume this week</span><b className="num">{volume > 0 ? volLabel(volume) : '–'}</b></div>
-        <div><span>Average session</span><b className="num">{avgMin || '–'}{avgMin ? <small> min</small> : null}</b></div>
-        <div><span>Last workout</span><b>{last ? last.name : '–'}{last && <small> {fmtShort(last.date)}</small>}</b></div>
-        <div><span>Lifts tracked</span><b className="num">{data.progress.length}</b></div>
-        <button className="nx-btn ghost sm" onClick={onManage} aria-label="Create, edit or delete templates">Templates</button>
+        <WeighIn today={data.today} />
       </div>
     </section>
   )
 }
 
-/** What to beat in the workout that is next: last time and the target, per exercise. */
-function BeatIt({ data, name }: { data: TrainingView; name: string | null }) {
-  const tpl = data.templates.find(t => t.name === name)
-  const rows = (tpl?.exercises ?? []).map(e => ({ name: e.exerciseName, last: data.last[e.exerciseName] })).filter(r => r.last)
-  if (!tpl || !rows.length) return null
-  return (
-    <div className="ntr-beat">
-      <p className="ntr-beat-h">To beat in <b>{tpl.name}</b>, from {fmtShort(rows[0].last.date)}</p>
-      <div className="ntr-beat-g">
-        {rows.slice(0, 6).map(r => (
-          <div key={r.name}>
-            <span>{r.name}</span>
-            <b className="num">{r.last.target}</b>
-            <small className="num">last {r.last.reps.map((n, i) => (r.last.weight[i] ? `${r.last.weight[i]}×${n}` : `${n}`)).join(', ')}</small>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/** The body composition signal as one caption; the reasoning opens beneath it. */
-function SignalLine() {
+/**
+ * A one-line weigh-in reminder under the start buttons. It jumps to the one weight
+ * field (W does the same) rather than adding a second one.
+ */
+function WeighIn({ today }: { today: string }) {
   const metrics = useBodyMetrics()
-  const workouts = useAllWorkouts()
-  const insight = useMemo(() => computeInsight(metrics.data ?? [], workouts.data ?? []), [metrics.data, workouts.data])
-  const [open, setOpen] = useState(false)
-  if (!insight) return null
+  const rows = (metrics.data ?? []).filter(m => m.weightKg != null).sort((a, b) => a.date.localeCompare(b.date))
+  const last = rows[rows.length - 1]
+  if (metrics.isPending) return null
+  const thisWeek = last && sundayOf(last.date) === sundayOf(today)
+  const span = rows.length > 1 ? daysBetween(rows[0].date, last.date) : 0
+  const need = Math.max(0, READ_MIN_ENTRIES - rows.length)
+  const why = need > 0 ? ` ${plural(need, 'more weigh-in')} and weight joins the strength read.` : span < READ_MIN_DAYS ? ` Weight joins the strength read once your weigh-ins span ${READ_MIN_DAYS} days.` : ''
+  const go = () => { const el = document.getElementById('ntr-weight'); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); el?.focus({ preventScroll: true }) }
   return (
-    <div className="ntr-signal">
-      <p>
-        <i className={`nx-dot ${insight.color}`} />
-        <b>{insight.pattern}.</b> {insight.action}{' '}
-        <button className="ntr-lnk" onClick={() => setOpen(o => !o)} aria-expanded={open}>{open ? 'Less' : 'Why'}</button>
-      </p>
-      {open && (
-        <div className="ntr-why">
-          <p>{insight.what}</p>
-          <p>{insight.why}</p>
-          <div className="nx-figs">
-            {insight.weightChange != null && <div><span>Weight</span><b className="num">{signed(insight.weightChange)} kg</b></div>}
-            {insight.liftPct != null && <div><span>Lifts, earlier vs recent</span><b className={`num ${insight.liftPct > 4 ? 'good' : insight.liftPct < -4 ? 'bad' : ''}`}>{insight.liftPct > 0 ? '+' : ''}{insight.liftPct.toFixed(1)}%</b></div>}
-            <div><span>Lifts tracked</span><b className="num">{insight.trackedExercises}</b></div>
-          </div>
-        </div>
-      )}
-    </div>
+    <p className={`ntr-weigh ${thisWeek ? '' : 'due'}`}>
+      {thisWeek ? <>Weighed {last.date === today ? 'today' : fmtDay(last.date)}, {kgs(last.weightKg!)} kg.</> : <>Not weighed this week{last ? `; last ${fmtDay(last.date)}` : ''}.{why}</>}
+      {' '}<Button variant="secondary" size="sm" onClick={go}>{thisWeek ? 'Log again' : 'Log weight'}<kbd>W</kbd></Button>
+    </p>
   )
 }
 
 // ─── Side: this week, then the last 12 ───────────────────────────────────────
 
-function ThisWeek({ data, workouts, target }: { data: TrainingView; workouts: Workout[]; target: number }) {
-  const n = data.weeks[data.weeks.length - 1]?.count ?? 0
-  const streak = targetStreak(workouts, data.today, target)
-  const left = Math.max(0, target - n)
-  const daysLeft = 6 - new Date(data.today + 'T12:00:00').getDay()
-  return (
-    <section className="nx-sec">
-      <Head aside="Target from your week">This week</Head>
-      <div className="nx-split ntr-wk">
-        <div className="nx-wk">
-          <span className={`nx-mid num ${n >= target ? 'good' : ''}`}>{n}</span>
-          <span className="nx-of">of {target}</span>
-        </div>
-        <div className="nx-segs" aria-hidden>{Array.from({ length: Math.max(target, n) }, (_, i) => <i key={i} className={i < n ? 'f' : ''} />)}</div>
-      </div>
-      <p className="ntr-cap">
-        {n >= target ? 'Target hit.' : left > daysLeft + 1 ? `${left} to go with ${daysLeft + 1} day${daysLeft ? 's' : ''} left: out of reach this week.` : `${left} to go, ${daysLeft + 1} day${daysLeft ? 's' : ''} left.`}
-        {' '}{streak.weeks > 0 ? <><b className="good">{streak.weeks} {streak.weeks === 1 ? 'week' : 'weeks'} in a row</b> at {target}+.</> : `No current run at ${target}+.`}
-      </p>
-    </section>
-  )
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+/**
+ * The week's workout goal, and where it came from. A Week goal scored from
+ * workouts gives its target. A goal typed by hand ("Workout for at least 4 days")
+ * gives the number in its words. With neither there is no target, never a default.
+ */
+type Goal = { n: number; from: string; detail: string }
+function weekGoal(tasks: { title: string; source: string; target: number | null }[]): Goal | null {
+  const linked = tasks.find(t => t.source === 'workouts')
+  if (linked) return { n: linked.target ?? 4, from: 'Goal from Week', detail: `"${linked.title}", counted from your logged workouts` }
+  // Only a count of days or sessions, 1 to 14: "45 min" or "5 km" is not a number of workouts.
+  const count = (title: string) => {
+    const m = title.match(/(\d+)\s*(?:x\b|times?|days?|sessions?|workouts?|a week|per week|\/\s*week)/i) ?? title.match(/at least (\d+)(?!\s*(?:min|h|hours?|km|kg|m\b))/i)
+    const n = m ? Number(m[1]) : NaN
+    return n >= 1 && n <= 14 ? n : null
+  }
+  const named = tasks.find(t => /work ?out|training|gym|lift/i.test(t.title) && count(t.title) != null)
+  if (named) return { n: count(named.title)!, from: 'Goal from Week', detail: `The number in your Week goal "${named.title}"` }
+  return null
 }
 
-function Consistency({ data, target }: { data: TrainingView; target: number }) {
-  const H = 150
-  const max = Math.max(target, ...data.weeks.map(w => w.count), 1)
-  const past = data.weeks.slice(0, -1)
-  const hit = past.filter(w => w.count >= target).length
-  const avg = r1(past.reduce((s, w) => s + w.count, 0) / Math.max(1, past.length))
-  const used = CATEGORIES.filter(c => data.weeks.some(w => (w.byCat?.[c.value] ?? 0) > 0))
+/** The middle of a list of counts: a usual week that one big week can't drag up. */
+const median = (xs: number[]) => { if (!xs.length) return 0; const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2) }
+
+function ThisWeek({ data, workouts, goal }: { data: TrainingView; workouts: Workout[]; goal: Goal | null }) {
+  const wk = sundayOf(data.today)
+  const mine = workouts.filter(w => sundayOf(w.date) === wk)
+  const lastWk = workouts.filter(w => sundayOf(w.date) === addDays(wk, -7))
+  const n = mine.length
+  const target = goal?.n ?? 0
+  const streak = goal ? targetStreak(workouts, data.today, target) : { weeks: 0 }
+  const left = Math.max(0, target - n)
+  const todayIdx = new Date(data.today + 'T12:00:00').getDay()
+  const daysLeft = 7 - todayIdx
+  const mins = mine.reduce((s, w) => s + (w.durationMinutes ?? 0), 0)
+  const timed = [...workouts].filter(w => w.durationMinutes).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10)
+  const avg = timed.length ? Math.round(timed.reduce((s, w) => s + w.durationMinutes!, 0) / timed.length) : 0
+  const usual = median(data.weeks.slice(0, -1).map(w => w.count))
   return (
-    <section className="nx-sec ntr-cons-sec">
-      <Head aside={<span className="num">{hit} of {past.length} hit</span>}>Workouts per week</Head>
-      <div className="ntr-cons" style={{ height: H + 20 }}>
-        <div className="tgt" style={{ bottom: 20 + (target / max) * H }}><span className="num">{target}</span></div>
-        {data.weeks.map((w, i) => {
-          const cur = i === data.weeks.length - 1
-          const parts = CATEGORIES.map(c => ({ c, n: w.byCat?.[c.value] ?? 0 })).filter(p => p.n > 0)
-          const other = w.count - parts.reduce((s, p) => s + p.n, 0)
-          const tip = `Week of ${fmtDay(w.start)}: ${w.count}${parts.length ? ` (${parts.map(p => `${p.n} ${p.c.label.toLowerCase()}`).join(', ')})` : ''}`
+    <section className="nx-sec">
+      <Head aside={<span title={goal?.detail}>{goal?.from ?? 'No workout goal in Week'}</span>}>This week</Head>
+      <div className="nx-split ntr-wk">
+        <div className="nx-wk">
+          <span className={`nx-mid num ${goal && n >= target ? 'good' : ''}`}>{n}</span>
+          <span className="nx-of">{goal ? `of ${target} workouts` : plural(n, 'workout')}</span>
+        </div>
+      </div>
+      <div className="ntr-days" role="list" aria-label="Days this week">
+        {DAYS.map((d, i) => {
+          const date = addDays(wk, i)
+          const did = mine.filter(w => w.date === date)
+          const state = did.length ? 'done' : i === todayIdx ? 'today' : i < todayIdx ? 'past' : ''
           return (
-            <div key={w.start} className="col" title={tip}>
-              <div className={`stk ${cur ? 'cur' : ''}`} style={{ height: Math.max(2, (w.count / max) * H) }}>
-                {w.count === 0 && <i style={{ flex: 1, background: 'rgb(var(--k-fg) / .06)' }} />}
-                {other > 0 && <i style={{ flex: other, background: 'rgb(var(--k-fg) / .22)' }} />}
-                {[...parts].reverse().map(p => <i key={p.c.value} style={{ flex: p.n, background: p.c.color }} />)}
-              </div>
-              <span className={`num ${w.count >= target ? 'good' : ''}`}>{w.count}</span>
+            <div key={d} role="listitem" className={`d ${state}`} title={did.length ? `${fmtDay(date)}: ${did.map(w => w.name).join(', ')}` : fmtDay(date)}>
+              <i aria-hidden />
+              <span>{d}</span>
+              <span className="sr-only">{did.length ? did.map(w => w.name).join(', ') : 'no workout'}</span>
             </div>
           )
         })}
       </div>
-      {used.length > 0 && (
+      <p className="ntr-cap">
+        {!goal ? `${plural(daysLeft, 'day')} left.`
+          : n >= target ? 'Goal hit.'
+          : left > daysLeft ? `${left} to go, ${plural(daysLeft, 'day')} left: out of reach.` : `${left} to go, ${plural(daysLeft, 'day')} left.`}
+        {' '}{n > usual ? <b className="good">Already above your usual week.</b> : n === usual && n > 0 ? 'Level with your usual week.' : ''}
+        {' '}{streak.weeks > 0 ? <><b className="good">{plural(streak.weeks, 'week')} in a row</b> at {target} or more.</> : ''}
+      </p>
+      <div className="nx-figs ntr-wkfigs">
+        <div><span>Last week</span><b className="num">{lastWk.length}</b></div>
+        <div><span>Your usual week</span><b className="num">{usual}</b></div>
+        <div><span>Time this week</span><b className="num">{mins} min</b>{avg > 0 && <small>sessions usually {avg} min</small>}</div>
+      </div>
+    </section>
+  )
+}
+
+function Consistency({ data, target }: { data: TrainingView; target: number | null }) {
+  const H = 120
+  const max = Math.max(target ?? 0, ...data.weeks.map(w => w.count), 1)
+  const usual = median(data.weeks.slice(0, -1).map(w => w.count))
+  const met = (n: number) => target != null && n >= target
+  const past = data.weeks.slice(0, -1)
+  const hit = past.filter(w => met(w.count)).length
+  const avg = Math.round((past.reduce((s, w) => s + w.count, 0) / Math.max(1, past.length)) * 10) / 10
+  const used = CATEGORIES.filter(c => data.weeks.some(w => (w.byCat?.[c.value] ?? 0) > 0))
+  const mixed = used.length > 1
+  return (
+    <section className="nx-sec ntr-cons-sec">
+      <Head aside={`Last ${data.weeks.length} weeks`}>Workouts per week</Head>
+      <div className="ntr-cons" style={{ height: H + 20 }}>
+        {target != null && <div className="tgt" style={{ bottom: 20 + (target / max) * H }}><span className="num">goal {target}</span></div>}
+        {data.weeks.map((w, i) => {
+          const cur = i === data.weeks.length - 1
+          const parts = CATEGORIES.map(c => ({ c, n: w.byCat?.[c.value] ?? 0 })).filter(p => p.n > 0)
+          const other = w.count - parts.reduce((s, p) => s + p.n, 0)
+          const tip = `Week of ${fmtDay(w.start)}: ${w.count}${mixed && parts.length ? ` (${parts.map(p => `${p.n} ${p.c.label.toLowerCase()}`).join(', ')})` : ''}`
+          return (
+            <div key={w.start} className="col" title={tip}>
+              <div className={`stk ${cur ? 'cur' : ''}`} style={{ height: Math.max(2, (w.count / max) * H) }}>
+                {w.count === 0 && <i style={{ flex: 1, background: 'rgb(var(--k-fg) / .06)' }} />}
+                {!mixed && w.count > 0 && <i style={{ flex: 1, background: met(w.count) ? 'var(--k-good)' : 'rgb(var(--k-fg) / .3)' }} />}
+                {mixed && other > 0 && <i style={{ flex: other, background: 'rgb(var(--k-fg) / .22)' }} />}
+                {mixed && [...parts].reverse().map(p => <i key={p.c.value} style={{ flex: p.n, background: p.c.color }} />)}
+              </div>
+              <span className={`num ${met(w.count) ? 'good' : ''}`}>{w.count}</span>
+            </div>
+          )
+        })}
+      </div>
+      {mixed && (
         <div className="trn-legend">
           {used.map(c => <span key={c.value}><i style={{ background: c.color }} />{c.label}</span>)}
           <span><i className="cur" />This week</span>
         </div>
       )}
-      <p className="ntr-cap">Average {avg} a week. Rest days never break anything here; only the week counts.</p>
+      <p className="ntr-cap">{target != null ? `Goal hit in ${hit} of the last ${past.length} weeks. ` : ''}Usually {usual} a week (average {avg}).</p>
     </section>
   )
 }
 
-// ─── Lifts: the chart for the one you pick, the table for all ────────────────
+// ─── Lifts: grouped by workout, one plain answer per lift ────────────────────
 
 const chartTip = {
   contentStyle: { background: 'var(--k-card2)', border: '1px solid var(--k-line2)', borderRadius: 12, fontSize: 12.5, padding: '6px 10px' },
@@ -306,96 +327,169 @@ const chartTip = {
   itemStyle: { color: 'var(--k-ink)', padding: 0 },
 }
 const tick = { fill: 'var(--k-faint)', fontSize: 11, fontFamily: 'var(--k-font)' }
-const niceDomain = (vals: number[], step: number): [number, number] => {
+/** Y-axis ticks at round steps (5, 10 or 20 kg) that cover the values with a little room. */
+const roundTicks = (vals: number[]) => {
+  if (!vals.length) return [0, 5]
   const lo = Math.min(...vals), hi = Math.max(...vals)
-  return [Math.max(0, Math.floor((lo - step / 2) / step) * step), Math.ceil((hi + step / 2) / step) * step]
+  const step = hi - lo > 60 ? 20 : hi - lo > 25 ? 10 : 5
+  const a = Math.max(0, Math.floor((lo - step / 4) / step) * step), b = Math.ceil((hi + step / 4) / step) * step
+  const out: number[] = []
+  for (let v = a; v <= b; v += step) out.push(v)
+  return out
 }
 
-function Spark({ l }: { l: Lift }) {
-  const W = 120, H = 28
-  const vals = l.history.map(h => h.e1rm)
-  const lo = Math.min(...vals, l.best.e1rm) * 0.95, hi = Math.max(...vals, l.best.e1rm) * 1.02
-  const x = (i: number) => (vals.length === 1 ? W / 2 : (i / (vals.length - 1)) * (W - 6) + 3)
-  const y = (v: number) => H - 3 - ((v - lo) / Math.max(1, hi - lo)) * (H - 6)
+/** One lift's sessions: the top set of each, with every set kept. */
+function liftSessions(workouts: Workout[], name: string) {
+  const out: { date: string; kg: number; reps: number; sets: string }[] = []
+  for (const w of [...workouts].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)) {
+    for (const e of w.exercises) {
+      if (e.exerciseName.trim() !== name) continue
+      const top = topOf(e.reps ?? [], e.weight ?? [])
+      if (top) out.push({ date: w.date, ...top, sets: setsText(e.reps ?? [], e.weight ?? []) })
+    }
+  }
+  return out
+}
+
+/** One exercise as it sits in a workout: its lift numbers when weighted, and last time with the aim. */
+type PlanRow = { name: string; lift?: Lift; last?: TrainingView['last'][string] }
+
+function Lifts({ data, workouts, pick, setPick }: { data: TrainingView; workouts: Workout[]; pick: string; setPick: (n: string) => void }) {
+  const lifts = data.progress
+  // Only the next workout opens by default; the rest fold to a one-line summary.
+  const [opened, setOpened] = useState<Set<string> | null>(null)
+  const since = addDays(data.today, -30)
+  const newBests = lifts.reduce((s, l) => s + l.bests.filter(b => b.date >= since).length, 0)
+  const verdicts = useMemo(() => new Map(lifts.map(l => [l.name, verdict(l)])), [lifts])
+  const count = (k: Verdict['kind']) => lifts.filter(l => verdicts.get(l.name)!.kind === k).length
+  const rot = rotation(data)
+
+  // One group per workout, next up first, then the one done longest ago; an exercise
+  // in two workouts shows in both. Lifts in no workout go last, folded.
+  const groups = useMemo(() => {
+    const row = (name: string): PlanRow => ({ name, lift: lifts.find(l => l.name === name), last: data.last[name] })
+    const order = [...data.templates].sort((a, b) => {
+      const da = rot.last.get(a.name), db = rot.last.get(b.name)
+      if (a.name === rot.next) return -1
+      if (b.name === rot.next) return 1
+      if (!da || !db) return da ? -1 : db ? 1 : 0
+      return da.localeCompare(db)
+    })
+    const inTpl = new Set(data.templates.flatMap(t => t.exercises.map(e => e.exerciseName.trim())))
+    const out: { name: string; color?: string; done?: string; next?: boolean; rows: PlanRow[] }[] = order.map(t => ({
+      name: t.name, color: catMeta(t.category).color, done: rot.last.get(t.name), next: t.name === rot.next,
+      rows: t.exercises.map(e => row(e.exerciseName.trim())),
+    }))
+    const rest = lifts.filter(l => !inTpl.has(l.name)).map(l => row(l.name))
+    if (rest.length) out.push({ name: out.length ? 'Other lifts' : 'Lifts', rows: rest })
+    return out
+  }, [data, lifts, rot.next, rot.last])
+  const firstOpen = groups.find(g => (opened ?? new Set([groups[0]?.name])).has(g.name))?.name
+
   return (
-    <svg width={W} height={H} aria-hidden>
-      <line x1="0" x2={W} y1={y(l.best.e1rm)} y2={y(l.best.e1rm)} stroke="rgb(var(--k-fg) / .16)" strokeDasharray="2 3" />
-      <polyline points={vals.map((v, i) => `${x(i)},${y(v)}`).join(' ')} fill="none" stroke="var(--k-ink2)" strokeWidth="1.5" strokeLinejoin="round" />
-      <circle cx={x(vals.length - 1)} cy={y(vals[vals.length - 1])} r="3" fill={l.current >= l.best.e1rm ? 'var(--k-good)' : l.stalled ? 'var(--k-warn)' : 'var(--k-ink2)'} />
-    </svg>
+    <section className="nx-sec ntr-lifts" id="ntr-lifts">
+      <Head aside={lifts.length ? <span className="num">{plural(newBests, 'new best')} in 30 days</span> : undefined}>Your workouts</Head>
+      {!groups.length ? <p className="nx-answer">Make a template or log a workout, and its exercises show here with what to aim for.</p> : (
+        <>
+          {lifts.length > 0 && (
+            <div className="ntr-tally">
+              <div><b className="num good">{count('best')}</b><span>lifts at your best</span></div>
+              <div><b className="num good">{count('up')}</b><span>up on 8 weeks ago</span></div>
+              <div><b className="num">{count('below')}</b><span>below your best</span></div>
+            </div>
+          )}
+          <p className="ntr-cap ntr-def">Aim is one more rep on your heaviest set; at 10 reps, the next weight you have used (or 2.5 kg more) for 2 fewer.</p>
+          {groups.map(g => {
+            const isOpen = (opened ?? new Set([groups[0].name])).has(g.name)
+            const toggle = () => setOpened(o => { const n = new Set(o ?? [groups[0].name]); if (isOpen) n.delete(g.name); else n.add(g.name); return n })
+            const vs = g.rows.map(r => (r.lift ? verdicts.get(r.lift.name)!.kind : null))
+            const nb = vs.filter(k => k === 'best' || k === 'up').length, nd = vs.filter(k => k === 'below').length
+            const summary = !g.color
+              ? `${g.rows.slice(0, 3).map(r => r.name).join(', ')}${g.rows.length > 3 ? ` and ${g.rows.length - 3} more` : ''}`
+              : [nb ? `${nb} at best or up` : '', nd ? `${nd} below best` : ''].filter(Boolean).join(', ')
+            return (
+              <div key={g.name} className={`ntr-lg ${isOpen ? 'open' : ''}`}>
+                <button className="ntr-lg-h" onClick={toggle} aria-expanded={isOpen} aria-label={`${g.name}, ${plural(g.rows.length, 'exercise')}. ${isOpen ? 'Fold' : 'Open'}`}>
+                  {g.color && <i className="nx-dot" style={{ color: g.color }} />}
+                  <span className="t">{g.name}</span>
+                  {g.next && <span className="nxt">Next up</span>}
+                  {g.done && <span className="dn">Last {fmtShort(g.done)}</span>}
+                  {!isOpen && summary && <span className="sm">{summary}</span>}
+                  <span className="chev" aria-hidden>{!isOpen && <span className="num">{g.rows.length}</span>}<ChevronDown size={15} className={isOpen ? 'up' : ''} /></span>
+                </button>
+                {isOpen && g.name === firstOpen && <div className="ntr-lh" aria-hidden><span>Exercise</span><span>Last time</span><span>Aim</span><span>Progress</span></div>}
+                {isOpen && g.rows.map(r => (
+                  <LiftRow key={r.name} r={r} v={r.lift ? verdicts.get(r.lift.name) : undefined} open={pick === r.name}
+                    onToggle={() => setPick(pick === r.name ? '' : r.name)} workouts={workouts} />
+                ))}
+              </div>
+            )
+          })}
+        </>
+      )}
+    </section>
   )
 }
 
-function Lifts({ workouts, lifts }: { workouts: Workout[]; lifts: Lift[] }) {
-  const [all, setAll] = useState(false)
-  const names = useMemo(() => {
-    const s = new Set<string>()
-    for (const w of workouts) for (const e of w.exercises) if ((e.weight ?? []).some(x => x > 0)) s.add(e.exerciseName.trim())
-    return [...s].sort()
-  }, [workouts])
-  const [pick, setPick] = useState('')
-  const ex = pick && names.includes(pick) ? pick : (lifts.find(l => names.includes(l.name))?.name ?? names[0] ?? '')
-  const series = useMemo(() => (ex ? exerciseSeries(workouts, ex) : []), [workouts, ex])
-  const shown = all ? lifts : lifts.slice(0, 8)
-  const first = series[0], last = series[series.length - 1]
-  const best = series.reduce((m, s) => Math.max(m, s.maxKg), 0)
-  const change = first && last && series.length > 1 ? r1(last.e1rm - first.e1rm) : null
-
+function LiftRow({ r, v, open, onToggle, workouts }: { r: PlanRow; v?: Verdict; open: boolean; onToggle: () => void; workouts: Workout[] }) {
+  const tone = v && (v.kind === 'best' || v.kind === 'up') ? 'good' : ''
+  const lastSet = r.lift ? setText(r.lift.last) : r.last ? `${Math.max(...r.last.reps)} reps` : '–'
+  const lastDate = r.lift?.last.date ?? r.last?.date
+  const cells = (
+    <>
+      <span className="n">{r.name}<small>{lastDate ? `Last ${fmtShort(lastDate)}` : 'Not done yet'}</small></span>
+      <span className="num s">{lastSet}</span>
+      <b className="num a">{r.last?.target ?? '–'}</b>
+      <span className="v">{v ? <><span className={tone}>{v.text}</span>{v.sub && <small className="num">{v.sub}</small>}</> : <small>{r.last ? 'No weight logged' : ''}</small>}</span>
+    </>
+  )
+  if (!r.lift) return <div className="ntr-lift"><div className="row">{cells}<span /></div></div>
   return (
-    <section className="nx-sec ntr-lifts">
-      <Head aside="Estimated one-rep max from your best set each session">Are you getting stronger?</Head>
-      {names.length > 0 && (
-        <div className="ntr-prog">
-          <div className="ntr-prog-hd">
-            <select className="ntr-select" value={ex} onChange={e => setPick(e.target.value)} aria-label="Pick an exercise">
-              {names.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-            <p>
-              {!series.length ? 'No sets with a weight on this one yet.'
-                : series.length === 1 ? `One session so far: ${last.maxKg} kg on ${fmtLong(last.date)}.`
-                : <>Heaviest <b className="num">{best} kg</b>{change != null && <>, estimated 1RM <b className={`num ${change > 0 ? 'good' : change < 0 ? 'bad' : ''}`}>{change > 0 ? '+' : ''}{kg(change)}</b> since {fmtShort(first.date)}</>}</>}
-            </p>
-            <div className="trn-legend"><span><i style={{ background: 'var(--k-ink)' }} />Estimated 1RM</span><span><i className="dash" />Heaviest weight</span></div>
-          </div>
-          {series.length > 1 && (
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={series} margin={{ top: 8, right: 4, bottom: 0, left: -12 }}>
-                <CartesianGrid vertical={false} stroke="rgb(var(--k-fg) / .05)" />
-                <XAxis dataKey="date" tick={tick} axisLine={false} tickLine={false} tickFormatter={fmtShort} minTickGap={30} />
-                <YAxis tick={tick} axisLine={false} tickLine={false} domain={niceDomain(series.flatMap(s => [s.maxKg, s.e1rm]), 5)} tickFormatter={v => String(Math.round(v))} width={48} />
-                <Tooltip {...chartTip} labelFormatter={l => fmtDay(String(l))} formatter={(v, n) => [`${v} kg`, n === 'e1rm' ? 'Estimated 1RM' : 'Heaviest weight']} />
-                <Line type="monotone" dataKey="e1rm" stroke="var(--k-ink)" strokeWidth={2} dot={series.length <= 30 ? { r: 2.5, fill: 'var(--k-ink)', strokeWidth: 0 } : false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="maxKg" stroke="var(--k-mute)" strokeWidth={1.6} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
+    <div className={`ntr-lift ${open ? 'open' : ''}`}>
+      <button className="row" onClick={onToggle} aria-expanded={open} aria-label={`${r.name}: ${lastSet} last time, aim ${r.last?.target ?? 'none'}, ${v?.text ?? ''}. ${open ? 'Hide' : 'Show'} history`}>
+        {cells}<span className="chev" aria-hidden><ChevronDown size={15} className={open ? 'up' : ''} /></span>
+      </button>
+      {open && <LiftDetail l={r.lift} workouts={workouts} />}
+    </div>
+  )
+}
+
+function LiftDetail({ l, workouts }: { l: Lift; workouts: Workout[] }) {
+  const series = useMemo(() => liftSessions(workouts, l.name), [workouts, l.name])
+  const ticks = roundTicks([...series.map(s => s.kg), l.best.kg])
+  const sinceBest = l.history.filter(h => h.date > l.best.date).length
+  return (
+    <div className="ntr-lift-d">
+      <div className="nx-figs">
+        <div><span>Best</span><b className="num">{setText(l.best)}</b><small>{fmtLong(l.best.date)}</small></div>
+        <div><span>8+ weeks ago</span><b className="num">{l.before ? setText(l.before) : '–'}</b><small>{l.before ? fmtLong(l.before.date) : 'Started since'}</small></div>
+        <div><span>Since your best</span><b className="num">{plural(sinceBest, 'session')}</b><small>{plural(l.sessions, 'session')} in all</small></div>
+      </div>
+      {series.length > 1 && (
+        <>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={series} margin={{ top: 8, right: 4, bottom: 0, left: -12 }}>
+              <CartesianGrid vertical={false} stroke="rgb(var(--k-fg) / .05)" />
+              <XAxis dataKey="date" tick={tick} axisLine={false} tickLine={false} tickFormatter={fmtShort} minTickGap={30} />
+              <YAxis tick={tick} axisLine={false} tickLine={false} domain={[ticks[0], ticks[ticks.length - 1]]} ticks={ticks} width={40} />
+              <ReferenceLine y={l.best.kg} stroke="rgb(var(--k-fg) / .22)" strokeDasharray="3 4" />
+              <Tooltip {...chartTip} labelFormatter={x => fmtDay(String(x))} formatter={(_v, _n, p) => [`${(p.payload as { sets: string }).sets}`, 'Sets']} />
+              <Line type="linear" dataKey="kg" stroke="var(--k-ink)" strokeWidth={2} dot={series.length <= 30 ? { r: 2.5, fill: 'var(--k-ink)', strokeWidth: 0 } : false} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="trn-legend"><span><i style={{ background: 'var(--k-ink)' }} />Heaviest weight each session, kg</span><span><i className="dash" />Your best</span></div>
+        </>
       )}
-      {lifts.length > 0 ? (
-        <div className="ntr-tbl" role="table" aria-label="Lifts">
-          <div className="tr th" role="row"><span>Lift</span><span>Trend</span><span>Now</span><span>8 weeks</span><span>Best</span></div>
-          {shown.map(l => (
-            <button key={l.name} className={`tr ${l.name === ex ? 'on' : ''}`} role="row" onClick={() => setPick(l.name)} aria-pressed={l.name === ex} aria-label={`Show ${l.name} on the chart`}>
-              <span className="n">{l.name}<small>{l.sessions} sessions · last {fmtShort(l.lastDate)}</small></span>
-              <span><Spark l={l} /></span>
-              <span className="num v">{kg(l.current)}</span>
-              <span className={`num ${l.change > 0 ? 'good' : l.change < 0 ? 'bad' : 'mute'}`}>{l.change > 0 ? '+' : ''}{kg(l.change)}</span>
-              <span className="b">
-                <span className="num">{kg(l.best.e1rm)}</span>
-                <small className={l.current >= l.best.e1rm ? 'good' : l.stalled ? 'warn' : ''}>{l.current >= l.best.e1rm ? 'at your best' : l.stalled ? 'stalled 3 sessions' : fmtShort(l.best.date)}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : <p className="nx-answer">Lifts appear once a weighted exercise has been logged.</p>}
-      {lifts.length > 8 && <button className="nx-btn ghost sm ntr-more" onClick={() => setAll(a => !a)}>{all ? 'Show fewer' : `All ${lifts.length} lifts`}</button>}
-    </section>
+      <ul className="ntr-lift-s" aria-label="Recent sessions">
+        {[...series].reverse().slice(0, 4).map(s => <li key={s.date}><span className="num">{fmtDay(s.date)}</span><span className="num">{s.sets}</span></li>)}
+      </ul>
+    </div>
   )
 }
 
 // ─── Body weight: one field and Enter; another day or a note when needed ─────
 
-function Body({ today }: { today: string }) {
+function Body({ today, lifts }: { today: string; lifts: Lift[] }) {
   const metrics = useBodyMetrics()
   const log = useLogBody()
   const del = useDeleteBody()
@@ -412,12 +506,10 @@ function Body({ today }: { today: string }) {
   const bfRows = entries.filter(m => m.bodyFatPct != null)
   const last = rows[rows.length - 1]
   const lastBf = bfRows[bfRows.length - 1]
-  const monthAgo = new Date(today + 'T12:00:00'); monthAgo.setDate(monthAgo.getDate() - 28)
-  const ref = [...rows].reverse().find(r => r.date <= monthAgo.toISOString().slice(0, 10)) ?? rows[0]
-  const delta = last && ref && last !== ref ? last.weightKg! - ref.weightKg! : null
-  const total = rows.length > 1 ? last.weightKg! - rows[0].weightKg! : null
-  const bfTotal = bfRows.length > 1 ? lastBf.bodyFatPct! - bfRows[0].bodyFatPct! : null
-  const loggedToday = last?.date === today
+  // Compare with the last entry from four weeks ago or earlier; failing that, the first entry. The date is always named.
+  const ref = rows.length > 1 ? ([...rows].reverse().find(r => r.date <= addDays(today, -28)) ?? rows[0]) : null
+  const delta = last && ref ? last.weightKg! - ref.weightKg! : null
+  const bfFirst = bfRows[0]
   const on = more ? date : today
   const exists = entries.some(e => e.date === on)
 
@@ -432,41 +524,54 @@ function Body({ today }: { today: string }) {
 
   return (
     <section className="nx-sec ntr-body">
-      <Head aside={delta != null ? <span className="num">{signed(delta)} kg in 4 weeks</span> : undefined}>Body weight</Head>
+      <Head aside={last ? (last.date === today ? 'Logged today' : `Last logged ${fmtDay(last.date)}`) : undefined}>Body weight</Head>
       <div className="ntr-big">
-        <b className="num">{last ? last.weightKg!.toFixed(1) : '–'}</b><span>kg</span>
-        {lastBf && <span className="bf num">{lastBf.bodyFatPct}% body fat</span>}
+        <b className="num">{last ? kgs(last.weightKg!) : '–'}</b><span>kg</span>
+        {lastBf && <span className="bf num">{kgs(lastBf.bodyFatPct!)}% body fat</span>}
       </div>
-      <p className="ntr-cap">{last ? (loggedToday ? 'Logged today.' : `Last logged ${fmtDay(last.date)}.`) : 'Nothing logged yet.'}</p>
+      <p className="ntr-cap">
+        {!last ? 'Nothing logged yet. Type your weight below and press Enter.'
+          : delta == null ? 'One entry so far. The change shows from the second.'
+          : <><b className="num">{signed(delta)} kg</b> since {fmtDay(ref!.date)} ({kgs(ref!.weightKg!)} kg).</>}
+      </p>
       <form className="ntr-log" onSubmit={submit}>
         <input id="ntr-weight" className="num" inputMode="decimal" value={w} onChange={e => setW(e.target.value)}
           placeholder={exists ? 'Correct it, e.g. 82.4' : more ? 'Weight, e.g. 82.4' : "Today's weight, e.g. 82.4"} aria-label="Weight in kg" />
-        <input className="num bfin" inputMode="decimal" value={bf} onChange={e => setBf(e.target.value)} placeholder="BF %" aria-label="Body fat percent (optional)" />
+        <input className="num bfin" inputMode="decimal" value={bf} onChange={e => setBf(e.target.value)} placeholder="Fat %" aria-label="Body fat percent (optional)" />
         <button className="nx-btn sm" type="submit" disabled={!w || log.isPending}>Log</button>
       </form>
       {more ? (
         <div className="ntr-more-in">
           <input type="date" value={date} max={today} onChange={e => setDate(e.target.value || today)} aria-label="Date" />
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note, e.g. after a late dinner" aria-label="Note" />
-          <button type="button" className="ntr-lnk" onClick={() => { setMore(false); setDate(today); setNote('') }}>Today</button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => { setMore(false); setDate(today); setNote('') }}>Back to today</Button>
         </div>
-      ) : <button type="button" className="ntr-lnk ntr-other" onClick={() => setMore(true)}>Another day or a note</button>}
+      ) : (
+        <div className="ntr-acts">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setMore(true)}><CalendarDays size={14} aria-hidden />Pick a day or add a note</Button>
+        </div>
+      )}
 
       {rows.length > 1 && (
         <div className="trn-mblock">
-          <div className="trn-mhd"><span>Weight</span><b className="num">{signed(total!)} kg since {fmtLong(rows[0].date)}</b></div>
           <MetricChart rows={entries} field="weightKg" unit=" kg" label="Weight" />
         </div>
       )}
       {bfRows.length > 1 && (
         <div className="trn-mblock">
-          <div className="trn-mhd"><span>Body fat</span><b className="num">{signed(bfTotal!)} pts since {fmtLong(bfRows[0].date)}</b></div>
+          <div className="trn-mhd"><span>Body fat</span><b className="num">{signed(lastBf.bodyFatPct! - bfFirst.bodyFatPct!)} points since {fmtShort(bfFirst.date)}</b></div>
           <MetricChart rows={entries} field="bodyFatPct" unit="%" label="Body fat" />
         </div>
       )}
+      <Read rows={rows} metrics={entries} lifts={lifts} />
       {entries.length > 0 && (
         <>
-          <button className="ntr-lnk ntr-other" onClick={() => setAll(a => !a)} aria-expanded={all}>{all ? 'Hide entries' : `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}, open one to correct it`}</button>
+          <div className="ntr-acts ntr-acts-end">
+            <Button variant="secondary" size="sm" onClick={() => setAll(a => !a)} aria-expanded={all}>
+              {all ? 'Hide entries' : <>Correct an entry <span className="num mute">{entries.length}</span></>}
+              <ChevronDown size={14} className={all ? 'up' : ''} aria-hidden />
+            </Button>
+          </div>
           {all && (
             <ul className="ntr-blist">
               {[...entries].reverse().map(r => editing === r.id
@@ -475,7 +580,7 @@ function Body({ today }: { today: string }) {
                   <li key={r.id}>
                     <button className="row" onClick={() => setEditing(r.id)} aria-label={`Edit the entry for ${fmtDay(r.date)}`}>
                       <span className="num d">{fmtDay(r.date)}</span>
-                      <span className="num">{r.weightKg != null ? `${r.weightKg.toFixed(1)} kg` : '–'}{r.bodyFatPct != null ? `, ${r.bodyFatPct}%` : ''}</span>
+                      <span className="num">{r.weightKg != null ? `${kgs(r.weightKg)} kg` : '–'}{r.bodyFatPct != null ? `, ${kgs(r.bodyFatPct)}%` : ''}</span>
                       {r.notes && <small>{r.notes}</small>}
                     </button>
                     {confirm === r.id
@@ -491,28 +596,100 @@ function Body({ today }: { today: string }) {
   )
 }
 
+/**
+ * Weight and strength together. Strength is the list's own verdicts (at your
+ * best, up on 8 weeks ago, below). Weight joins once there are enough
+ * weigh-ins over enough days to be a trend; until then this says only what it
+ * is waiting for, since the lift tally above already answers the rest.
+ */
+function Read({ rows, metrics, lifts }: { rows: BodyMetric[]; metrics: BodyMetric[]; lifts: Lift[] }) {
+  const [open, setOpen] = useState(false)
+  const span = rows.length > 1 ? daysBetween(rows[0].date, rows[rows.length - 1].date) : 0
+  const enough = rows.length >= READ_MIN_ENTRIES && span >= READ_MIN_DAYS
+  const insight = useMemo(() => (enough ? computeInsight(metrics, lifts) : null), [enough, metrics, lifts])
+  if (!enough) {
+    return (
+      <div className="ntr-read">
+        <p className="ntr-read-h">Weight and strength together</p>
+        <p className="ntr-cap">Reads whether you are building muscle or gaining fat after {READ_MIN_ENTRIES} weigh-ins over {READ_MIN_DAYS} days. So far: {plural(rows.length, 'weigh-in')}{rows.length > 1 ? ` over ${plural(span, 'day')}` : ''}.</p>
+      </div>
+    )
+  }
+  if (!insight) return null
+  const wt = insight.weight
+  const range = (a: { from: string; to: string; n: number }) => a.from === a.to ? fmtShort(a.from) : `${fmtShort(a.from)} to ${fmtShort(a.to)}`
+  return (
+    <div className="ntr-read">
+      <p className="ntr-read-h">Weight and strength together</p>
+      <p>
+        <i className={`nx-dot ${insight.color}`} />
+        <b>{insight.pattern}.</b> {insight.what}
+      </p>
+      <div className="ntr-acts">
+        <Button variant="secondary" size="sm" onClick={() => setOpen(o => !o)} aria-expanded={open}>
+          {open ? 'Hide why' : 'Why, and what to do'}<ChevronDown size={14} className={open ? 'up' : ''} aria-hidden />
+        </Button>
+      </div>
+      {open && (
+        <div className="ntr-why">
+          <p>{insight.why}</p>
+          <p><b>{insight.action}</b></p>
+          <div className="nx-figs">
+            {wt && (
+              <div>
+                <span>Weight</span>
+                <b className="num">{signed(wt.change)} kg</b>
+                <small className="num">{kgs(wt.early.kg)} kg ({range(wt.early)}) to {kgs(wt.late.kg)} kg ({range(wt.late)}), average of each week</small>
+              </div>
+            )}
+            {insight.fat && (
+              <div>
+                <span>Body fat</span>
+                <b className="num">{signed(Math.round((insight.fat.last.pct - insight.fat.first.pct) * 10) / 10)} points</b>
+                <small className="num">{kgs(insight.fat.first.pct)}% on {fmtShort(insight.fat.first.date)} to {kgs(insight.fat.last.pct)}% on {fmtShort(insight.fat.last.date)}</small>
+              </div>
+            )}
+            <div>
+              <span>Lifts at best or up</span>
+              <b className="num">{insight.lifts.good} of {insight.lifts.total}</b>
+              <small>the same count as Your workouts</small>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── History: every workout, filter, expand, edit, delete ────────────────────
 
-function History({ data, workouts, onEdit }: { data: TrainingView; workouts: Workout[]; onEdit: (w: Workout) => void }) {
+function History({ data, workouts, goal, onEdit }: { data: TrainingView; workouts: Workout[]; goal: Goal | null; onEdit: (w: Workout) => void }) {
   const [cat, setCat] = useState('')
   const [open, setOpen] = useState<number | null>(null)
   const [confirm, setConfirm] = useState<number | null>(null)
-  const [limit, setLimit] = useState(12)
+  const [limit, setLimit] = useState(10)
   const del = useDeleteWorkout()
+  useEffect(() => {
+    if (open == null) return
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('.wh-sheet-bg') && !(e.target instanceof Element && e.target.closest('input, textarea'))) setOpen(null) }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [open])
   const sorted = useMemo(() => [...workouts].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id), [workouts])
   const list = cat ? sorted.filter(w => w.category === cat) : sorted
   const counts = useMemo(() => Object.fromEntries(CATEGORIES.map(c => [c.value, workouts.filter(w => w.category === c.value).length])), [workouts])
+  const usedCats = CATEGORIES.filter(c => counts[c.value] > 0)
   const last30 = workouts.filter(w => daysBetween(w.date, data.today) < 30 && w.date <= data.today).length
   const oldest = sorted[sorted.length - 1]
 
   return (
     <section className="nx-sec ntr-hist">
-      <Head aside={workouts.length ? <span className="num">{workouts.length} since {fmtLong(oldest.date)}, {last30} in 30 days</span> : undefined}>Workout history</Head>
+      <Head aside={workouts.length ? <span className="num">{last30} in the last 30 days, {workouts.length} since {fmtLong(oldest.date)}</span> : undefined}>Workout history</Head>
       {!workouts.length && <p className="nx-answer">Nothing logged yet. Start a workout and it lands here.</p>}
-      {workouts.length > 0 && (
+      {usedCats.length > 1 && (
         <div className="tr-seg sm ntr-filter" role="group" aria-label="Filter by category">
           <button className={!cat ? 'on' : ''} onClick={() => setCat('')} aria-pressed={!cat}>All</button>
-          {CATEGORIES.filter(c => counts[c.value] > 0).map(c => (
+          {usedCats.map(c => (
             <button key={c.value} className={cat === c.value ? 'on' : ''} onClick={() => setCat(cat === c.value ? '' : c.value)} aria-pressed={cat === c.value}>
               <i className="nx-dot" style={{ color: c.color, marginRight: 0 }} />{c.label}<span className="num mute">{counts[c.value]}</span>
             </button>
@@ -520,39 +697,53 @@ function History({ data, workouts, onEdit }: { data: TrainingView; workouts: Wor
         </div>
       )}
       <div className="ntr-sessions">
-        {list.slice(0, limit).map(w => {
+        {list.slice(0, limit).map((w, i, shown) => {
+          const wk = sundayOf(w.date)
+          const head = i === 0 || sundayOf(shown[i - 1].date) !== wk
+          const inWk = head ? list.filter(x => sundayOf(x.date) === wk) : []
+          const wkMins = inWk.reduce((s, x) => s + (x.durationMinutes ?? 0), 0)
           const c = catMeta(w.category)
-          const vol = workoutVolume(w)
+          const vol = w.exercises.reduce((s, e) => s + exVolume(e), 0)
           const peak = peakRpe(w)
+          const sets = w.exercises.reduce((s, e) => s + (e.reps ?? []).length, 0)
           const isOpen = open === w.id
           return (
-            <div key={w.id} className={`ntr-sess ${isOpen ? 'open' : ''}`}>
-              <button className="row" onClick={() => setOpen(isOpen ? null : w.id)} aria-expanded={isOpen} aria-label={`${w.name}, ${fmtDay(w.date)}. Show details`}>
+            <div key={w.id} className="ntr-sess-w">
+            {head && (
+              <div className="ntr-wkh">
+                <span className="t">{wk === sundayOf(data.today) ? 'This week' : wk === addDays(sundayOf(data.today), -7) ? 'Last week' : `Week of ${fmtShort(wk)}`}</span>
+                <span className={`num ${goal && !cat && inWk.length >= goal.n ? 'good' : ''}`}>{plural(inWk.length, cat ? `${catMeta(cat).label.toLowerCase()} workout` : 'workout')}{goal && !cat ? ` of ${goal.n}` : ''}</span>
+                {wkMins > 0 && <span className="num m">{wkMins} min</span>}
+              </div>
+            )}
+            <div className={`ntr-sess ${isOpen ? 'open' : ''}`}>
+              <button className="row" onClick={() => setOpen(isOpen ? null : w.id)} aria-expanded={isOpen} aria-label={`${w.name}, ${fmtDay(w.date)}. ${isOpen ? 'Hide' : 'Show'} details`}>
                 <span className="num d">{fmtDay(w.date)}</span>
                 <span className="n"><i className="nx-dot" style={{ color: c.color }} />{w.name}</span>
-                <span className="m num">{[w.durationMinutes ? `${w.durationMinutes} min` : '', vol > 0 ? volLabel(vol) : ''].filter(Boolean).join(' · ') || `${w.exercises.length} exercises`}</span>
-                <span className={`r num ${rpeTone(peak)}`}>{peak > 0 ? `RPE ${peak}` : ''}</span>
+                <span className="m num">{[plural(w.exercises.length, 'exercise'), plural(sets, 'set'), w.durationMinutes ? `${w.durationMinutes} min` : ''].filter(Boolean).join(', ')}</span>
+                <span className={`r num ${effortTone(w.rpe || peak)}`} title={w.rpe ? 'Overall effort for the workout, 1 to 10' : peak ? 'No overall effort logged: the hardest exercise, 1 to 10' : undefined}>{w.rpe || peak ? `Effort ${w.rpe || peak}` : ''}</span>
+                <span className="chev" aria-hidden><ChevronDown size={15} className={isOpen ? 'up' : ''} /></span>
               </button>
               {isOpen && (
                 <div className="ntr-detail">
                   <p className="ntr-cap">
-                    {c.label}{w.durationMinutes ? `, ${w.durationMinutes} min` : ''}{vol > 0 ? `, ${Math.round(vol).toLocaleString('en-GB')} kg volume` : ''}
-                    {peak > 0 && <>, peak <span className={rpeTone(peak)}>RPE {peak}</span></>}{w.rpe ? <>, overall <span className={rpeTone(w.rpe)}>RPE {w.rpe}</span></> : null}
+                    {c.label}{w.durationMinutes ? `, ${w.durationMinutes} min` : ', length not set'}
+                    {w.rpe ? <>, overall effort <span className={effortTone(w.rpe)}>{w.rpe} of 10</span></> : null}
+                    {peak > (w.rpe ?? 0) && <>, hardest exercise <span className={effortTone(peak)}>{peak} of 10</span></>}
+                    {vol > 0 && <>. {Math.round(vol).toLocaleString('en-GB')} kg lifted in total (each set's weight × reps, added up)</>}.
                   </p>
                   {w.exercises.length > 0 && (
                     <table className="ntr-table">
-                      <thead><tr><th>Exercise</th><th>Sets</th><th>Reps</th><th>kg</th><th>Volume</th><th>RPE</th></tr></thead>
+                      <thead><tr><th>Exercise</th><th>Sets (kg × reps)</th><th>Heaviest set</th><th>Effort</th></tr></thead>
                       <tbody>
                         {w.exercises.map(e => {
-                          const v = exVolume(e)
+                          const top = topOf(e.reps ?? [], e.weight ?? [])
                           return (
                             <tr key={e.id}>
                               <td>{e.exerciseName}</td>
-                              <td className="num">{e.sets ?? (e.reps ?? []).length}</td>
-                              <td className="num">{(e.reps ?? []).join(', ') || '–'}</td>
-                              <td className="num">{(e.weight ?? []).join(', ') || '–'}</td>
-                              <td className="num">{v > 0 ? Math.round(v).toLocaleString('en-GB') : '–'}</td>
-                              <td className={`num ${e.rpe ? rpeTone(e.rpe) : ''}`}>{e.rpe ?? '–'}</td>
+                              <td className="num">{(e.reps ?? []).length ? setsText(e.reps ?? [], e.weight ?? []) : '–'}</td>
+                              <td className="num">{top ? setText(top) : '–'}</td>
+                              <td className={`num ${e.rpe ? effortTone(e.rpe) : ''}`}>{e.rpe ?? '–'}</td>
                             </tr>
                           )
                         })}
@@ -570,38 +761,11 @@ function History({ data, workouts, onEdit }: { data: TrainingView; workouts: Wor
                 </div>
               )}
             </div>
+            </div>
           )
         })}
       </div>
       {list.length > limit && <button className="nx-btn ghost sm ntr-more" onClick={() => setLimit(l => l + 30)}>{list.length - limit > 30 ? `Show 30 more of ${list.length - limit}` : `Show the other ${list.length - limit}`}</button>}
-    </section>
-  )
-}
-
-// ─── Personal records: the heaviest set per exercise ─────────────────────────
-
-function Records({ workouts }: { workouts: Workout[] }) {
-  const [all, setAll] = useState(false)
-  const prs = useMemo(() => personalRecords(workouts), [workouts])
-  const newest = [...prs].sort((a, b) => b.date.localeCompare(a.date))[0]
-  const shown = all || prs.length <= 24 ? prs : prs.slice(0, 20)
-  return (
-    <section className="nx-sec ntr-prs">
-      <Head aside={prs.length ? <span className="num">{prs.length} exercises</span> : undefined}>Personal records</Head>
-      {!prs.length ? <p className="nx-answer">Your heaviest set per exercise shows here once you log weights.</p> : (
-        <>
-          <p className="ntr-cap">Newest: <b>{newest.name}</b>, {newest.kg} kg × {newest.reps} on {fmtShort(newest.date)}.</p>
-          <div className="nx-rows">
-            {shown.map(p => (
-              <div key={p.name} className="nx-line" title={`${p.name}: ${p.kg} kg × ${p.reps} on ${fmtLong(p.date)}`}>
-                <span className="k">{p.name}<small className="ntr-sub">{fmtLong(p.date)}</small></span>
-                <span className="v"><b className="num">{p.kg} kg</b><span className="num">× {p.reps}</span></span>
-              </div>
-            ))}
-          </div>
-          {prs.length > 24 && <button className="nx-btn ghost sm ntr-more" onClick={() => setAll(a => !a)}>{all ? 'Show fewer' : `All ${prs.length} records`}</button>}
-        </>
-      )}
     </section>
   )
 }

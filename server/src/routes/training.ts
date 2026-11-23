@@ -195,9 +195,18 @@ router.delete('/templates/:id', async (req, res, next) => {
 
 // ─── Overview: progression, consistency and what to beat next time ──────────
 
-/** Epley estimate of a one-rep max. Sets over 12 reps or with no weight don't count. */
-const e1rm = (kg: number, reps: number) => (kg > 0 && reps > 0 && reps <= 12 ? kg * (1 + reps / 30) : 0)
-const r1 = (n: number) => Math.round(n * 10) / 10
+/**
+ * A lift is measured by its top set: the heaviest weight lifted, ties going to
+ * more reps. Every number the Training tab shows is a set that was actually
+ * typed, never an estimate.
+ */
+type Top = { kg: number; reps: number }
+const better = (a: Top, b: Top) => a.kg > b.kg || (a.kg === b.kg && a.reps > b.reps)
+const topSet = (reps: number[], weight: number[]): Top | null => {
+  let top: Top | null = null
+  reps.forEach((r, i) => { const kg = weight[i] ?? 0; if (kg > 0 && r > 0 && (!top || better({ kg, reps: r }, top))) top = { kg, reps: r } })
+  return top
+}
 
 router.get('/overview', async (_req, res, next) => {
   try {
@@ -207,42 +216,42 @@ router.get('/overview', async (_req, res, next) => {
     const byWorkout = new Map(workouts.map(w => [w.id, w]))
 
     // Every exercise's sessions in date order.
-    type Session = { date: string; workoutId: number; reps: number[]; weight: number[]; e1rm: number; top: { kg: number; reps: number } | null }
+    type Session = { date: string; workoutId: number; reps: number[]; weight: number[]; top: Top | null }
     const lifts = new Map<string, Session[]>()
     for (const e of sets) {
       const w = byWorkout.get(e.workoutId); if (!w) continue
       const reps = (e.reps ?? []).map(Number), weight = (e.weight ?? []).map(Number)
-      let best = 0, top: Session['top'] = null
-      reps.forEach((r, i) => { const v = e1rm(weight[i] ?? 0, r); if (v > best) { best = v; top = { kg: weight[i], reps: r } } })
       const key = e.exerciseName.trim()
       const list = lifts.get(key) ?? []
-      list.push({ date: w.date, workoutId: w.id, reps, weight, e1rm: r1(best), top })
+      list.push({ date: w.date, workoutId: w.id, reps, weight, top: topSet(reps, weight) })
       lifts.set(key, list)
     }
-    for (const list of lifts.values()) list.sort((a, b) => a.date.localeCompare(b.date))
+    for (const list of lifts.values()) list.sort((a, b) => a.date.localeCompare(b.date) || a.workoutId - b.workoutId)
 
     const today = new Date().toISOString().slice(0, 10)
     const eightWeeksAgo = new Date(Date.now() - 56 * 864e5).toISOString().slice(0, 10)
-    const progress = [...lifts.entries()].filter(([, l]) => l.some(s => s.e1rm > 0)).map(([name, l]) => {
-      const scored = l.filter(s => s.e1rm > 0)
-      const best = scored.reduce((m, s) => (s.e1rm > m.e1rm ? s : m), scored[0])
+    const progress = [...lifts.entries()].map(([name, l]) => {
+      const scored = l.filter(s => s.top).map(s => ({ date: s.date, kg: s.top!.kg, reps: s.top!.reps }))
+      if (!scored.length) return null
+      // The best set and the session that set it (the first time, if equalled later).
+      const best = scored.reduce((m, s) => (better(s, m) ? s : m), scored[0])
       const last = scored[scored.length - 1]
-      const before = scored.filter(s => s.date <= eightWeeksAgo).pop() ?? scored[0]
-      // Stalled: the last 3 sessions didn't beat what came before them.
-      const recent = scored.slice(-3)
-      const prior = scored.slice(0, -3)
-      const stalled = recent.length === 3 && prior.length > 0 && Math.max(...recent.map(s => s.e1rm)) <= Math.max(...prior.map(s => s.e1rm))
-      return {
-        name, sessions: scored.length,
-        current: last.e1rm, lastDate: last.date,
-        best: { e1rm: best.e1rm, date: best.date, kg: best.top?.kg ?? 0, reps: best.top?.reps ?? 0 },
-        change: r1(last.e1rm - before.e1rm), since: before.date,
-        stalled,
-        history: scored.slice(-16).map(s => ({ date: s.date, e1rm: s.e1rm })),
-      }
-    }).sort((a, b) => b.sessions - a.sessions)
+      // The last session on or before eight weeks ago; null when the lift is newer than that.
+      const before = scored.filter(s => s.date <= eightWeeksAgo).pop() ?? null
+      // Bests in date order: each session that beat everything before it.
+      const bests: { date: string; kg: number; reps: number; prev: Top }[] = []
+      let run = scored[0]
+      for (const s of scored.slice(1)) { if (better(s, run)) { bests.push({ ...s, prev: { kg: run.kg, reps: run.reps } }); run = s } }
+      return { name, sessions: scored.length, lastDate: last.date, last, best, before, bests, history: scored }
+    }).filter(Boolean).sort((a, b) => b!.sessions - a!.sessions || a!.name.localeCompare(b!.name))
 
-    // What to beat: each exercise's last session, and a target one small step up.
+    // What to beat: each exercise's last session, and a target one small step up. A weight
+    // step goes to the next weight already used on that exercise (dumbbells and machines
+    // move in their own steps), or 2.5 kg more when nothing heavier has been logged.
+    const stepUp = (name: string, kg: number) => {
+      const used = (lifts.get(name) ?? []).flatMap(s => s.weight).filter(w => w > kg)
+      return used.length ? Math.min(...used) : Math.round((kg + 2.5) * 100) / 100
+    }
     const last: Record<string, { date: string; reps: number[]; weight: number[]; target: string }> = {}
     for (const [name, l] of lifts) {
       const s = l[l.length - 1]
@@ -250,7 +259,7 @@ router.get('/overview', async (_req, res, next) => {
       const kg = s.weight[topIdx] ?? 0, reps = s.reps[topIdx] ?? 0
       last[name] = {
         date: s.date, reps: s.reps, weight: s.weight,
-        target: kg > 0 ? (reps >= 10 ? `${kg + 2.5} kg × ${Math.max(6, reps - 2)}` : `${kg} kg × ${reps + 1}`) : `${reps + 2} reps`,
+        target: kg > 0 ? (reps >= 10 ? `${stepUp(name, kg)} kg × ${Math.max(6, reps - 2)}` : `${kg} kg × ${reps + 1}`) : `${reps + 2} reps`,
       }
     }
 

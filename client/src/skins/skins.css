@@ -48,7 +48,8 @@
 :root[data-skin] body { font-family: var(--k-font); background: var(--c-bg-primary); }
 
 @keyframes skinFade { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
-.skin-enter { animation: skinFade .22s ease-out both; }
+/* Backwards only: a transform left on the page after it settles would trap every fixed sheet inside it. */
+.skin-enter { animation: skinFade .22s ease-out backwards; }
 /* Opacity only: a transform on a dialog would offset anything dragged inside it. */
 @keyframes skinFadeIn { from { opacity: 0 } to { opacity: 1 } }
 .skin-fade { animation: skinFadeIn .18s ease-out both; }

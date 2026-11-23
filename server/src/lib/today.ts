@@ -271,28 +271,31 @@ async function winsBlock(date: string) {
     }
   } catch { /* business data is optional for this block */ }
 
-  // Lifts: an estimated one-rep max (Epley, sets of 12 or fewer) that is a best, set in the last 7 days.
+  // Lifts: a new top set (the heaviest weight, ties to more reps) in the last 7 days. Real sets, never an estimate.
   const workouts = await db.select().from(trainingWorkouts)
   const byId = new Map(workouts.map(w => [w.id, w]))
   const sets = await db.select().from(trainingExercises)
-  const best = new Map<string, { e1rm: number; date: string }>()
-  const priorBest = new Map<string, number>()
+  type Top = { kg: number; reps: number }
+  const beats = (a: Top, b: Top) => a.kg > b.kg || (a.kg === b.kg && a.reps > b.reps)
+  const best = new Map<string, Top & { date: string }>()
+  const priorBest = new Map<string, Top>()
   const weekAgo = addDays(date, -7)
   for (const s of sets.sort((a, b) => (byId.get(a.workoutId)?.date ?? '').localeCompare(byId.get(b.workoutId)?.date ?? ''))) {
     const w = byId.get(s.workoutId); if (!w) continue
     const reps = s.reps ?? [], kg = s.weight ?? []
-    let top = 0
-    reps.forEach((r, i) => { const k = kg[i] ?? 0; if (r > 0 && r <= 12 && k > 0) top = Math.max(top, k * (1 + r / 30)) })
+    let top: Top | null = null
+    reps.forEach((r, i) => { const k = kg[i] ?? 0; if (r > 0 && k > 0 && (!top || beats({ kg: k, reps: r }, top))) top = { kg: k, reps: r } })
     if (!top) continue
+    const t: Top = top
     const name = s.exerciseName.trim()
-    if (w.date < weekAgo) priorBest.set(name, Math.max(priorBest.get(name) ?? 0, top))
+    if (w.date < weekAgo) { const p = priorBest.get(name); if (!p || beats(t, p)) priorBest.set(name, t) }
     const b = best.get(name)
-    if (!b || top > b.e1rm) best.set(name, { e1rm: top, date: w.date })
+    if (!b || beats(t, b)) best.set(name, { ...t, date: w.date })
   }
   for (const [name, b] of best) {
     const prior = priorBest.get(name)
-    if (b.date >= weekAgo && prior && b.e1rm > prior) {
-      wins.push({ kind: 'training', title: `${name}: a new best`, detail: `estimated 1RM ${Math.round(b.e1rm)} kg, up from ${Math.round(prior)}` })
+    if (b.date >= weekAgo && prior && beats(b, prior)) {
+      wins.push({ kind: 'training', title: `${name}: a new best`, detail: `${b.kg} kg × ${b.reps}, up from ${prior.kg} kg × ${prior.reps}` })
     }
   }
 

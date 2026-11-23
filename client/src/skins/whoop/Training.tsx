@@ -1,10 +1,9 @@
 import { Plus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { CATEGORIES, catMeta, setLabel, startingSets, useDeleteTemplate, useLogWorkout, useSaveTemplate, useUpdateBody, type BodyMetric, type LogExercise, type Template, type TrainingView, type Workout } from '../../core/training'
+import { CATEGORIES, beats, catMeta, setLabel, setText, startingSets, topOf, useDeleteTemplate, useLogWorkout, useSaveTemplate, useUpdateBody, type BodyMetric, type LogExercise, type Template, type TrainingView, type Workout } from '../../core/training'
 import './training.css'
 
-const e1 = (w: number, r: number) => (w > 0 && r > 0 && r <= 12 ? w * (1 + r / 30) : 0)
 const fmtDay = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 const fmtShort = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 /** What the logger opens with: a template by name, or an existing workout to edit. */
@@ -15,24 +14,25 @@ const chartTip = {
   labelStyle: { color: 'var(--k-mute)', marginBottom: 2 },
   itemStyle: { color: 'var(--k-ink)', padding: 0 },
 }
-/** A y-axis range padded to round steps, so the ticks read as plain numbers. */
-const niceDomain = (vals: number[], step: number): [number, number] => {
-  const lo = Math.min(...vals), hi = Math.max(...vals)
-  return [Math.max(0, Math.floor((lo - step / 2) / step) * step), Math.ceil((hi + step / 2) / step) * step]
-}
 const tick = { fill: 'var(--k-faint)', fontSize: 11, fontFamily: 'var(--k-font)' }
 
 export function MetricChart({ rows, field, unit, label }: { rows: BodyMetric[]; field: 'weightKg' | 'bodyFatPct'; unit: string; label: string }) {
   const pts = rows.filter(r => r[field] != null)
+  // Ticks at whole steps of 1, 2 or 5 around the values, so every label is a round number at an even spacing.
+  const vals = pts.map(p => p[field]!)
+  const lo = Math.min(...vals), hi = Math.max(...vals)
+  const st = hi - lo > 12 ? 5 : hi - lo > 5 ? 2 : 1
+  const yt: number[] = []
+  for (let v = Math.floor((lo - 0.3) / st) * st; v <= Math.ceil((hi + 0.3) / st) * st; v += st) yt.push(v)
   return (
     <div className="trn-mchart">
       <ResponsiveContainer width="100%" height={110}>
         <LineChart data={pts} margin={{ top: 6, right: 6, bottom: 0, left: -18 }}>
           <CartesianGrid vertical={false} stroke="rgb(var(--k-fg) / .05)" />
           <XAxis dataKey="date" tick={tick} axisLine={false} tickLine={false} tickFormatter={fmtShort} minTickGap={28} />
-          <YAxis tick={tick} axisLine={false} tickLine={false} domain={niceDomain(pts.map(p => p[field]!), 1)} tickFormatter={v => String(Math.round(v))} width={44} />
+          <YAxis tick={tick} axisLine={false} tickLine={false} domain={[yt[0], yt[yt.length - 1]]} ticks={yt} tickFormatter={v => String(v)} width={44} />
           <Tooltip {...chartTip} labelFormatter={l => fmtDay(String(l))} formatter={(v: any) => [`${v}${unit}`, label]} />
-          <Line type="monotone" dataKey={field} stroke="var(--k-ink2)" strokeWidth={1.8} dot={pts.length <= 24 ? { r: 2.5, fill: 'var(--k-ink2)', strokeWidth: 0 } : false} activeDot={{ r: 4 }} isAnimationActive={false} />
+          <Line type="linear" dataKey={field} stroke="var(--k-ink2)" strokeWidth={1.8} dot={pts.length <= 24 ? { r: 2.5, fill: 'var(--k-ink2)', strokeWidth: 0 } : false} activeDot={{ r: 4 }} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -89,9 +89,10 @@ export function SaveAsTemplate({ data, name, category, exercises }: { data: Trai
 
 // ─── RPE: one tap, tap again to clear ────────────────────────────────────────
 
-function RpePick({ value, onChange, label, title = 'RPE' }: { value: number | null; onChange: (v: number | null) => void; label: string; title?: string }) {
+/** Effort on the RPE scale: 1 is easy, 10 is nothing left in the tank. Tap again to clear. */
+function RpePick({ value, onChange, label, title = 'Effort' }: { value: number | null; onChange: (v: number | null) => void; label: string; title?: string }) {
   return (
-    <div className="trn-rpe" role="group" aria-label={label}>
+    <div className="trn-rpe" role="group" aria-label={`${label}, 1 easy to 10 nothing left`} title="RPE: 1 is easy, 10 is nothing left in the tank">
       <span>{title}</span>
       {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
         <button key={n} type="button" className={value === n ? 'on' : ''} aria-pressed={value === n} aria-label={`${label} ${n}`} onClick={() => onChange(value === n ? null : n)}>{n}</button>
@@ -100,32 +101,90 @@ function RpePick({ value, onChange, label, title = 'RPE' }: { value: number | nu
   )
 }
 
+// ─── Length: type any number of minutes; quick picks include last time ──────
+
+function Length({ value, onChange, last }: { value: number | null; onChange: (v: number | null) => void; last: number | null }) {
+  const picks = [...new Set([...(last ? [last] : []), 30, 45, 60, 90])]
+  return (
+    <div className="trn-len">
+      <label>Length
+        <input className="num" type="number" inputMode="numeric" min={1} max={600} value={value ?? ''} placeholder="min"
+          onChange={e => { const n = Math.round(Number(e.target.value)); onChange(e.target.value && n > 0 ? Math.min(600, n) : null) }}
+          aria-label="Length in minutes" />
+        <span className="u">min</span>
+      </label>
+      <div className="trn-lenpicks" role="group" aria-label="Quick lengths">
+        {picks.map(m => (
+          <button key={m} type="button" className={value === m ? 'on' : ''} aria-pressed={value === m} onClick={() => onChange(value === m ? null : m)}>
+            {m === last ? `${m} last time` : m}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── The logger: last time pre-filled, one tap per set ───────────────────────
 
 type Ex = LogExercise & { key: string; skip: boolean; touched: boolean[] }
+
+// ─── Draft: an unsaved workout survives closing the sheet ───────────────────
+// One draft at a time, kept in this browser for 18 hours. It is a convenience
+// only; nothing is saved to the database until Save.
+const DRAFT_KEY = 'arete.trainingDraft'
+const DRAFT_HOURS = 18
+type DraftState = { name: string; category: string; date: string; mins: number | null; rpe: number | null; notes: string; ex: Ex[]; step: number | null }
+type Draft = { key: string; at: number; state: DraftState }
+const readDraft = (key: string): Draft | null => {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as Draft | null
+    return d && d.key === key && Date.now() - d.at < DRAFT_HOURS * 36e5 ? d : null
+  } catch { return null }
+}
+/** When there is an unsaved draft for this start (a template name, or '' for an empty workout), when it was last changed. */
+export const draftTime = (template: string): number | null => readDraft(`new:${template}`)?.at ?? null
+const writeDraft = (d: Draft | null) => { try { if (d) localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); else localStorage.removeItem(DRAFT_KEY) } catch { /* storage blocked: no draft */ } }
 
 export function Logger({ data, init, onClose }: { data: TrainingView; init: LogInit; onClose: () => void }) {
   const log = useLogWorkout()
   const edit = 'edit' in init ? init.edit : null
   const tpl = 'template' in init ? data.templates.find(t => t.name === init.template) : undefined
-  const [name, setName] = useState(edit?.name ?? tpl?.name ?? ('template' in init && init.template !== 'Workout' ? init.template : ''))
-  const [category, setCategory] = useState(edit?.category ?? tpl?.category ?? 'strength')
-  const [date, setDate] = useState(edit?.date ?? data.today)
-  const [mins, setMins] = useState<number | null>(edit ? edit.durationMinutes : 60)
-  const [rpe, setRpe] = useState<number | null>(edit?.rpe ?? null)
-  const [notes, setNotes] = useState(edit?.notes ?? '')
+  const draftKey = edit ? `edit:${edit.id}` : `new:${'template' in init ? init.template : ''}`
+  // Length starts from the last time this workout was done; a new one starts blank. Any number can be typed.
+  const lastMins = data.recent.find(r => r.name === (edit?.name ?? tpl?.name) && r.durationMinutes)?.durationMinutes ?? null
+  const fresh = (): DraftState => ({
+    name: edit?.name ?? tpl?.name ?? ('template' in init && init.template !== 'Workout' ? init.template : ''),
+    category: edit?.category ?? tpl?.category ?? 'strength',
+    date: edit?.date ?? data.today,
+    mins: edit ? edit.durationMinutes : lastMins,
+    rpe: edit?.rpe ?? null,
+    notes: edit?.notes ?? '',
+    step: null,
+    ex: edit
+      ? edit.exercises.map((e, i) => {
+        const sets = (e.reps ?? []).map((r, j) => ({ reps: r, weight: (e.weight ?? [])[j] ?? 0 }))
+        return { name: e.exerciseName, sets, rpe: e.rpe, key: `e${i}`, skip: false, touched: sets.map(() => true) }
+      })
+      : (tpl?.exercises ?? []).map((e, i) => {
+        const sets = startingSets(data, e.exerciseName, e.defaultSets)
+        return { name: e.exerciseName, sets, rpe: null, key: `${i}`, skip: false, touched: sets.map(() => false) }
+      }),
+  })
+  const [restored, setRestored] = useState<number | null>(() => readDraft(draftKey)?.at ?? null)
+  const [st, setSt] = useState<DraftState>(() => readDraft(draftKey)?.state ?? fresh())
+  const initial = useRef(JSON.stringify(st))
+  const { name, category, date, mins, rpe, notes, ex, step } = st
+  const set = <K extends keyof DraftState>(k: K) => (v: DraftState[K]) => setSt(s => ({ ...s, [k]: v }))
+  const setName = set('name'), setCategory = set('category'), setDate = set('date'), setMins = set('mins'), setRpe = set('rpe'), setNotes = set('notes'), setStep = set('step')
+  const setEx = (f: (xs: Ex[]) => Ex[]) => setSt(s => ({ ...s, ex: f(s.ex) }))
   const [adding, setAdding] = useState('')
   const [err, setErr] = useState<string | null>(null)
+  const [unticked, setUnticked] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
-  const [ex, setEx] = useState<Ex[]>(() => edit
-    ? edit.exercises.map((e, i) => {
-      const sets = (e.reps ?? []).map((r, j) => ({ reps: r, weight: (e.weight ?? [])[j] ?? 0 }))
-      return { name: e.exerciseName, sets, rpe: e.rpe, key: `e${i}`, skip: false, touched: sets.map(() => true) }
-    })
-    : (tpl?.exercises ?? []).map((e, i) => {
-      const sets = startingSets(data, e.exerciseName, e.defaultSets)
-      return { name: e.exerciseName, sets, rpe: null, key: `${i}`, skip: false, touched: sets.map(() => false) }
-    }))
+  const dirty = JSON.stringify(st) !== initial.current || restored != null
+
+  // Every change is kept as a draft, so closing the sheet mid-workout loses nothing.
+  useEffect(() => { if (JSON.stringify(st) !== initial.current) writeDraft({ key: draftKey, at: Date.now(), state: st }) }, [st, draftKey])
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -145,98 +204,160 @@ export function Logger({ data, init, onClose }: { data: TrainingView; init: LogI
     const sets = startingSets(data, n, 3)
     setEx(xs => [...xs, { name: n, sets, rpe: null, key: `a${xs.length}${Date.now()}`, skip: false, touched: sets.map(() => false) }]); setAdding('')
   }
+  const startOver = () => { writeDraft(null); const f = fresh(); initial.current = JSON.stringify(f); setSt(f); setRestored(null); setUnticked(false) }
 
-  // New bests this session, worked out live (against history before this workout).
+  // New bests this session, worked out live: a top set heavier than the best so far (or the same weight for more reps).
   const bests = ex.filter(e => !e.skip).map(e => {
-    const best = data.progress.find(l => l.name === e.name)?.best.e1rm ?? 0
-    const now = Math.max(0, ...e.sets.map(s => e1(s.weight, s.reps)))
-    return now > best && best > 0 ? e.name : null
+    const best = data.progress.find(l => l.name === e.name)?.best
+    const now = topOf(e.sets.map(s => s.reps), e.sets.map(s => s.weight))
+    return best && now && beats(now, best) && !(edit && edit.date <= best.date) ? `${e.name} (${setText(now)})` : null
   }).filter(Boolean)
 
   const kept = ex.filter(e => !e.skip)
-  const save = () => {
+  // Sets still showing last time's numbers that were never ticked or changed. They are
+  // not saved as done without asking: an unticked set is not a set you did.
+  const openSets = edit ? 0 : kept.reduce((n, e) => n + e.sets.filter((s, i) => s.reps > 0 && !e.touched[i]).length, 0)
+  const save = (mode?: 'all' | 'ticked') => {
     setErr(null)
-    if (!name.trim()) { setErr('Give the workout a name.'); nameRef.current?.focus(); return }
-    log.mutate({ id: edit?.id, date, name: name.trim(), category, durationMinutes: mins, rpe, notes, exercises: kept }, {
-      onSuccess: onClose,
+    if (!name.trim()) { setErr('Give the workout a name.'); setStep(null); setTimeout(() => nameRef.current?.focus()); return }
+    if (openSets > 0 && !mode) { setUnticked(true); return }
+    const exercises = mode === 'ticked' ? kept.map(e => ({ ...e, sets: e.sets.filter((_, i) => e.touched[i]) })) : kept
+    log.mutate({ id: edit?.id, date, name: name.trim(), category, durationMinutes: mins, rpe, notes, exercises }, {
+      onSuccess: () => { writeDraft(null); onClose() },
       onError: (e: any) => setErr(e?.response?.data?.error ?? 'Could not save the workout.'),
     })
   }
-  const minsOptions = [...new Set([30, 45, 60, 75, 90, 120, ...(mins ? [mins] : [])])].sort((a, b) => a - b)
+
+  const renderEx = (e: Ex, big = false) => {
+    const last = data.last[e.name]
+    return (
+      <div key={e.key} className={`exr ${e.skip ? 'skip' : ''}`}>
+        <div className="eh">
+          <b>{e.name}</b>
+          {last && !edit && <span className="wh-sub">Last {fmtDay(last.date)}: {last.reps.map((r, i) => setLabel({ reps: r, weight: last.weight[i] ?? 0 })).join(' · ')}</span>}
+          {last && !edit && <span className="beat" title="One more rep on your heaviest set. At 10 reps, the next weight you have used on it (or 2.5 kg more) for 2 fewer reps.">Aim: {last.target}</span>}
+          <button className="lnk" onClick={() => patch(e.key, x => ({ ...x, skip: !x.skip }))}>{e.skip ? 'Include' : edit ? 'Remove' : 'Skip'}</button>
+        </div>
+        {!e.skip && (
+          <div className="sets">
+            {e.sets.map((s, i) => (
+              <div key={i} className={`set ${e.touched[i] ? 'ok' : ''}`}>
+                <span className="i num">{i + 1}</span>
+                <button className="chk" onClick={() => mark(e.key, i)} aria-pressed={e.touched[i]} aria-label={`Set ${i + 1} done as shown`}>✓</button>
+                <input className="num" type="number" step={0.5} min={0} value={s.weight} onChange={v => setAt(e.key, i, { weight: Number(v.target.value) })} aria-label="Weight in kg" /><span className="u">kg</span>
+                <input className="num" type="number" min={0} value={s.reps} onChange={v => setAt(e.key, i, { reps: Number(v.target.value) })} aria-label="Reps" /><span className="u">reps</span>
+                <button className="nudge" onClick={() => setAt(e.key, i, { reps: s.reps + 1 })}>+1 rep</button>
+                <button className="nudge" onClick={() => setAt(e.key, i, { weight: s.weight + 2.5 })}>+2.5 kg</button>
+                <button className="x" onClick={() => patch(e.key, x => ({ ...x, sets: x.sets.filter((_, j) => j !== i), touched: x.touched.filter((_, j) => j !== i) }))} aria-label="Remove set">×</button>
+              </div>
+            ))}
+            <div className="trn-exfoot">
+              <button className="lnk" onClick={() => patch(e.key, x => ({ ...x, sets: [...x.sets, { ...(x.sets[x.sets.length - 1] ?? { reps: 0, weight: 0 }) }], touched: [...x.touched, false] }))}>+ set</button>
+              {!big && <RpePick value={e.rpe ?? null} onChange={v => patch(e.key, x => ({ ...x, rpe: v }))} label={`Effort for ${e.name}`} />}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // One at a time: each exercise on its own, then a closing step with length, effort and notes.
+  const stepping = step != null && !edit
+  const atEnd = stepping && step! >= ex.length
+  const cur = stepping && !atEnd ? ex[step!] : null
+  const doneSets = (e: Ex) => e.touched.filter(Boolean).length
 
   return (
     <div className="wh-sheet-bg" onMouseDown={onClose}>
-      <div className="wh wh-sheet wh-logger trn-logger" role="dialog" aria-label={edit ? `Edit ${edit.name}` : 'Log a workout'} onMouseDown={e => e.stopPropagation()}>
+      <div className={`wh wh-sheet wh-logger trn-logger ${stepping ? 'step' : ''}`} role="dialog" aria-label={edit ? `Edit ${edit.name}` : 'Log a workout'} onMouseDown={e => e.stopPropagation()}>
         <div className="hd">
           <div className="trn-namewrap">
             <input ref={nameRef} className="trn-name" value={name} onChange={e => setName(e.target.value)} placeholder="Name it, e.g. 5K run" aria-label="Workout name" />
-            <div className="wh-sub">{edit ? `Editing the workout from ${fmtDay(edit.date)}.` : 'Sets start from last time. ✓ when it matched, or change the numbers.'}</div>
+            <div className="wh-sub">{edit ? `Editing the workout from ${fmtDay(edit.date)}.` : 'Sets start from last time. Tick ✓ when a set matched, or change the numbers.'}</div>
           </div>
-          <button className="wh-chase" onClick={onClose}>Close</button>
+          {!edit && ex.length > 0 && (
+            <button className="wh-chase" onClick={() => setStep(stepping ? null : 0)} aria-pressed={stepping}>{stepping ? 'All exercises' : 'One at a time'}</button>
+          )}
+          <button className="wh-chase" onClick={onClose} title={dirty ? 'Your sets stay as a draft until you save or start over' : undefined}>Close</button>
         </div>
-        <div className="chips trn-cats" role="group" aria-label="Category">
-          {CATEGORIES.map(c => (
-            <button key={c.value} type="button" className={category === c.value ? 'on' : ''} aria-pressed={category === c.value} onClick={() => setCategory(c.value)}>
-              <i className="trn-dot" style={{ background: c.color }} />{c.label}
-            </button>
-          ))}
-        </div>
-        <div className="meta">
-          <label>Date <input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
-          <label>Length
-            <select value={mins ?? ''} onChange={e => setMins(e.target.value ? Number(e.target.value) : null)}>
-              <option value="">not set</option>{minsOptions.map(m => <option key={m} value={m}>{m} min</option>)}
-            </select>
-          </label>
-          <RpePick value={rpe} onChange={setRpe} label="Overall RPE" title="Overall RPE" />
-        </div>
+        {restored != null && (
+          <p className="trn-draft">Picked up your unsaved workout from {new Date(restored).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}. <button className="lnk" onClick={startOver}>Start over</button></p>
+        )}
 
-        {ex.map(e => {
-          const last = data.last[e.name]
-          return (
-            <div key={e.key} className={`exr ${e.skip ? 'skip' : ''}`}>
-              <div className="eh">
-                <b>{e.name}</b>
-                {last && !edit && <span className="wh-sub">Last {fmtDay(last.date)}: {last.reps.map((r, i) => setLabel({ reps: r, weight: last.weight[i] ?? 0 })).join(' · ')}</span>}
-                {last && !edit && <span className="beat">Beat it: {last.target}</span>}
-                <button className="lnk" onClick={() => patch(e.key, x => ({ ...x, skip: !x.skip }))}>{e.skip ? 'Include' : edit ? 'Remove' : 'Skip'}</button>
-              </div>
-              {!e.skip && (
-                <div className="sets">
-                  {e.sets.map((s, i) => (
-                    <div key={i} className={`set ${e.touched[i] ? 'ok' : ''}`}>
-                      <span className="i num">{i + 1}</span>
-                      <button className="chk" onClick={() => mark(e.key, i)} aria-pressed={e.touched[i]} aria-label={`Set ${i + 1} done as shown`}>✓</button>
-                      <input className="num" type="number" step={0.5} min={0} value={s.weight} onChange={v => setAt(e.key, i, { weight: Number(v.target.value) })} aria-label="Weight in kg" /><span className="u">kg</span>
-                      <input className="num" type="number" min={0} value={s.reps} onChange={v => setAt(e.key, i, { reps: Number(v.target.value) })} aria-label="Reps" /><span className="u">reps</span>
-                      <button className="nudge" onClick={() => setAt(e.key, i, { reps: s.reps + 1 })}>+1 rep</button>
-                      <button className="nudge" onClick={() => setAt(e.key, i, { weight: s.weight + 2.5 })}>+2.5 kg</button>
-                      <button className="x" onClick={() => patch(e.key, x => ({ ...x, sets: x.sets.filter((_, j) => j !== i), touched: x.touched.filter((_, j) => j !== i) }))} aria-label="Remove set">×</button>
-                    </div>
-                  ))}
-                  <div className="trn-exfoot">
-                    <button className="lnk" onClick={() => patch(e.key, x => ({ ...x, sets: [...x.sets, { ...(x.sets[x.sets.length - 1] ?? { reps: 0, weight: 0 }) }], touched: [...x.touched, false] }))}>+ set</button>
-                    <RpePick value={e.rpe ?? null} onChange={v => patch(e.key, x => ({ ...x, rpe: v }))} label={`RPE for ${e.name}`} />
-                  </div>
-                </div>
-              )}
+        {!stepping && (
+          <>
+            <div className="chips trn-cats" role="group" aria-label="Category">
+              {CATEGORIES.map(c => (
+                <button key={c.value} type="button" className={category === c.value ? 'on' : ''} aria-pressed={category === c.value} onClick={() => setCategory(c.value)}>
+                  <i className="trn-dot" style={{ background: c.color }} />{c.label}
+                </button>
+              ))}
             </div>
-          )
-        })}
+            <div className="meta">
+              <label>Date <input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+              <Length value={mins} onChange={setMins} last={lastMins} />
+              <RpePick value={rpe} onChange={setRpe} label="Overall effort" title="Overall effort" />
+            </div>
+            {ex.map(e => renderEx(e))}
+          </>
+        )}
 
-        <form className="add" onSubmit={e => { e.preventDefault(); addEx(adding) }}>
-          <input list="wh-known-lifts" value={adding} onChange={e => setAdding(e.target.value)} placeholder="Add an exercise and press Enter" aria-label="Add exercise" />
-          <datalist id="wh-known-lifts">{known.map(k => <option key={k} value={k} />)}</datalist>
-        </form>
+        {stepping && (
+          <>
+            <div className="trn-steps" role="list" aria-label="Exercises">
+              {ex.map((e, i) => (
+                <button key={e.key} role="listitem" className={`${i === step ? 'on' : ''} ${e.skip ? 'skip' : doneSets(e) === e.sets.length && e.sets.length ? 'done' : ''}`} onClick={() => setStep(i)} aria-current={i === step} title={e.name}>
+                  <i aria-hidden />
+                </button>
+              ))}
+              <button role="listitem" className={atEnd ? 'on' : ''} onClick={() => setStep(ex.length)} aria-current={atEnd} title="Finish"><i aria-hidden /></button>
+              <span className="c num">{atEnd ? 'Finish' : `${step! + 1} of ${ex.length}`}</span>
+            </div>
+            {cur && renderEx(cur, true)}
+            {cur && (
+              <div className="trn-stepnav">
+                <button className="wh-chase" disabled={step === 0} onClick={() => setStep(step! - 1)}>Previous</button>
+                <button className="wh-btn" onClick={() => setStep(step! + 1)}>{step! + 1 < ex.length ? `Next: ${ex[step! + 1].name}` : 'Finish'}</button>
+              </div>
+            )}
+            {atEnd && (
+              <div className="meta trn-finish">
+                <label>Date <input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+                <Length value={mins} onChange={setMins} last={lastMins} />
+                <RpePick value={rpe} onChange={setRpe} label="Overall effort" title="How hard was it overall" />
+              </div>
+            )}
+          </>
+        )}
 
-        <textarea className="trn-notesin" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Notes: how it felt, anything to remember" aria-label="Workout notes" />
+        {(!stepping || atEnd) && (
+          <>
+            <form className="add" onSubmit={e => { e.preventDefault(); addEx(adding) }}>
+              <input list="wh-known-lifts" value={adding} onChange={e => setAdding(e.target.value)} placeholder="Add an exercise and press Enter" aria-label="Add exercise" />
+              <datalist id="wh-known-lifts">{known.map(k => <option key={k} value={k} />)}</datalist>
+            </form>
+            <textarea className="trn-notesin" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Notes: how it felt, anything to remember" aria-label="Workout notes" />
+          </>
+        )}
 
-        <div className="foot">
-          {bests.length > 0 && <span className="pr">New best on {bests.join(', ')}</span>}
-          {err && <span style={{ color: 'var(--k-bad)', fontSize: 13 }}>{err}</span>}
-          <SaveAsTemplate data={data} name={name} category={category} exercises={kept.map(e => ({ exerciseName: e.name, defaultSets: Math.max(1, e.sets.length) }))} />
-          <button className="wh-btn" disabled={log.isPending} onClick={save}>{edit ? 'Save changes' : 'Save workout'}</button>
-        </div>
+        {(!stepping || atEnd) && (
+          <div className="foot">
+            {bests.length > 0 && <span className="pr">New best on {bests.join(', ')}</span>}
+            {err && <span style={{ color: 'var(--k-bad)', fontSize: 13 }}>{err}</span>}
+            {unticked && openSets > 0 ? (
+              <span className="trn-unticked">
+                <span>{openSets} {openSets === 1 ? 'set is' : 'sets are'} not ticked.</span>
+                <button className="wh-chase" onClick={() => save('ticked')} disabled={log.isPending}>Leave them out</button>
+                <button className="wh-btn" onClick={() => save('all')} disabled={log.isPending}>Save all as done</button>
+              </span>
+            ) : (
+              <>
+                <SaveAsTemplate data={data} name={name} category={category} exercises={kept.map(e => ({ exerciseName: e.name, defaultSets: Math.max(1, e.sets.length) }))} />
+                <button className="wh-btn" disabled={log.isPending} onClick={() => save()}>{edit ? 'Save changes' : 'Save workout'}</button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
